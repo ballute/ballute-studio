@@ -1,0 +1,608 @@
+"use client";
+
+import { useState } from "react";
+import Link from "next/link";
+
+type UploadItem = {
+  file: File;
+  preview: string;
+  caption?: string;
+};
+
+type LockedVibe = {
+  background?: string;
+  pose?: string;
+  expression?: string;
+  overall_mood?: string;
+  camera_angle_and_crop?: string;
+  lighting_and_exposure?: string;
+  color_grading_and_texture?: string;
+};
+
+type ResultSlot = {
+  status: "waiting" | "generating" | "done" | "error";
+  result: any | null;
+  error?: string;
+  poseIndex: number;
+  locationIndex: number;
+};
+
+type UploadSectionProps = {
+  title: string;
+  required?: boolean;
+  description: string;
+  items: UploadItem[];
+  onAddFiles: (files: FileList | null) => void;
+  onRemoveItem: (index: number) => void;
+  onClearAll: () => void;
+  showCaptionInput?: boolean;
+  onCaptionChange?: (index: number, value: string) => void;
+};
+
+function UploadSection({
+  title,
+  required = false,
+  description,
+  items,
+  onAddFiles,
+  onRemoveItem,
+  onClearAll,
+  showCaptionInput = false,
+  onCaptionChange,
+}: UploadSectionProps) {
+  return (
+    <div className="border rounded-2xl p-6 bg-white">
+      <div className="flex items-center gap-2 mb-2">
+        <h2 className="text-xl font-bold">{title}</h2>
+        {required ? (
+          <span className="text-xs px-2 py-1 rounded-full bg-black text-white">
+            필수
+          </span>
+        ) : (
+          <span className="text-xs px-2 py-1 rounded-full border text-gray-600">
+            선택
+          </span>
+        )}
+      </div>
+
+      <p className="text-sm text-gray-700 mb-4 leading-6">{description}</p>
+
+      <div className="flex gap-3 mb-4">
+        <label className="block cursor-pointer">
+          <div className="px-4 py-3 border-2 border-dashed rounded-xl text-sm text-gray-500">
+            여러 장 추가 업로드
+          </div>
+          <input
+            type="file"
+            accept="image/*"
+            multiple
+            className="hidden"
+            onChange={(e) => onAddFiles(e.target.files)}
+          />
+        </label>
+
+        <button
+          type="button"
+          onClick={onClearAll}
+          className="px-4 py-3 border rounded-xl text-sm text-gray-700"
+        >
+          전체 삭제
+        </button>
+      </div>
+
+      <div className="mt-2 text-sm text-gray-600">
+        현재 업로드 수: <b>{items.length}장</b>
+      </div>
+
+      {items.length > 0 ? (
+        <div className="grid grid-cols-2 md:grid-cols-3 gap-3 mt-4">
+          {items.map((item, index) => (
+            <div key={`${item.file.name}-${index}`} className="border rounded-xl p-2">
+              <img
+                src={item.preview}
+                alt={item.file.name}
+                className="w-full h-32 object-cover rounded-lg"
+              />
+              <div className="mt-2 text-xs text-gray-600 truncate">
+                {item.file.name}
+              </div>
+
+              {showCaptionInput && onCaptionChange ? (
+                <textarea
+                  value={item.caption || ""}
+                  onChange={(e) => onCaptionChange(index, e.target.value)}
+                  placeholder="예: shirt untucked / layered under blazer"
+                  className="mt-2 w-full border rounded-lg px-2 py-2 text-xs"
+                  rows={3}
+                />
+              ) : null}
+
+              <button
+                type="button"
+                onClick={() => onRemoveItem(index)}
+                className="mt-2 w-full bg-red-500 text-white text-xs py-2 rounded-lg"
+              >
+                이 사진 삭제
+              </button>
+            </div>
+          ))}
+        </div>
+      ) : (
+        <div className="mt-4 text-sm text-gray-400">아직 업로드 안 됨</div>
+      )}
+    </div>
+  );
+}
+
+function ShortTag({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="inline-flex items-center gap-2 rounded-full border px-3 py-2 text-xs bg-[#fafaf8]">
+      <span className="font-semibold text-gray-800">{label}</span>
+      <span className="text-gray-600 truncate max-w-[180px]">{value}</span>
+    </div>
+  );
+}
+
+function shorten(text?: string, max = 42) {
+  if (!text) return "-";
+  return text.length > max ? `${text.slice(0, max)}...` : text;
+}
+
+export default function FusionPage() {
+  const [faces, setFaces] = useState<UploadItem[]>([]);
+  const [outfits, setOutfits] = useState<UploadItem[]>([]);
+  const [bgs, setBgs] = useState<UploadItem[]>([]);
+  const [poses, setPoses] = useState<UploadItem[]>([]);
+
+  const [outfitMode, setOutfitMode] = useState<"outfit" | "mix">("outfit");
+  const [count, setCount] = useState(4);
+  const [fitSpec, setFitSpec] = useState("");
+  const [shootingMode, setShootingMode] = useState("default");
+  const [customPrompt, setCustomPrompt] = useState("");
+  const [lockedVibe, setLockedVibe] = useState<LockedVibe | null>(null);
+
+  const [loading, setLoading] = useState(false);
+  const [statusMessage, setStatusMessage] = useState("");
+  const [resultSlots, setResultSlots] = useState<ResultSlot[]>([]);
+
+  const appendFiles = (
+    setter: React.Dispatch<React.SetStateAction<UploadItem[]>>,
+    files: FileList | null
+  ) => {
+    if (!files || files.length === 0) return;
+    const newItems: UploadItem[] = Array.from(files).map((file) => ({
+      file,
+      preview: URL.createObjectURL(file),
+      caption: "",
+    }));
+    setter((prev) => [...prev, ...newItems]);
+  };
+
+  const removeItem = (
+    setter: React.Dispatch<React.SetStateAction<UploadItem[]>>,
+    index: number
+  ) => {
+    setter((prev) => prev.filter((_, i) => i !== index));
+  };
+
+  const clearAll = (
+    setter: React.Dispatch<React.SetStateAction<UploadItem[]>>
+  ) => {
+    setter([]);
+  };
+
+  const updateOutfitCaption = (index: number, value: string) => {
+    setOutfits((prev) =>
+      prev.map((item, i) => (i === index ? { ...item, caption: value } : item))
+    );
+  };
+
+  const updateSlot = (index: number, patch: Partial<ResultSlot>) => {
+    setResultSlots((prev) =>
+      prev.map((slot, i) => (i === index ? { ...slot, ...patch } : slot))
+    );
+  };
+
+  const handleSetVibe = (result: any) => {
+    setLockedVibe({
+      background: result.locationPrompt,
+      pose: result.poseBlueprint?.pose,
+      expression: result.poseBlueprint?.expression,
+      overall_mood: result.bgDNA?.spatial_mood,
+      camera_angle_and_crop:
+        result.poseBlueprint?.camera_angle_and_crop || result.bgDNA?.camera_feel,
+      lighting_and_exposure: result.bgDNA?.lighting_and_exposure,
+      color_grading_and_texture: result.bgDNA?.color_grading_and_texture,
+    });
+    setStatusMessage("현재 컷 기준으로 Vibe Lock 설정됨");
+  };
+
+  const handleClearVibe = () => {
+    setLockedVibe(null);
+    setStatusMessage("Vibe Lock 해제됨");
+  };
+
+  const handleRunFusion = async () => {
+    if (!faces.length || !outfits.length || !bgs.length || !poses.length) {
+      alert("얼굴 / 의상 / BG / POSE는 최소 1장씩 필요하다.");
+      return;
+    }
+
+    if (outfitMode === "mix") {
+      const hasEmptyCaption = outfits.some((item) => !(item.caption || "").trim());
+      if (hasEmptyCaption) {
+        alert("MIX 모드에서는 모든 아이템 설명이 필요하다.");
+        return;
+      }
+    }
+
+    try {
+      setLoading(true);
+      setStatusMessage("FUSION 준비중...");
+      setResultSlots([]);
+
+      const prepareForm = new FormData();
+      prepareForm.append("count", String(count));
+      bgs.forEach((item) => prepareForm.append("bgs", item.file));
+      poses.forEach((item) => prepareForm.append("poses", item.file));
+
+      const prepareRes = await fetch("/api/fusion/prepare", {
+        method: "POST",
+        body: prepareForm,
+      });
+
+      const prepareData = await prepareRes.json();
+
+      if (!prepareRes.ok) {
+        throw new Error(prepareData?.error || "FUSION 준비 실패");
+      }
+
+      const { bgDNA, locationPrompts, poseBlueprints } = prepareData;
+
+      const initialSlots: ResultSlot[] = [];
+      poseBlueprints.forEach((_: any, poseIndex: number) => {
+        locationPrompts.forEach((_: string, locationIndex: number) => {
+          initialSlots.push({
+            status: "waiting",
+            result: null,
+            poseIndex,
+            locationIndex,
+          });
+        });
+      });
+
+      setResultSlots(initialSlots);
+
+      poseBlueprints.forEach(async (poseBlueprint: any, poseIndex: number) => {
+        for (let locationIndex = 0; locationIndex < locationPrompts.length; locationIndex++) {
+          const slotIndex = poseIndex * locationPrompts.length + locationIndex;
+          updateSlot(slotIndex, { status: "generating" });
+
+          try {
+            const formData = new FormData();
+            formData.append("fitSpec", fitSpec);
+            formData.append("shootingMode", shootingMode);
+            formData.append("customPrompt", customPrompt);
+            formData.append("outfitMode", outfitMode);
+            formData.append(
+              "mixCaptions",
+              JSON.stringify(outfits.map((item) => item.caption || ""))
+            );
+            formData.append("bgDNA", JSON.stringify(bgDNA));
+            formData.append("poseBlueprint", JSON.stringify(poseBlueprint));
+            formData.append("locationPrompt", locationPrompts[locationIndex]);
+            formData.append(
+              "lockedVibe",
+              lockedVibe ? JSON.stringify(lockedVibe) : ""
+            );
+
+            faces.forEach((item) => formData.append("faces", item.file));
+            outfits.forEach((item) => formData.append("outfits", item.file));
+
+            const res = await fetch("/api/fusion/generate-one", {
+              method: "POST",
+              body: formData,
+            });
+
+            const data = await res.json();
+
+            if (!res.ok) {
+              throw new Error(data?.error || "FUSION 한 장 생성 실패");
+            }
+
+            updateSlot(slotIndex, {
+              status: "done",
+              result: data.result,
+            });
+
+            setStatusMessage(
+              `포즈 ${poseIndex + 1} / 장소 ${locationIndex + 1} 생성 완료`
+            );
+          } catch (error) {
+            const message =
+              error instanceof Error ? error.message : "알 수 없는 FUSION 오류";
+
+            updateSlot(slotIndex, {
+              status: "error",
+              error: message,
+            });
+
+            setStatusMessage(
+              `포즈 ${poseIndex + 1} / 장소 ${locationIndex + 1} 오류`
+            );
+          }
+        }
+      });
+    } catch (error) {
+      const message =
+        error instanceof Error ? error.message : "알 수 없는 FUSION 오류";
+      setStatusMessage(`오류: ${message}`);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  return (
+    <main className="min-h-screen bg-[#f7f7f5] px-6 py-10">
+      <div className="max-w-7xl mx-auto">
+        <div className="mb-8">
+          <Link href="/" className="inline-flex items-center text-sm text-gray-600 mb-4">
+            ← 홈으로
+          </Link>
+
+          <h1 className="text-4xl font-bold mb-3">FUSION</h1>
+          <p className="text-gray-700 text-lg leading-8 max-w-4xl">
+            BG DNA와 포즈 블루프린트를 결합해서 고급 editorial 결과를 만드는 생산 라인.
+          </p>
+        </div>
+
+        <div className="grid grid-cols-1 xl:grid-cols-2 gap-6 mb-6">
+          <UploadSection
+            title="모델 얼굴 업로드"
+            required
+            description="모델 정체성을 고정하는 기준 이미지. 여러 장 가능."
+            items={faces}
+            onAddFiles={(files) => appendFiles(setFaces, files)}
+            onRemoveItem={(index) => removeItem(setFaces, index)}
+            onClearAll={() => clearAll(setFaces)}
+          />
+
+          <div className="space-y-4">
+            <div className="border rounded-2xl p-4 bg-white">
+              <div className="font-semibold mb-3">의상 입력 방식</div>
+              <div className="flex gap-3">
+                <button
+                  type="button"
+                  onClick={() => setOutfitMode("outfit")}
+                  className={`px-4 py-2 rounded-xl border ${
+                    outfitMode === "outfit" ? "bg-black text-white" : "bg-white text-gray-700"
+                  }`}
+                >
+                  OUTFIT
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setOutfitMode("mix")}
+                  className={`px-4 py-2 rounded-xl border ${
+                    outfitMode === "mix" ? "bg-black text-white" : "bg-white text-gray-700"
+                  }`}
+                >
+                  MIX
+                </button>
+              </div>
+            </div>
+
+            <UploadSection
+              title={outfitMode === "mix" ? "MIX 아이템 업로드" : "의상 착샷 업로드"}
+              required
+              description={
+                outfitMode === "mix"
+                  ? "아이템 여러 장을 조립하는 모드. 각 이미지 설명 필수."
+                  : "의상 재구성 기준 이미지."
+              }
+              items={outfits}
+              onAddFiles={(files) => appendFiles(setOutfits, files)}
+              onRemoveItem={(index) => removeItem(setOutfits, index)}
+              onClearAll={() => clearAll(setOutfits)}
+              showCaptionInput={outfitMode === "mix"}
+              onCaptionChange={updateOutfitCaption}
+            />
+          </div>
+        </div>
+
+        <div className="grid grid-cols-1 xl:grid-cols-2 gap-6 mb-6">
+          <UploadSection
+            title="배경 업로드"
+            required
+            description="환경 DNA를 추출할 배경 이미지 여러 장."
+            items={bgs}
+            onAddFiles={(files) => appendFiles(setBgs, files)}
+            onRemoveItem={(index) => removeItem(setBgs, index)}
+            onClearAll={() => clearAll(setBgs)}
+          />
+
+          <UploadSection
+            title="포즈 업로드"
+            required
+            description="포즈 블루프린트를 추출할 포즈 이미지 여러 장."
+            items={poses}
+            onAddFiles={(files) => appendFiles(setPoses, files)}
+            onRemoveItem={(index) => removeItem(setPoses, index)}
+            onClearAll={() => clearAll(setPoses)}
+          />
+        </div>
+
+        <div className="border rounded-2xl p-6 bg-white space-y-5">
+          <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+            <div>
+              <label className="block text-sm font-semibold mb-2">장소 수</label>
+              <input
+                type="number"
+                min={1}
+                max={8}
+                value={count}
+                onChange={(e) => setCount(Number(e.target.value))}
+                className="w-full border rounded-xl px-4 py-3"
+              />
+            </div>
+
+            <div>
+              <label className="block text-sm font-semibold mb-2">핏 보정</label>
+              <input
+                type="text"
+                value={fitSpec}
+                onChange={(e) => setFitSpec(e.target.value)}
+                placeholder="예: 173/71 183/63"
+                className="w-full border rounded-xl px-4 py-3"
+              />
+            </div>
+
+            <div>
+              <label className="block text-sm font-semibold mb-2">Shooting Mode</label>
+              <select
+                value={shootingMode}
+                onChange={(e) => setShootingMode(e.target.value)}
+                className="w-full border rounded-xl px-4 py-3"
+              >
+                <option value="default">default</option>
+                <option value="fuji">fuji</option>
+                <option value="mono">mono</option>
+                <option value="studio">studio</option>
+                <option value="raw">raw</option>
+                <option value="custom">custom</option>
+              </select>
+            </div>
+
+            <div>
+              <label className="block text-sm font-semibold mb-2">Custom Prompt</label>
+              <input
+                type="text"
+                value={customPrompt}
+                onChange={(e) => setCustomPrompt(e.target.value)}
+                placeholder="shootingMode가 custom일 때만 사용"
+                className="w-full border rounded-xl px-4 py-3"
+              />
+            </div>
+          </div>
+
+          <div className="border rounded-xl p-4 bg-[#fafaf8]">
+            <div className="font-semibold mb-2">현재 설정 요약</div>
+            <div className="text-sm text-gray-700 space-y-1">
+              <div>얼굴: {faces.length}장</div>
+              <div>의상: {outfits.length}장</div>
+              <div>BG: {bgs.length}장</div>
+              <div>POSE: {poses.length}장</div>
+              <div>의상 모드: {outfitMode}</div>
+              <div>장소 수: {count}</div>
+              <div>총 예상 결과 수: {poses.length * count}장</div>
+              <div>핏 보정: {fitSpec || "없음"}</div>
+              <div>Shooting Mode: {shootingMode}</div>
+              <div>Vibe Lock: {lockedVibe ? "설정됨" : "없음"}</div>
+            </div>
+          </div>
+
+          <div className="flex gap-3">
+            <button
+              onClick={handleRunFusion}
+              disabled={loading}
+              className="flex-1 bg-black text-white py-5 rounded-2xl text-xl disabled:opacity-60"
+            >
+              {loading ? "FUSION 준비중..." : "FUSION 실행하기"}
+            </button>
+
+            <button
+              type="button"
+              onClick={handleClearVibe}
+              className="px-6 py-5 border rounded-2xl text-sm"
+            >
+              Vibe 해제
+            </button>
+          </div>
+        </div>
+
+        <div className="mt-6 border rounded-2xl p-5 bg-white">
+          <div className="font-semibold mb-2">상태</div>
+          <div className="text-sm text-gray-700">{statusMessage || "아직 실행 전"}</div>
+        </div>
+
+        {lockedVibe ? (
+          <div className="mt-6 border rounded-2xl p-5 bg-white">
+            <div className="font-semibold mb-3">현재 Vibe Lock</div>
+            <div className="flex flex-wrap gap-2">
+              <ShortTag label="배경" value={shorten(lockedVibe.background)} />
+              <ShortTag label="포즈" value={shorten(lockedVibe.pose)} />
+              <ShortTag label="표정" value={shorten(lockedVibe.expression)} />
+              <ShortTag label="무드" value={shorten(lockedVibe.overall_mood)} />
+              <ShortTag label="카메라" value={shorten(lockedVibe.camera_angle_and_crop)} />
+            </div>
+          </div>
+        ) : null}
+
+        {resultSlots.length > 0 ? (
+          <div className="mt-8 space-y-6">
+            <h2 className="text-2xl font-bold">FUSION 결과</h2>
+
+            <div className="grid grid-cols-1 xl:grid-cols-2 gap-6">
+              {resultSlots.map((slot, index) => (
+                <div key={index} className="border rounded-2xl p-5 bg-white">
+                  <div className="font-semibold mb-3">
+                    Pose {slot.poseIndex + 1} / Location {slot.locationIndex + 1}
+                  </div>
+
+                  {slot.status === "waiting" && (
+                    <div className="border rounded-xl h-96 flex items-center justify-center text-gray-400">
+                      대기중...
+                    </div>
+                  )}
+
+                  {slot.status === "generating" && (
+                    <div className="border rounded-xl h-96 flex items-center justify-center text-gray-400">
+                      생성중...
+                    </div>
+                  )}
+
+                  {slot.status === "error" && (
+                    <div className="border rounded-xl h-96 flex items-center justify-center text-red-500 text-sm px-4 text-center">
+                      오류: {slot.error}
+                    </div>
+                  )}
+
+                  {slot.status === "done" && slot.result && (
+                    <>
+                      <img
+                        src={`data:image/png;base64,${slot.result.image}`}
+                        alt={`fusion-result-${index}`}
+                        className="w-full rounded-xl border mb-4"
+                      />
+
+                      <div className="flex flex-wrap gap-2 mb-4">
+                        <ShortTag label="무드" value={shorten(slot.result.bgDNA?.spatial_mood)} />
+                        <ShortTag label="장소" value={shorten(slot.result.locationPrompt)} />
+                        <ShortTag label="카메라" value={shorten(slot.result.bgDNA?.camera_feel || slot.result.poseBlueprint?.camera_angle_and_crop)} />
+                        <ShortTag label="조명" value={shorten(slot.result.bgDNA?.lighting_and_exposure)} />
+                        <ShortTag label="포즈" value={shorten(slot.result.poseBlueprint?.pose)} />
+                        <ShortTag label="표정" value={shorten(slot.result.poseBlueprint?.expression)} />
+                      </div>
+
+                      <div className="text-sm text-gray-700 mb-4">
+                        <b>요약:</b> {slot.result.summary}
+                      </div>
+
+                      <button
+                        type="button"
+                        onClick={() => handleSetVibe(slot.result)}
+                        className="w-full bg-black text-white py-3 rounded-xl"
+                      >
+                        이 컷으로 Set Vibe
+                      </button>
+                    </>
+                  )}
+                </div>
+              ))}
+            </div>
+          </div>
+        ) : null}
+      </div>
+    </main>
+  );
+}

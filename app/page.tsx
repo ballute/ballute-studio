@@ -1,65 +1,92 @@
-import Image from "next/image";
+import Link from "next/link";
 
-export default function Home() {
+const lines = [
+  {
+    title: "DIG",
+    href: "/dig",
+    description:
+      "무드 키워드 기반으로 리서치하고, 여러 크리에이티브 디렉션을 생성하는 생산 라인",
+    points: [
+      "모델 얼굴 여러 장",
+      "의상 착샷 여러 장",
+      "무드 키워드 입력",
+      "count / fit / shooting mode",
+    ],
+  },
+  {
+    title: "REFRUN",
+    href: "/refrun",
+    description:
+      "레퍼런스 이미지의 구도, 무드, 사진 문법을 분석해서 그대로 따라가는 생산 라인",
+    points: [
+      "모델 얼굴 여러 장",
+      "의상 착샷 여러 장",
+      "레퍼런스 이미지 여러 장",
+      "fit / shooting mode",
+    ],
+  },
+  {
+    title: "FUSION",
+    href: "/fusion",
+    description:
+      "배경 DNA와 포즈 블루프린트를 결합해서 고급 editorial 결과를 만드는 생산 라인",
+    points: [
+      "모델 얼굴 여러 장",
+      "의상 착샷 여러 장",
+      "배경 여러 장",
+      "포즈 여러 장",
+    ],
+  },
+];
+
+export default function HomePage() {
   return (
-    <div className="flex flex-col flex-1 items-center justify-center bg-zinc-50 font-sans dark:bg-black">
-      <main className="flex flex-1 w-full max-w-3xl flex-col items-center justify-between py-32 px-16 bg-white dark:bg-black sm:items-start">
-        <Image
-          className="dark:invert"
-          src="/next.svg"
-          alt="Next.js logo"
-          width={100}
-          height={20}
-          priority
-        />
-        <div className="flex flex-col items-center gap-6 text-center sm:items-start sm:text-left">
-          <h1 className="max-w-xs text-3xl font-semibold leading-10 tracking-tight text-black dark:text-zinc-50">
-            To get started, edit the page.tsx file.
+    <main className="min-h-screen bg-[#f7f7f5] px-6 py-12">
+      <div className="max-w-7xl mx-auto">
+        <div className="mb-10">
+          <h1 className="text-5xl font-bold tracking-tight mb-4">
+            BALLUTE STUDIO
           </h1>
-          <p className="max-w-md text-lg leading-8 text-zinc-600 dark:text-zinc-400">
-            Looking for a starting point or more instructions? Head over to{" "}
-            <a
-              href="https://vercel.com/templates?framework=next.js&utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-              className="font-medium text-zinc-950 dark:text-zinc-50"
-            >
-              Templates
-            </a>{" "}
-            or the{" "}
-            <a
-              href="https://nextjs.org/learn?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-              className="font-medium text-zinc-950 dark:text-zinc-50"
-            >
-              Learning
-            </a>{" "}
-            center.
+          <p className="text-gray-700 text-lg leading-8 max-w-3xl">
+            발루트 이미지 생산 시스템. 먼저 생산 라인을 선택하고, 그 라인에
+            필요한 입력만 넣어서 작업을 시작한다.
           </p>
         </div>
-        <div className="flex flex-col gap-4 text-base font-medium sm:flex-row">
-          <a
-            className="flex h-12 w-full items-center justify-center gap-2 rounded-full bg-foreground px-5 text-background transition-colors hover:bg-[#383838] dark:hover:bg-[#ccc] md:w-[158px]"
-            href="https://vercel.com/new?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            <Image
-              className="dark:invert"
-              src="/vercel.svg"
-              alt="Vercel logomark"
-              width={16}
-              height={16}
-            />
-            Deploy Now
-          </a>
-          <a
-            className="flex h-12 w-full items-center justify-center rounded-full border border-solid border-black/[.08] px-5 transition-colors hover:border-transparent hover:bg-black/[.04] dark:border-white/[.145] dark:hover:bg-[#1a1a1a] md:w-[158px]"
-            href="https://nextjs.org/docs?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            Documentation
-          </a>
+
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+          {lines.map((line) => (
+            <Link
+              key={line.title}
+              href={line.href}
+              className="block rounded-3xl border bg-white p-7 hover:shadow-md transition"
+            >
+              <div className="flex items-center justify-between mb-5">
+                <h2 className="text-3xl font-bold">{line.title}</h2>
+                <span className="text-sm px-3 py-1 rounded-full border text-gray-600">
+                  생산 라인
+                </span>
+              </div>
+
+              <p className="text-gray-700 leading-7 mb-6">{line.description}</p>
+
+              <div className="border rounded-2xl p-4 bg-[#fafaf8]">
+                <div className="font-semibold mb-3">주요 입력</div>
+                <ul className="space-y-2 text-sm text-gray-700 list-disc pl-5">
+                  {line.points.map((point) => (
+                    <li key={point}>{point}</li>
+                  ))}
+                </ul>
+              </div>
+
+              <div className="mt-6">
+                <div className="inline-flex items-center justify-center rounded-xl bg-black text-white px-5 py-3 text-sm font-medium">
+                  {line.title} 시작하기
+                </div>
+              </div>
+            </Link>
+          ))}
         </div>
-      </main>
-    </div>
+      </div>
+    </main>
   );
 }
