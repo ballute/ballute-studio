@@ -241,20 +241,32 @@ export default function HomePage() {
                     {line.title}
                   </h2>
 
-                  <p className="mt-5 max-w-[420px] text-[16px] leading-7 text-[#7c7a84]">
-                    {line.tagline}
-                  </p>
+                  {line.title === "DIG" ? (
+                    <div className="mt-5 max-w-[420px]">
+                      <img
+                        src="/dic설명.jpg"
+                        alt="DIG guide"
+                        className="w-full rounded-[18px] border border-[#d9d7d2]"
+                      />
+                    </div>
+                  ) : (
+                    <>
+                      <p className="mt-5 max-w-[420px] text-[16px] leading-7 text-[#7c7a84]">
+                        {line.tagline}
+                      </p>
 
-                  <div className="mt-6 flex flex-wrap gap-2">
-                    {line.inputs.map((item) => (
-                      <span
-                        key={item}
-                        className="rounded-full border border-[#cfcbd2] px-4 py-2 text-[12px] uppercase tracking-[0.12em]"
-                      >
-                        {item}
-                      </span>
-                    ))}
-                  </div>
+                      <div className="mt-6 flex flex-wrap gap-2">
+                        {line.inputs.map((item) => (
+                          <span
+                            key={item}
+                            className="rounded-full border border-[#cfcbd2] px-4 py-2 text-[12px] uppercase tracking-[0.12em]"
+                          >
+                            {item}
+                          </span>
+                        ))}
+                      </div>
+                    </>
+                  )}
                 </div>
 
                 <div className="mt-8">
