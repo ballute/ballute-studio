@@ -11,6 +11,7 @@ const lines = [
     title: "DIG",
     href: "/dig",
     image: "/home-dig.jpg",
+    guideImage: "/dic설명.jpg",
     tagline: "Creative direction based image generation",
     inputs: ["face", "outfit", "direction"],
   },
@@ -18,6 +19,7 @@ const lines = [
     title: "REFRUN",
     href: "/refrun",
     image: "/home-refrun.jpg",
+    guideImage: "/refrun설명.jpg",
     tagline: "Reference-led image generation",
     inputs: ["face", "outfit", "reference photo"],
   },
@@ -25,6 +27,7 @@ const lines = [
     title: "FUSION",
     href: "/fusion",
     image: "/home-fusion.jpg",
+    guideImage: "/fusion설명.jpg",
     tagline: "Background and pose driven generation",
     inputs: ["face", "outfit", "background", "pose"],
   },
@@ -241,32 +244,13 @@ export default function HomePage() {
                     {line.title}
                   </h2>
 
-                  {line.title === "DIG" ? (
-                    <div className="mt-5 max-w-[420px]">
-                      <img
-                        src="/dic설명.jpg"
-                        alt="DIG guide"
-                        className="w-full rounded-[18px] border border-[#d9d7d2]"
-                      />
-                    </div>
-                  ) : (
-                    <>
-                      <p className="mt-5 max-w-[420px] text-[16px] leading-7 text-[#7c7a84]">
-                        {line.tagline}
-                      </p>
-
-                      <div className="mt-6 flex flex-wrap gap-2">
-                        {line.inputs.map((item) => (
-                          <span
-                            key={item}
-                            className="rounded-full border border-[#cfcbd2] px-4 py-2 text-[12px] uppercase tracking-[0.12em]"
-                          >
-                            {item}
-                          </span>
-                        ))}
-                      </div>
-                    </>
-                  )}
+                  <div className="mt-5 max-w-[420px]">
+                    <img
+                      src={line.guideImage}
+                      alt={`${line.title} guide`}
+                      className="w-full rounded-[18px] border border-[#d9d7d2]"
+                    />
+                  </div>
                 </div>
 
                 <div className="mt-8">
