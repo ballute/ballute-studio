@@ -24,3 +24,14 @@ body {
   color: var(--foreground);
   font-family: Arial, Helvetica, sans-serif;
 }
+html,
+body {
+  font-family: "Helvetica Neue", Helvetica, Arial, sans-serif;
+  background: #f7f7f5;
+  color: #73727c;
+}
+
+* {
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
