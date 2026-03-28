@@ -3,6 +3,7 @@
 import { useState } from "react";
 import Link from "next/link";
 import { spendPoints } from "@/lib/points";
+import FaceInputSection from "@/components/face-input-section";
 
 type UploadItem = {
   file: File;
@@ -50,7 +51,6 @@ type UploadSectionProps = {
   onClearAll: () => void;
   showCaptionInput?: boolean;
   onCaptionChange?: (index: number, value: string) => void;
-  extraActions?: React.ReactNode;
 };
 
 function UploadSection({
@@ -63,7 +63,6 @@ function UploadSection({
   onClearAll,
   showCaptionInput = false,
   onCaptionChange,
-  extraActions,
 }: UploadSectionProps) {
   return (
     <div className="border rounded-2xl p-6 bg-white">
@@ -82,7 +81,7 @@ function UploadSection({
 
       <p className="text-sm text-gray-700 mb-4 leading-6">{description}</p>
 
-      <div className="flex flex-wrap gap-3 mb-4">
+      <div className="flex gap-3 mb-4">
         <label className="block cursor-pointer">
           <div className="px-4 py-3 border-2 border-dashed rounded-xl text-sm text-gray-500">
             여러 장 추가 업로드
@@ -103,8 +102,6 @@ function UploadSection({
         >
           전체 삭제
         </button>
-
-        {extraActions}
       </div>
 
       <div className="mt-2 text-sm text-gray-600">
@@ -439,24 +436,14 @@ export default function DigPage() {
         </div>
 
         <div className="grid grid-cols-1 xl:grid-cols-2 gap-6 mb-6">
-          <UploadSection
-            title="모델 얼굴 업로드"
-            required
-            description="모델 정체성을 고정하는 기준 이미지. 여러 장 넣을 수 있다."
+          <FaceInputSection
             items={faces}
             onAddFiles={(files) => appendFiles(setFaces, files)}
             onRemoveItem={(index) => removeItem(setFaces, index)}
             onClearAll={() => clearAll(setFaces)}
-            extraActions={
-              <button
-                type="button"
-                onClick={handleGenerateModel}
-                disabled={modelGenerating || loading}
-                className="px-4 py-3 border rounded-xl text-sm bg-black text-white disabled:opacity-60"
-              >
-                {modelGenerating ? "모델 생성중..." : "모델 생성 (30P)"}
-              </button>
-            }
+            onGenerate={handleGenerateModel}
+            generating={modelGenerating}
+            disabled={loading}
           />
 
           <div className="space-y-4">
@@ -703,7 +690,10 @@ export default function DigPage() {
 
                       <button
                         type="button"
-                        onClick={() => handleSetVibe(slot.result)}
+                        onClick={() => {
+                          if (!slot.result) return;
+                          handleSetVibe(slot.result);
+                        }}
                         className="w-full bg-black text-white py-3 rounded-xl"
                       >
                         이 컷으로 Set Vibe
