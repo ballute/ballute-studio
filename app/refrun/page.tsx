@@ -41,6 +41,7 @@ type UploadSectionProps = {
   onAddFiles: (files: FileList | null) => void;
   onRemoveItem: (index: number) => void;
   onClearAll: () => void;
+  extraActions?: React.ReactNode;
 };
 
 function UploadSection({
@@ -51,6 +52,7 @@ function UploadSection({
   onAddFiles,
   onRemoveItem,
   onClearAll,
+  extraActions,
 }: UploadSectionProps) {
   return (
     <div className="border rounded-2xl p-6 bg-white">
@@ -69,7 +71,7 @@ function UploadSection({
 
       <p className="text-sm text-gray-700 mb-4 leading-6">{description}</p>
 
-      <div className="flex gap-3 mb-4">
+      <div className="flex flex-wrap gap-3 mb-4">
         <label className="block cursor-pointer">
           <div className="px-4 py-3 border-2 border-dashed rounded-xl text-sm text-gray-500">
             여러 장 추가 업로드
@@ -90,6 +92,8 @@ function UploadSection({
         >
           전체 삭제
         </button>
+
+        {extraActions}
       </div>
 
       <div className="mt-2 text-sm text-gray-600">
@@ -159,6 +163,7 @@ export default function RefRunPage() {
   const [perReferenceCount, setPerReferenceCount] = useState(2);
 
   const [loading, setLoading] = useState(false);
+  const [modelGenerating, setModelGenerating] = useState(false);
   const [statusMessage, setStatusMessage] = useState("");
   const [resultSlots, setResultSlots] = useState<ResultSlot[]>([]);
 
@@ -197,6 +202,45 @@ export default function RefRunPage() {
     setResultSlots((prev) =>
       prev.map((slot, i) => (i === index ? { ...slot, ...patch } : slot))
     );
+  };
+
+  const handleGenerateModel = async () => {
+    try {
+      setModelGenerating(true);
+      setStatusMessage("모델 생성 준비중...");
+
+      await spendPoints(30, "MODEL GENERATE");
+
+      const res = await fetch("/api/model-anchor", {
+        method: "POST",
+      });
+
+      const data = await res.json();
+
+      if (!res.ok) {
+        throw new Error(data?.error || "모델 생성 실패");
+      }
+
+      const blob = await fetch(data.image).then((r) => r.blob());
+      const file = new File([blob], `model-anchor-${Date.now()}.png`, {
+        type: "image/png",
+      });
+
+      const newItem: UploadItem = {
+        file,
+        preview: URL.createObjectURL(file),
+      };
+
+      setFaces((prev) => [...prev, newItem]);
+      setStatusMessage("모델 생성 완료 (30P 차감)");
+    } catch (error) {
+      const message =
+        error instanceof Error ? error.message : "모델 생성 중 오류";
+      setStatusMessage(`오류: ${message}`);
+      alert(message);
+    } finally {
+      setModelGenerating(false);
+    }
   };
 
   const handleRunRefRun = async () => {
@@ -323,6 +367,16 @@ export default function RefRunPage() {
             onAddFiles={(files) => appendFiles(setFaces, files)}
             onRemoveItem={(index) => removeItem(setFaces, index)}
             onClearAll={() => clearAll(setFaces)}
+            extraActions={
+              <button
+                type="button"
+                onClick={handleGenerateModel}
+                disabled={modelGenerating || loading}
+                className="px-4 py-3 border rounded-xl text-sm bg-black text-white disabled:opacity-60"
+              >
+                {modelGenerating ? "모델 생성중..." : "모델 생성 (30P)"}
+              </button>
+            }
           />
 
           <UploadSection
@@ -338,7 +392,7 @@ export default function RefRunPage() {
           <UploadSection
             title="레퍼런스 업로드"
             required
-            description="구도, 무드, 사진 문법을 따라갈 기준 이미지. 여러 장 넣을 수 있다."
+            description="구도, 무드, 사진 문법을 따라갈 기준 이미지."
             items={references}
             onAddFiles={(files) => appendFiles(setReferences, files)}
             onRemoveItem={(index) => removeItem(setReferences, index)}
@@ -425,7 +479,7 @@ export default function RefRunPage() {
 
           <button
             onClick={handleRunRefRun}
-            disabled={loading}
+            disabled={loading || modelGenerating}
             className="w-full bg-black text-white py-5 rounded-2xl text-xl disabled:opacity-60"
           >
             {loading ? "REFRUN 준비중..." : "REFRUN 실행하기"}
@@ -447,7 +501,7 @@ export default function RefRunPage() {
               {resultSlots.map((slot, index) => (
                 <div key={index} className="border rounded-2xl p-5 bg-white">
                   <div className="font-semibold mb-3">
-                    Ref {slot.referenceIndex + 1} / Cut {slot.cutIndex + 1}
+                    Ref #{slot.referenceIndex + 1} · Cut #{slot.cutIndex + 1}
                   </div>
 
                   {slot.status === "waiting" && (
@@ -478,28 +532,6 @@ export default function RefRunPage() {
 
                       <div className="flex flex-wrap gap-2 mb-4">
                         <ShortTag
-                          label="무드"
-                          value={shorten(slot.result.direction.overall_mood)}
-                        />
-                        <ShortTag
-                          label="카메라"
-                          value={shorten(
-                            slot.result.direction.camera_angle_and_crop
-                          )}
-                        />
-                        <ShortTag
-                          label="조명"
-                          value={shorten(
-                            slot.result.direction.lighting_and_exposure
-                          )}
-                        />
-                        <ShortTag
-                          label="컬러"
-                          value={shorten(
-                            slot.result.direction.color_grading_and_texture
-                          )}
-                        />
-                        <ShortTag
                           label="배경"
                           value={shorten(slot.result.direction.background)}
                         />
@@ -511,9 +543,19 @@ export default function RefRunPage() {
                           label="표정"
                           value={shorten(slot.result.direction.expression)}
                         />
+                        <ShortTag
+                          label="카메라"
+                          value={shorten(
+                            slot.result.direction.camera_angle_and_crop
+                          )}
+                        />
+                        <ShortTag
+                          label="무드"
+                          value={shorten(slot.result.direction.overall_mood)}
+                        />
                       </div>
 
-                      <div className="text-sm text-gray-700">
+                      <div className="text-sm text-gray-700 mb-4">
                         <b>요약:</b> {slot.result.summary}
                       </div>
                     </>

@@ -50,6 +50,7 @@ type UploadSectionProps = {
   onClearAll: () => void;
   showCaptionInput?: boolean;
   onCaptionChange?: (index: number, value: string) => void;
+  extraActions?: React.ReactNode;
 };
 
 function UploadSection({
@@ -62,6 +63,7 @@ function UploadSection({
   onClearAll,
   showCaptionInput = false,
   onCaptionChange,
+  extraActions,
 }: UploadSectionProps) {
   return (
     <div className="border rounded-2xl p-6 bg-white">
@@ -80,7 +82,7 @@ function UploadSection({
 
       <p className="text-sm text-gray-700 mb-4 leading-6">{description}</p>
 
-      <div className="flex gap-3 mb-4">
+      <div className="flex flex-wrap gap-3 mb-4">
         <label className="block cursor-pointer">
           <div className="px-4 py-3 border-2 border-dashed rounded-xl text-sm text-gray-500">
             여러 장 추가 업로드
@@ -101,6 +103,8 @@ function UploadSection({
         >
           전체 삭제
         </button>
+
+        {extraActions}
       </div>
 
       <div className="mt-2 text-sm text-gray-600">
@@ -185,6 +189,7 @@ export default function DigPage() {
   const [lockedVibe, setLockedVibe] = useState<LockedVibe | null>(null);
 
   const [loading, setLoading] = useState(false);
+  const [modelGenerating, setModelGenerating] = useState(false);
   const [statusMessage, setStatusMessage] = useState("");
   const [resultSlots, setResultSlots] = useState<ResultSlot[]>([]);
 
@@ -248,6 +253,45 @@ export default function DigPage() {
     setResultSlots((prev) =>
       prev.map((slot, i) => (i === index ? { ...slot, ...patch } : slot))
     );
+  };
+
+  const handleGenerateModel = async () => {
+    try {
+      setModelGenerating(true);
+      setStatusMessage("모델 생성 준비중...");
+
+      await spendPoints(30, "MODEL GENERATE");
+
+      const res = await fetch("/api/model-anchor", {
+        method: "POST",
+      });
+
+      const data = await res.json();
+
+      if (!res.ok) {
+        throw new Error(data?.error || "모델 생성 실패");
+      }
+
+      const blob = await fetch(data.image).then((r) => r.blob());
+      const file = new File([blob], `model-anchor-${Date.now()}.png`, {
+        type: "image/png",
+      });
+
+      const newItem: UploadItem = {
+        file,
+        preview: URL.createObjectURL(file),
+      };
+
+      setFaces((prev) => [...prev, newItem]);
+      setStatusMessage("모델 생성 완료 (30P 차감)");
+    } catch (error) {
+      const message =
+        error instanceof Error ? error.message : "모델 생성 중 오류";
+      setStatusMessage(`오류: ${message}`);
+      alert(message);
+    } finally {
+      setModelGenerating(false);
+    }
   };
 
   const handleRunDig = async () => {
@@ -389,8 +433,8 @@ export default function DigPage() {
 
           <h1 className="text-4xl font-bold mb-3">DIG</h1>
           <p className="text-gray-700 text-lg leading-8 max-w-4xl">
-            무드 키워드를 리서치해서 여러 크리에이티브 디렉션을 만들고, 각 컷을
-            생성되는 대로 바로 표시하는 생산 라인.
+            무드 키워드를 리서치해서 여러 크리에이티브 디렉션을 만들고, 각
+            디렉션마다 한 컷씩 생성하는 생산 라인.
           </p>
         </div>
 
@@ -403,6 +447,16 @@ export default function DigPage() {
             onAddFiles={(files) => appendFiles(setFaces, files)}
             onRemoveItem={(index) => removeItem(setFaces, index)}
             onClearAll={() => clearAll(setFaces)}
+            extraActions={
+              <button
+                type="button"
+                onClick={handleGenerateModel}
+                disabled={modelGenerating || loading}
+                className="px-4 py-3 border rounded-xl text-sm bg-black text-white disabled:opacity-60"
+              >
+                {modelGenerating ? "모델 생성중..." : "모델 생성 (30P)"}
+              </button>
+            }
           />
 
           <div className="space-y-4">
@@ -461,7 +515,7 @@ export default function DigPage() {
               type="text"
               value={moodQuery}
               onChange={(e) => setMoodQuery(e.target.value)}
-              placeholder="예: 90s tokyo street editorial / paris minimal studio"
+              placeholder="예: 도쿄에서 찍는 스냅샷 건물 별로없음"
               className="w-full border rounded-xl px-4 py-3"
             />
           </div>
@@ -544,7 +598,7 @@ export default function DigPage() {
           <div className="flex gap-3">
             <button
               onClick={handleRunDig}
-              disabled={loading}
+              disabled={loading || modelGenerating}
               className="flex-1 bg-black text-white py-5 rounded-2xl text-xl disabled:opacity-60"
             >
               {loading ? "DIG 준비중..." : "DIG 실행하기"}
@@ -620,14 +674,6 @@ export default function DigPage() {
 
                       <div className="flex flex-wrap gap-2 mb-4">
                         <ShortTag
-                          label="무드"
-                          value={shorten(slot.result.direction.mood)}
-                        />
-                        <ShortTag
-                          label="사진기법"
-                          value={shorten(slot.result.direction.photography_technique)}
-                        />
-                        <ShortTag
                           label="배경"
                           value={shorten(slot.result.direction.background)}
                         />
@@ -639,6 +685,16 @@ export default function DigPage() {
                           label="표정"
                           value={shorten(slot.result.direction.expression)}
                         />
+                        <ShortTag
+                          label="무드"
+                          value={shorten(slot.result.direction.mood)}
+                        />
+                        <ShortTag
+                          label="촬영"
+                          value={shorten(
+                            slot.result.direction.photography_technique
+                          )}
+                        />
                       </div>
 
                       <div className="text-sm text-gray-700 mb-4">
@@ -647,7 +703,7 @@ export default function DigPage() {
 
                       <button
                         type="button"
-                        onClick={() => handleSetVibe(slot.result!)}
+                        onClick={() => handleSetVibe(slot.result)}
                         className="w-full bg-black text-white py-3 rounded-xl"
                       >
                         이 컷으로 Set Vibe
