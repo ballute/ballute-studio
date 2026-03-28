@@ -68,7 +68,6 @@ export default function HomePage() {
 
       if (!user) {
         setViewer(null);
-        setLoading(false);
         return;
       }
 
@@ -105,9 +104,23 @@ export default function HomePage() {
 
     const {
       data: { subscription },
-    } = supabase.auth.onAuthStateChange(async () => {
+    } = supabase.auth.onAuthStateChange((event) => {
+      console.log("auth event:", event);
+
       if (!mounted) return;
-      await loadViewer();
+
+      if (event === "SIGNED_OUT") {
+        setViewer(null);
+        setLoading(false);
+        setLogoutLoading(false);
+        return;
+      }
+
+      setTimeout(() => {
+        if (mounted) {
+          loadViewer();
+        }
+      }, 0);
     });
 
     return () => {
@@ -120,21 +133,27 @@ export default function HomePage() {
     try {
       setLogoutLoading(true);
 
-      const { error } = await supabase.auth.signOut();
+      const { error } = await supabase.auth.signOut({
+        scope: "local",
+      });
 
       if (error) {
         console.error("로그아웃 오류:", error);
         alert(`로그아웃 오류: ${error.message}`);
+        setLogoutLoading(false);
         return;
       }
 
       setViewer(null);
       router.replace("/");
       router.refresh();
+
+      setTimeout(() => {
+        window.location.href = "/";
+      }, 150);
     } catch (error) {
       console.error("로그아웃 예외:", error);
       alert("로그아웃 중 오류가 발생했습니다.");
-    } finally {
       setLogoutLoading(false);
     }
   };
