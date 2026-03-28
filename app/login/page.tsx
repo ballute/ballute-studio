@@ -30,30 +30,15 @@ export default function LoginPage() {
     setMessage("");
 
     try {
-      const { data, error } = await supabase.auth.signInWithPassword({
+      const { error } = await supabase.auth.signInWithPassword({
         email: trimmedEmail,
         password,
       });
-
-      console.log("signInWithPassword data:", data);
-      console.log("signInWithPassword error:", error);
 
       if (error) {
         setMessage(`오류: ${error.message}`);
         return;
       }
-
-      const { data: sessionData, error: sessionError } =
-        await supabase.auth.getSession();
-
-      console.log("getSession data:", sessionData);
-      console.log("getSession error:", sessionError);
-
-      const { data: userData, error: userError } =
-        await supabase.auth.getUser();
-
-      console.log("getUser data:", userData);
-      console.log("getUser error:", userError);
 
       setMessage("로그인 완료");
       router.push("/");
@@ -71,20 +56,16 @@ export default function LoginPage() {
     setMessage("");
 
     try {
-      const { data, error } = await supabase.auth.signInWithOAuth({
+      const { error } = await supabase.auth.signInWithOAuth({
         provider: "google",
         options: {
-          redirectTo: `${window.location.origin}/`,
+          redirectTo: "https://studio.ballute.co.kr/",
         },
       });
-
-      console.log("signInWithOAuth data:", data);
-      console.log("signInWithOAuth error:", error);
 
       if (error) {
         setMessage(`오류: ${error.message}`);
         setLoading(false);
-        return;
       }
     } catch (error) {
       console.error("Google 로그인 예외:", error);
@@ -142,11 +123,11 @@ export default function LoginPage() {
             </Link>
           </div>
 
-          {message ? (
+          {message && (
             <div className="rounded-xl border p-4 text-sm text-gray-700">
               {message}
             </div>
-          ) : null}
+          )}
         </div>
       </div>
     </main>

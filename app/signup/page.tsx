@@ -42,16 +42,15 @@ export default function SignupPage() {
         return;
       }
 
-      // 이메일 인증이 켜져 있으면 보통 session이 없고 user만 생깁니다.
       if (data.user && !data.session) {
-        setMessage("회원가입이 완료되었습니다. 이메일 인증 후 로그인해주세요.");
+        setMessage("회원가입 완료. 이메일 인증 후 로그인해주세요.");
         return;
       }
 
-      setMessage("회원가입이 완료되었습니다.");
+      setMessage("회원가입 완료");
     } catch (error) {
       console.error(error);
-      setMessage("회원가입 중 예상치 못한 오류가 발생했습니다.");
+      setMessage("회원가입 중 오류 발생");
     } finally {
       setLoading(false);
     }
@@ -65,16 +64,17 @@ export default function SignupPage() {
       const { error } = await supabase.auth.signInWithOAuth({
         provider: "google",
         options: {
-          redirectTo: `${window.location.origin}/`,
+          redirectTo: "https://studio.ballute.co.kr/",
         },
       });
 
       if (error) {
         setMessage(`오류: ${error.message}`);
+        setLoading(false);
       }
     } catch (error) {
       console.error(error);
-      setMessage("Google 로그인 중 예상치 못한 오류가 발생했습니다.");
+      setMessage("Google 로그인 오류");
       setLoading(false);
     }
   };
@@ -128,11 +128,11 @@ export default function SignupPage() {
             </Link>
           </div>
 
-          {message ? (
+          {message && (
             <div className="rounded-xl border p-4 text-sm text-gray-700">
               {message}
             </div>
-          ) : null}
+          )}
         </div>
       </div>
     </main>
