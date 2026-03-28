@@ -3,7 +3,9 @@
 import { useState } from "react";
 import Link from "next/link";
 import { spendPoints } from "@/lib/points";
-import FaceInputSection from "@/components/face-input-section";
+import FaceInputSection, {
+  ModelGenerateOptions,
+} from "@/components/face-input-section";
 
 type UploadItem = {
   file: File;
@@ -252,7 +254,7 @@ export default function DigPage() {
     );
   };
 
-  const handleGenerateModel = async () => {
+  const handleGenerateModel = async (options: ModelGenerateOptions) => {
     try {
       setModelGenerating(true);
       setStatusMessage("모델 생성 준비중...");
@@ -261,6 +263,10 @@ export default function DigPage() {
 
       const res = await fetch("/api/model-anchor", {
         method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify(options),
       });
 
       const data = await res.json();
@@ -391,7 +397,7 @@ export default function DigPage() {
 
           updateSlot(index, {
             status: "done",
-            result: data.result,
+            result: data.result as DigResult,
           });
 
           setStatusMessage(`컷 ${index + 1} 생성 완료`);

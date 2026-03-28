@@ -1,8 +1,21 @@
 "use client";
 
+import { useState } from "react";
+
 type FaceUploadItem = {
   file: File;
   preview: string;
+};
+
+export type ModelGenerateOptions = {
+  ethnicity: string;
+  gender: string;
+  age: string;
+  hairStyle: string;
+  skinTone: string;
+  eyeColor: string;
+  mood: string;
+  extraDetails: string;
 };
 
 type FaceInputSectionProps = {
@@ -10,7 +23,7 @@ type FaceInputSectionProps = {
   onAddFiles: (files: FileList | null) => void;
   onRemoveItem: (index: number) => void;
   onClearAll: () => void;
-  onGenerate: () => void;
+  onGenerate: (options: ModelGenerateOptions) => void;
   generating: boolean;
   disabled?: boolean;
 };
@@ -24,6 +37,35 @@ export default function FaceInputSection({
   generating,
   disabled = false,
 }: FaceInputSectionProps) {
+  const [mode, setMode] = useState<"generate" | "upload">("generate");
+
+  const [ethnicity, setEthnicity] = useState("East Asian");
+  const [gender, setGender] = useState("Male");
+  const [age, setAge] = useState("Early 20s");
+  const [hairStyle, setHairStyle] = useState("Short messy black hair, city boy style");
+  const [skinTone, setSkinTone] = useState("Light neutral skin tone");
+  const [eyeColor, setEyeColor] = useState("Dark brown");
+  const [mood, setMood] = useState("Calm and confident");
+  const [extraDetails, setExtraDetails] = useState("");
+
+  const handleGenerateClick = () => {
+    onGenerate({
+      ethnicity,
+      gender,
+      age,
+      hairStyle,
+      skinTone,
+      eyeColor,
+      mood,
+      extraDetails,
+    });
+  };
+
+  const inputClass =
+    "w-full border-b border-black/70 bg-transparent px-0 py-3 text-[16px] outline-none placeholder:text-gray-400";
+  const labelClass =
+    "mb-2 text-[14px] font-semibold uppercase tracking-[0.02em] text-gray-500";
+
   return (
     <div className="border rounded-2xl p-6 bg-white">
       <div className="flex items-center gap-2 mb-2">
@@ -33,19 +75,40 @@ export default function FaceInputSection({
         </span>
       </div>
 
-      <p className="text-sm text-gray-700 mb-4 leading-6">
-        모델 정체성을 고정하는 기준 이미지. 모델 이미지가 있으면 업로드,
-        없으면 생성 기능으로 얼굴 앵커를 만들 수 있다.
+      <p className="text-sm text-gray-700 mb-5 leading-6">
+        기존 모델 이미지를 업로드하거나, 원하는 조건을 입력해서 가상 모델 얼굴
+        앵커를 생성할 수 있다.
       </p>
 
-      <div className="grid grid-cols-1 xl:grid-cols-2 gap-4 mb-4">
-        <div className="border rounded-2xl p-5 bg-[#fafaf8]">
-          <div className="text-sm font-semibold mb-3">UPLOAD</div>
-          <p className="text-xs text-gray-600 mb-4">
-            실제 모델 이미지가 있는 경우. 여러 장 업로드 가능.
-          </p>
+      <div className="mb-6 grid grid-cols-2 border rounded-xl overflow-hidden">
+        <button
+          type="button"
+          onClick={() => setMode("generate")}
+          className={`px-4 py-4 text-sm font-semibold ${
+            mode === "generate"
+              ? "bg-black text-white"
+              : "bg-white text-black"
+          }`}
+        >
+          GENERATE VIRTUAL MODEL
+        </button>
 
-          <div className="flex flex-wrap gap-3">
+        <button
+          type="button"
+          onClick={() => setMode("upload")}
+          className={`px-4 py-4 text-sm font-semibold ${
+            mode === "upload"
+              ? "bg-black text-white"
+              : "bg-white text-black"
+          }`}
+        >
+          UPLOAD EXISTING MODEL
+        </button>
+      </div>
+
+      {mode === "upload" ? (
+        <div>
+          <div className="flex flex-wrap gap-3 mb-4">
             <label className="block cursor-pointer">
               <div className="px-4 py-3 border-2 border-dashed rounded-xl text-sm text-gray-500 bg-white">
                 여러 장 추가 업로드
@@ -70,25 +133,105 @@ export default function FaceInputSection({
             </button>
           </div>
         </div>
+      ) : (
+        <div className="space-y-7">
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-x-8 gap-y-7">
+            <div>
+              <div className={labelClass}>ETHNICITY</div>
+              <input
+                value={ethnicity}
+                onChange={(e) => setEthnicity(e.target.value)}
+                className={inputClass}
+                placeholder="East Asian"
+              />
+            </div>
 
-        <div className="border rounded-2xl p-5 bg-[#fafaf8]">
-          <div className="text-sm font-semibold mb-3">GENERATE</div>
-          <p className="text-xs text-gray-600 mb-4">
-            모델 이미지가 없는 경우. 목까지만 보이는 얼굴 앵커를 생성한다.
-          </p>
+            <div>
+              <div className={labelClass}>GENDER</div>
+              <input
+                value={gender}
+                onChange={(e) => setGender(e.target.value)}
+                className={inputClass}
+                placeholder="Male / Female / Androgynous"
+              />
+            </div>
+
+            <div>
+              <div className={labelClass}>AGE</div>
+              <input
+                value={age}
+                onChange={(e) => setAge(e.target.value)}
+                className={inputClass}
+                placeholder="Early 20s"
+              />
+            </div>
+
+            <div>
+              <div className={labelClass}>SKIN TONE</div>
+              <input
+                value={skinTone}
+                onChange={(e) => setSkinTone(e.target.value)}
+                className={inputClass}
+                placeholder="Light neutral skin tone"
+              />
+            </div>
+          </div>
+
+          <div>
+            <div className={labelClass}>HAIR STYLE</div>
+            <input
+              value={hairStyle}
+              onChange={(e) => setHairStyle(e.target.value)}
+              className={inputClass}
+              placeholder="Short messy black hair, city boy style"
+            />
+          </div>
+
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-x-8 gap-y-7">
+            <div>
+              <div className={labelClass}>EYE COLOR</div>
+              <input
+                value={eyeColor}
+                onChange={(e) => setEyeColor(e.target.value)}
+                className={inputClass}
+                placeholder="Dark brown"
+              />
+            </div>
+
+            <div>
+              <div className={labelClass}>MOOD</div>
+              <input
+                value={mood}
+                onChange={(e) => setMood(e.target.value)}
+                className={inputClass}
+                placeholder="Calm and confident"
+              />
+            </div>
+          </div>
+
+          <div>
+            <div className={labelClass}>ETC</div>
+            <textarea
+              value={extraDetails}
+              onChange={(e) => setExtraDetails(e.target.value)}
+              className="w-full border-b border-black/70 bg-transparent px-0 py-3 text-[16px] outline-none placeholder:text-gray-400 resize-none"
+              rows={4}
+              placeholder="예: soft straight brows, clean jawline, no facial hair, natural lips, balanced symmetry"
+            />
+          </div>
 
           <button
             type="button"
-            onClick={onGenerate}
+            onClick={handleGenerateClick}
             disabled={disabled || generating}
-            className="px-4 py-3 rounded-xl text-sm bg-black text-white disabled:opacity-60"
+            className="px-5 py-3 rounded-xl bg-black text-white text-sm disabled:opacity-60"
           >
             {generating ? "모델 생성중..." : "모델 생성 (30P)"}
           </button>
         </div>
-      </div>
+      )}
 
-      <div className="mt-2 text-sm text-gray-600">
+      <div className="mt-6 text-sm text-gray-600">
         현재 업로드 수: <b>{items.length}장</b>
       </div>
 

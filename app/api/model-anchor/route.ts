@@ -1,14 +1,35 @@
-import { NextResponse } from "next/server";
+import { NextRequest, NextResponse } from "next/server";
 import { GoogleGenAI } from "@google/genai";
 
 const ai = new GoogleGenAI({
   apiKey: process.env.GEMINI_API_KEY!,
 });
 
-export async function POST() {
+export async function POST(req: NextRequest) {
   try {
+    const body = await req.json();
+
+    const ethnicity = body.ethnicity || "East Asian";
+    const gender = body.gender || "Male";
+    const age = body.age || "Early 20s";
+    const hairStyle = body.hairStyle || "Short black hair";
+    const skinTone = body.skinTone || "Light neutral skin tone";
+    const eyeColor = body.eyeColor || "Dark brown";
+    const mood = body.mood || "Calm and confident";
+    const extraDetails = body.extraDetails || "";
+
     const prompt = `
 Create a single high-resolution "Fixed Face Anchor" collage for a virtual fashion model.
+
+MODEL PROFILE:
+- ethnicity: ${ethnicity}
+- gender: ${gender}
+- age: ${age}
+- hair style: ${hairStyle}
+- skin tone: ${skinTone}
+- eye color: ${eyeColor}
+- mood: ${mood}
+- extra details: ${extraDetails}
 
 STRICT COMPOSITION RULES:
 - output must be a 3-panel collage in one single image
@@ -37,7 +58,9 @@ AESTHETIC:
 
 OUTPUT RULE:
 - return only the face anchor collage image
-- no text, no labels, no graphic decorations
+- no text
+- no labels
+- no graphic decorations
 `;
 
     const response = await ai.models.generateContent({
