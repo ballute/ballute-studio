@@ -138,22 +138,23 @@ export default function HomePage() {
 
   return (
     <main className="min-h-screen bg-[#f7f7f5] text-[#73727c]">
-      <div className="mx-auto max-w-[1440px] px-5 pb-16 pt-5 sm:px-6 lg:px-10">
-        <header className="mb-10 border-b border-[#d9d7d2] pb-5">
-          <div className="flex flex-col gap-6 lg:flex-row lg:items-start lg:justify-between">
-            <div className="max-w-[720px]">
-              <div className="mb-3 text-[13px] uppercase tracking-[0.24em] text-[#8b8993]">
+      <div className="mx-auto max-w-[1440px] px-5 pb-16 pt-6 sm:px-6 lg:px-10">
+        <header className="mb-12 border-b border-[#d9d7d2] pb-6">
+          <div className="flex flex-col gap-6 lg:flex-row lg:items-end lg:justify-between">
+            <div className="max-w-[760px]">
+              <div className="mb-3 text-[12px] uppercase tracking-[0.24em] text-[#8b8993]">
                 Ballute
               </div>
 
-              <h1 className="text-[42px] font-bold leading-[0.95] tracking-[-0.04em] text-[#6f6d78] sm:text-[64px] lg:text-[82px]">
+              <h1 className="text-[38px] font-bold leading-[0.95] tracking-[-0.05em] text-[#6f6d78] sm:text-[58px] lg:text-[78px]">
                 SIGNATURE
                 <br />
                 STUDIO
               </h1>
 
               <p className="mt-5 max-w-[520px] text-[15px] leading-7 text-[#7c7a84] sm:text-base">
-                AI lookbook production system for editorial-grade fashion imagery.
+                Editorial-grade fashion image production through three signature
+                lines.
               </p>
             </div>
 
@@ -223,71 +224,22 @@ export default function HomePage() {
           </div>
         </header>
 
-        <section className="mb-16">
-          <div className="grid gap-5 lg:grid-cols-[1.2fr_0.8fr]">
-            <div className="relative overflow-hidden rounded-[28px] bg-[#ece8ee]">
-              <div className="relative aspect-[4/5] sm:aspect-[16/13] lg:aspect-[16/11]">
-                <Image
-                  src="/home-dig.jpg"
-                  alt="Signature Studio hero"
-                  fill
-                  priority
-                  className="object-cover"
-                />
-              </div>
-            </div>
-
-            <div className="flex flex-col justify-between rounded-[28px] border border-[#d9d7d2] bg-[#f7f7f5] p-6 sm:p-8">
-              <div>
-                <div className="mb-3 text-[12px] uppercase tracking-[0.2em] text-[#8b8993]">
-                  AI LOOKBOOK STUDIO
-                </div>
-
-                <h2 className="max-w-[320px] text-[30px] font-bold leading-[1.02] tracking-[-0.04em] text-[#6f6d78] sm:text-[40px]">
-                  Built for fashion image direction and production
-                </h2>
-
-                <p className="mt-5 max-w-[360px] text-[15px] leading-7 text-[#7c7a84]">
-                  Create editorial-grade visuals through three production lines:
-                  DIG, REFRUN and FUSION.
-                </p>
-              </div>
-
-              <div className="mt-8 flex flex-wrap gap-2">
-                <Link
-                  href="/dig"
-                  className="rounded-full bg-[#6f6d78] px-5 py-3 text-[13px] uppercase tracking-[0.08em] text-white transition hover:opacity-90"
-                >
-                  start with dig
-                </Link>
-
-                <Link
-                  href="/mypage"
-                  className="rounded-full border border-[#cfcbd2] px-5 py-3 text-[13px] uppercase tracking-[0.08em] transition hover:bg-[#ece8ee]"
-                >
-                  my page
-                </Link>
-              </div>
-            </div>
-          </div>
-        </section>
-
-        <section className="space-y-12">
+        <section className="space-y-14">
           {lines.map((line) => (
             <section
               key={line.title}
               id={line.title.toLowerCase()}
-              className="grid gap-4 border-t border-[#d9d7d2] pt-6 sm:gap-6 lg:grid-cols-[1.05fr_0.95fr] lg:items-start"
+              className="grid gap-5 border-t border-[#d9d7d2] pt-6 sm:gap-6 lg:grid-cols-[1.02fr_0.98fr] lg:items-start"
             >
-              <div className="order-2 flex flex-col justify-between lg:order-1 lg:min-h-[520px]">
+              <div className="order-2 flex flex-col justify-between lg:order-1 lg:min-h-[560px]">
                 <div>
                   <div className="mb-3 text-[12px] uppercase tracking-[0.2em] text-[#8b8993]">
                     production line
                   </div>
 
-                  <h3 className="text-[40px] font-bold leading-none tracking-[-0.05em] text-[#6f6d78] sm:text-[54px]">
+                  <h2 className="text-[42px] font-bold leading-none tracking-[-0.05em] text-[#6f6d78] sm:text-[60px]">
                     {line.title}
-                  </h3>
+                  </h2>
 
                   <p className="mt-5 max-w-[420px] text-[16px] leading-7 text-[#7c7a84]">
                     {line.tagline}
