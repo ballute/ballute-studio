@@ -355,7 +355,9 @@ export default function DigPage() {
         }))
       );
 
-      setStatusMessage(`Directions 생성 완료. ${directions.length}개 컷 생성 시작...`);
+      setStatusMessage(
+        `Directions 생성 완료. ${directions.length}개 컷 생성 시작...`
+      );
 
       directions.forEach(async (direction, index) => {
         updateSlot(index, { status: "generating" });
@@ -434,11 +436,15 @@ export default function DigPage() {
             ← 홈으로
           </Link>
 
-          <h1 className="text-4xl font-bold mb-3">DIG</h1>
-          <p className="text-gray-700 text-lg leading-8 max-w-4xl">
-            무드 키워드를 리서치해서 여러 크리에이티브 디렉션을 만들고, 각
-            디렉션마다 한 컷씩 생성하는 생산 라인.
-          </p>
+          <h1 className="text-4xl font-bold mb-5">DIG</h1>
+
+          <div className="border rounded-2xl bg-white p-4 md:p-6">
+            <img
+              src="/dic설명.jpg"
+              alt="DIG 설명 이미지"
+              className="w-full rounded-xl object-cover"
+            />
+          </div>
         </div>
 
         <div className="grid grid-cols-1 xl:grid-cols-2 gap-6 mb-6">
