@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { useEffect, useState } from "react";
+import { useRouter } from "next/navigation";
 import { supabase } from "@/lib/supabase";
 
 const lines = [
@@ -44,13 +45,17 @@ const lines = [
 ];
 
 type Viewer = {
+  id: string;
   email: string | null;
   pointBalance: number;
 } | null;
 
 export default function HomePage() {
+  const router = useRouter();
+
   const [viewer, setViewer] = useState<Viewer>(null);
   const [loading, setLoading] = useState(true);
+  const [logoutLoading, setLogoutLoading] = useState(false);
 
   const loadViewer = async () => {
     try {
@@ -76,6 +81,7 @@ export default function HomePage() {
       console.log("홈 profile:", profile, profileError);
 
       setViewer({
+        id: user.id,
         email: user.email ?? null,
         pointBalance: profile?.point_balance ?? 0,
       });
@@ -112,17 +118,24 @@ export default function HomePage() {
 
   const handleLogout = async () => {
     try {
+      setLogoutLoading(true);
+
       const { error } = await supabase.auth.signOut();
 
       if (error) {
         console.error("로그아웃 오류:", error);
+        alert(`로그아웃 오류: ${error.message}`);
         return;
       }
 
       setViewer(null);
-      window.location.href = "/";
+      router.replace("/");
+      router.refresh();
     } catch (error) {
       console.error("로그아웃 예외:", error);
+      alert("로그아웃 중 오류가 발생했습니다.");
+    } finally {
+      setLogoutLoading(false);
     }
   };
 
@@ -149,12 +162,20 @@ export default function HomePage() {
                   포인트: {viewer.pointBalance}P
                 </div>
 
+                <Link
+                  href="/mypage"
+                  className="rounded-xl border bg-white px-4 py-2 text-sm"
+                >
+                  마이페이지
+                </Link>
+
                 <button
                   type="button"
                   onClick={handleLogout}
-                  className="rounded-xl bg-black px-4 py-2 text-sm text-white"
+                  disabled={logoutLoading}
+                  className="rounded-xl bg-black px-4 py-2 text-sm text-white disabled:opacity-50"
                 >
-                  로그아웃
+                  {logoutLoading ? "로그아웃 중..." : "로그아웃"}
                 </button>
               </>
             ) : (
