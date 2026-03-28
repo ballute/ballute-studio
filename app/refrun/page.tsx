@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import Link from "next/link";
+import { spendPoints } from "@/lib/points";
 
 type UploadItem = {
   file: File;
@@ -161,6 +162,10 @@ export default function RefRunPage() {
   const [statusMessage, setStatusMessage] = useState("");
   const [resultSlots, setResultSlots] = useState<ResultSlot[]>([]);
 
+  const safeCount = Math.max(1, Math.min(20, Number(perReferenceCount) || 1));
+  const totalResults = references.length * safeCount;
+  const totalCost = totalResults * 50;
+
   const appendFiles = (
     setter: React.Dispatch<React.SetStateAction<UploadItem[]>>,
     files: FileList | null
@@ -202,9 +207,14 @@ export default function RefRunPage() {
 
     try {
       setLoading(true);
-      setStatusMessage("REFRUN 시작...");
+      setStatusMessage(`포인트 차감중... (${totalCost}P)`);
 
-      const safeCount = Math.max(1, Math.min(8, perReferenceCount));
+      await spendPoints(
+        totalCost,
+        `REFRUN 실행 (${references.length}개 레퍼런스 × ${safeCount}장)`
+      );
+
+      setStatusMessage("REFRUN 시작...");
 
       const initialSlots: ResultSlot[] = [];
       references.forEach((_, refIndex) => {
@@ -280,6 +290,7 @@ export default function RefRunPage() {
       const message =
         error instanceof Error ? error.message : "알 수 없는 REFRUN 오류";
       setStatusMessage(`오류: ${message}`);
+      alert(message);
     } finally {
       setLoading(false);
     }
@@ -298,12 +309,12 @@ export default function RefRunPage() {
 
           <h1 className="text-4xl font-bold mb-3">REFRUN</h1>
           <p className="text-gray-700 text-lg leading-8 max-w-4xl">
-            레퍼런스 이미지의 구도, 무드, 사진 문법을 분석해서 그 방향으로
-            재생성하는 생산 라인. 레퍼런스마다 여러 컷을 생성할 수 있다.
+            레퍼런스 이미지의 구도, 무드, 사진 문법을 분석해서 그대로 따라가는
+            생산 라인.
           </p>
         </div>
 
-        <div className="grid grid-cols-1 xl:grid-cols-2 gap-6 mb-6">
+        <div className="grid grid-cols-1 xl:grid-cols-3 gap-6 mb-6">
           <UploadSection
             title="모델 얼굴 업로드"
             required
@@ -323,13 +334,11 @@ export default function RefRunPage() {
             onRemoveItem={(index) => removeItem(setOutfits, index)}
             onClearAll={() => clearAll(setOutfits)}
           />
-        </div>
 
-        <div className="mb-6">
           <UploadSection
-            title="레퍼런스 이미지 업로드"
+            title="레퍼런스 업로드"
             required
-            description="따라가고 싶은 구도, 무드, 사진 문법 기준 이미지. 여러 장 넣을 수 있다."
+            description="구도, 무드, 사진 문법을 따라갈 기준 이미지. 여러 장 넣을 수 있다."
             items={references}
             onAddFiles={(files) => appendFiles(setReferences, files)}
             onRemoveItem={(index) => removeItem(setReferences, index)}
@@ -346,7 +355,7 @@ export default function RefRunPage() {
               <input
                 type="number"
                 min={1}
-                max={8}
+                max={20}
                 value={perReferenceCount}
                 onChange={(e) => setPerReferenceCount(Number(e.target.value))}
                 className="w-full border rounded-xl px-4 py-3"
@@ -405,15 +414,12 @@ export default function RefRunPage() {
               <div>얼굴: {faces.length}장</div>
               <div>의상: {outfits.length}장</div>
               <div>레퍼런스: {references.length}장</div>
-              <div>레퍼런스당 생성 수: {perReferenceCount}</div>
-              <div>
-                총 예상 결과 수:{" "}
-                {references.length * Math.max(1, Math.min(8, perReferenceCount))}
-                장
-              </div>
+              <div>레퍼런스당 생성 수: {safeCount}</div>
+              <div>총 예상 결과 수: {totalResults}장</div>
               <div>핏 보정: {fitSpec || "없음"}</div>
               <div>Shooting Mode: {shootingMode}</div>
               <div>Custom Prompt: {customPrompt || "없음"}</div>
+              <div>실행 비용: {totalCost}P</div>
             </div>
           </div>
 

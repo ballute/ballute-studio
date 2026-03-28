@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import Link from "next/link";
+import { spendPoints } from "@/lib/points";
 
 type UploadItem = {
   file: File;
@@ -187,6 +188,9 @@ export default function DigPage() {
   const [statusMessage, setStatusMessage] = useState("");
   const [resultSlots, setResultSlots] = useState<ResultSlot[]>([]);
 
+  const safeCount = Math.max(1, Math.min(20, Number(count) || 1));
+  const totalCost = safeCount * 50;
+
   const appendFiles = (
     setter: React.Dispatch<React.SetStateAction<UploadItem[]>>,
     files: FileList | null
@@ -269,12 +273,16 @@ export default function DigPage() {
 
     try {
       setLoading(true);
+      setStatusMessage(`포인트 차감중... (${totalCost}P)`);
+
+      await spendPoints(totalCost, `DIG 실행 (${safeCount}장)`);
+
       setStatusMessage("DIG directions 생성중...");
       setResultSlots([]);
 
       const directionForm = new FormData();
       directionForm.append("moodQuery", moodQuery);
-      directionForm.append("count", String(count));
+      directionForm.append("count", String(safeCount));
 
       const directionsRes = await fetch("/api/dig/directions", {
         method: "POST",
@@ -362,6 +370,7 @@ export default function DigPage() {
       const message =
         error instanceof Error ? error.message : "알 수 없는 DIG 오류";
       setStatusMessage(`오류: ${message}`);
+      alert(message);
     } finally {
       setLoading(false);
     }
@@ -463,7 +472,7 @@ export default function DigPage() {
               <input
                 type="number"
                 min={1}
-                max={8}
+                max={20}
                 value={count}
                 onChange={(e) => setCount(Number(e.target.value))}
                 className="w-full border rounded-xl px-4 py-3"
@@ -523,10 +532,12 @@ export default function DigPage() {
               <div>의상: {outfits.length}장</div>
               <div>의상 모드: {outfitMode}</div>
               <div>무드 키워드: {moodQuery || "없음"}</div>
-              <div>Count: {count}</div>
+              <div>Count: {safeCount}</div>
+              <div>총 예상 결과 수: {safeCount}장</div>
               <div>핏 보정: {fitSpec || "없음"}</div>
               <div>Shooting Mode: {shootingMode}</div>
               <div>Vibe Lock: {lockedVibe ? "설정됨" : "없음"}</div>
+              <div>실행 비용: {totalCost}P</div>
             </div>
           </div>
 

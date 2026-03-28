@@ -1,7 +1,8 @@
 "use client";
 
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import Link from "next/link";
+import { spendPoints } from "@/lib/points";
 
 type UploadItem = {
   file: File;
@@ -165,6 +166,11 @@ export default function FusionPage() {
   const [statusMessage, setStatusMessage] = useState("");
   const [resultSlots, setResultSlots] = useState<ResultSlot[]>([]);
 
+  const costPerImage = 60;
+  const safeCount = useMemo(() => Math.max(1, Math.min(8, Number(count) || 1)), [count]);
+  const expectedResultCount = poses.length * safeCount;
+  const totalCost = expectedResultCount * costPerImage;
+
   const appendFiles = (
     setter: React.Dispatch<React.SetStateAction<UploadItem[]>>,
     files: FileList | null
@@ -236,13 +242,22 @@ export default function FusionPage() {
       }
     }
 
+    if (expectedResultCount <= 0) {
+      alert("예상 결과 수가 0장이라 실행할 수 없다.");
+      return;
+    }
+
     try {
       setLoading(true);
+      setStatusMessage(`포인트 차감중... (${totalCost}P)`);
+
+      await spendPoints(totalCost, `FUSION 실행 (${expectedResultCount}장)`);
+
       setStatusMessage("FUSION 준비중...");
       setResultSlots([]);
 
       const prepareForm = new FormData();
-      prepareForm.append("count", String(count));
+      prepareForm.append("count", String(safeCount));
       bgs.forEach((item) => prepareForm.append("bgs", item.file));
       poses.forEach((item) => prepareForm.append("poses", item.file));
 
@@ -316,7 +331,7 @@ export default function FusionPage() {
             });
 
             setStatusMessage(
-              `포즈 ${poseIndex + 1} / 장소 ${locationIndex + 1} 생성 완료`
+              `Pose ${poseIndex + 1} / Location ${locationIndex + 1} 생성 완료`
             );
           } catch (error) {
             const message =
@@ -328,7 +343,7 @@ export default function FusionPage() {
             });
 
             setStatusMessage(
-              `포즈 ${poseIndex + 1} / 장소 ${locationIndex + 1} 오류`
+              `Pose ${poseIndex + 1} / Location ${locationIndex + 1} 오류`
             );
           }
         }
@@ -337,6 +352,7 @@ export default function FusionPage() {
       const message =
         error instanceof Error ? error.message : "알 수 없는 FUSION 오류";
       setStatusMessage(`오류: ${message}`);
+      alert(message);
     } finally {
       setLoading(false);
     }
@@ -346,13 +362,17 @@ export default function FusionPage() {
     <main className="min-h-screen bg-[#f7f7f5] px-6 py-10">
       <div className="max-w-7xl mx-auto">
         <div className="mb-8">
-          <Link href="/" className="inline-flex items-center text-sm text-gray-600 mb-4">
+          <Link
+            href="/"
+            className="inline-flex items-center text-sm text-gray-600 mb-4"
+          >
             ← 홈으로
           </Link>
 
           <h1 className="text-4xl font-bold mb-3">FUSION</h1>
           <p className="text-gray-700 text-lg leading-8 max-w-4xl">
-            BG DNA와 포즈 블루프린트를 결합해서 고급 editorial 결과를 만드는 생산 라인.
+            배경 DNA와 포즈 블루프린트를 결합해서 고급 editorial 결과를 만드는
+            생산 라인.
           </p>
         </div>
 
@@ -360,7 +380,7 @@ export default function FusionPage() {
           <UploadSection
             title="모델 얼굴 업로드"
             required
-            description="모델 정체성을 고정하는 기준 이미지. 여러 장 가능."
+            description="모델 정체성을 고정하는 기준 이미지. 여러 장 넣을 수 있다."
             items={faces}
             onAddFiles={(files) => appendFiles(setFaces, files)}
             onRemoveItem={(index) => removeItem(setFaces, index)}
@@ -375,7 +395,9 @@ export default function FusionPage() {
                   type="button"
                   onClick={() => setOutfitMode("outfit")}
                   className={`px-4 py-2 rounded-xl border ${
-                    outfitMode === "outfit" ? "bg-black text-white" : "bg-white text-gray-700"
+                    outfitMode === "outfit"
+                      ? "bg-black text-white"
+                      : "bg-white text-gray-700"
                   }`}
                 >
                   OUTFIT
@@ -384,7 +406,9 @@ export default function FusionPage() {
                   type="button"
                   onClick={() => setOutfitMode("mix")}
                   className={`px-4 py-2 rounded-xl border ${
-                    outfitMode === "mix" ? "bg-black text-white" : "bg-white text-gray-700"
+                    outfitMode === "mix"
+                      ? "bg-black text-white"
+                      : "bg-white text-gray-700"
                   }`}
                 >
                   MIX
@@ -397,8 +421,8 @@ export default function FusionPage() {
               required
               description={
                 outfitMode === "mix"
-                  ? "아이템 여러 장을 조립하는 모드. 각 이미지 설명 필수."
-                  : "의상 재구성 기준 이미지."
+                  ? "아이템 여러 장을 조립하는 모드. 각 이미지마다 설명을 꼭 입력해야 한다."
+                  : "의상 재구성 기준 이미지. 정면/측면/디테일 등 여러 장 넣을 수 있다."
               }
               items={outfits}
               onAddFiles={(files) => appendFiles(setOutfits, files)}
@@ -412,9 +436,9 @@ export default function FusionPage() {
 
         <div className="grid grid-cols-1 xl:grid-cols-2 gap-6 mb-6">
           <UploadSection
-            title="배경 업로드"
+            title="BG 업로드"
             required
-            description="환경 DNA를 추출할 배경 이미지 여러 장."
+            description="공간, 톤, 질감, 라이팅 DNA를 추출할 기준 이미지."
             items={bgs}
             onAddFiles={(files) => appendFiles(setBgs, files)}
             onRemoveItem={(index) => removeItem(setBgs, index)}
@@ -422,9 +446,9 @@ export default function FusionPage() {
           />
 
           <UploadSection
-            title="포즈 업로드"
+            title="POSE 업로드"
             required
-            description="포즈 블루프린트를 추출할 포즈 이미지 여러 장."
+            description="포즈와 크롭, 카메라 감각을 추출할 기준 이미지."
             items={poses}
             onAddFiles={(files) => appendFiles(setPoses, files)}
             onRemoveItem={(index) => removeItem(setPoses, index)}
@@ -493,11 +517,12 @@ export default function FusionPage() {
               <div>BG: {bgs.length}장</div>
               <div>POSE: {poses.length}장</div>
               <div>의상 모드: {outfitMode}</div>
-              <div>장소 수: {count}</div>
-              <div>총 예상 결과 수: {poses.length * count}장</div>
+              <div>장소 수: {safeCount}</div>
+              <div>총 예상 결과 수: {expectedResultCount}장</div>
               <div>핏 보정: {fitSpec || "없음"}</div>
               <div>Shooting Mode: {shootingMode}</div>
               <div>Vibe Lock: {lockedVibe ? "설정됨" : "없음"}</div>
+              <div>실행 비용: {totalCost}P</div>
             </div>
           </div>
 
@@ -507,7 +532,7 @@ export default function FusionPage() {
               disabled={loading}
               className="flex-1 bg-black text-white py-5 rounded-2xl text-xl disabled:opacity-60"
             >
-              {loading ? "FUSION 준비중..." : "FUSION 실행하기"}
+              {loading ? "FUSION 준비중..." : `FUSION 실행하기 (${totalCost}P)`}
             </button>
 
             <button
@@ -578,7 +603,13 @@ export default function FusionPage() {
                       <div className="flex flex-wrap gap-2 mb-4">
                         <ShortTag label="무드" value={shorten(slot.result.bgDNA?.spatial_mood)} />
                         <ShortTag label="장소" value={shorten(slot.result.locationPrompt)} />
-                        <ShortTag label="카메라" value={shorten(slot.result.bgDNA?.camera_feel || slot.result.poseBlueprint?.camera_angle_and_crop)} />
+                        <ShortTag
+                          label="카메라"
+                          value={shorten(
+                            slot.result.bgDNA?.camera_feel ||
+                              slot.result.poseBlueprint?.camera_angle_and_crop
+                          )}
+                        />
                         <ShortTag label="조명" value={shorten(slot.result.bgDNA?.lighting_and_exposure)} />
                         <ShortTag label="포즈" value={shorten(slot.result.poseBlueprint?.pose)} />
                         <ShortTag label="표정" value={shorten(slot.result.poseBlueprint?.expression)} />

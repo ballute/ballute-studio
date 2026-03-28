@@ -1,4 +1,8 @@
+"use client";
+
 import Link from "next/link";
+import { useEffect, useState } from "react";
+import { supabase } from "@/lib/supabase";
 
 const lines = [
   {
@@ -39,39 +43,164 @@ const lines = [
   },
 ];
 
+type Viewer = {
+  email: string | null;
+  pointBalance: number;
+} | null;
+
 export default function HomePage() {
+  const [viewer, setViewer] = useState<Viewer>(null);
+  const [loading, setLoading] = useState(true);
+
+  const loadViewer = async () => {
+    try {
+      const {
+        data: { user },
+        error: userError,
+      } = await supabase.auth.getUser();
+
+      console.log("홈 getUser:", user, userError);
+
+      if (!user) {
+        setViewer(null);
+        setLoading(false);
+        return;
+      }
+
+      const { data: profile, error: profileError } = await supabase
+        .from("users")
+        .select("point_balance")
+        .eq("id", user.id)
+        .single();
+
+      console.log("홈 profile:", profile, profileError);
+
+      setViewer({
+        email: user.email ?? null,
+        pointBalance: profile?.point_balance ?? 0,
+      });
+    } catch (error) {
+      console.error("홈 viewer 로드 오류:", error);
+      setViewer(null);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    let mounted = true;
+
+    const init = async () => {
+      if (!mounted) return;
+      await loadViewer();
+    };
+
+    init();
+
+    const {
+      data: { subscription },
+    } = supabase.auth.onAuthStateChange(async () => {
+      if (!mounted) return;
+      await loadViewer();
+    });
+
+    return () => {
+      mounted = false;
+      subscription.unsubscribe();
+    };
+  }, []);
+
+  const handleLogout = async () => {
+    try {
+      const { error } = await supabase.auth.signOut();
+
+      if (error) {
+        console.error("로그아웃 오류:", error);
+        return;
+      }
+
+      setViewer(null);
+      window.location.href = "/";
+    } catch (error) {
+      console.error("로그아웃 예외:", error);
+    }
+  };
+
   return (
     <main className="min-h-screen bg-[#f7f7f5] px-6 py-12">
-      <div className="max-w-7xl mx-auto">
+      <div className="mx-auto max-w-7xl">
         <div className="mb-10">
-          <h1 className="text-5xl font-bold tracking-tight mb-4">
+          <h1 className="mb-4 text-5xl font-bold tracking-tight">
             BALLUTE STUDIO
           </h1>
-          <p className="text-gray-700 text-lg leading-8 max-w-3xl">
+
+          <div className="mb-6 flex flex-wrap gap-3">
+            {loading ? (
+              <div className="rounded-xl border bg-white px-4 py-2 text-sm text-gray-500">
+                확인 중...
+              </div>
+            ) : viewer ? (
+              <>
+                <div className="rounded-xl border bg-white px-4 py-2 text-sm">
+                  로그인됨: {viewer.email}
+                </div>
+
+                <div className="rounded-xl border bg-white px-4 py-2 text-sm font-semibold">
+                  포인트: {viewer.pointBalance}P
+                </div>
+
+                <button
+                  type="button"
+                  onClick={handleLogout}
+                  className="rounded-xl bg-black px-4 py-2 text-sm text-white"
+                >
+                  로그아웃
+                </button>
+              </>
+            ) : (
+              <>
+                <Link
+                  href="/signup"
+                  className="rounded-xl border bg-white px-4 py-2 text-sm"
+                >
+                  회원가입
+                </Link>
+
+                <Link
+                  href="/login"
+                  className="rounded-xl bg-black px-4 py-2 text-sm text-white"
+                >
+                  로그인
+                </Link>
+              </>
+            )}
+          </div>
+
+          <p className="max-w-3xl text-lg leading-8 text-gray-700">
             발루트 이미지 생산 시스템. 먼저 생산 라인을 선택하고, 그 라인에
             필요한 입력만 넣어서 작업을 시작한다.
           </p>
         </div>
 
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+        <div className="grid grid-cols-1 gap-6 lg:grid-cols-3">
           {lines.map((line) => (
             <Link
               key={line.title}
               href={line.href}
-              className="block rounded-3xl border bg-white p-7 hover:shadow-md transition"
+              className="block rounded-3xl border bg-white p-7 transition hover:shadow-md"
             >
-              <div className="flex items-center justify-between mb-5">
+              <div className="mb-5 flex items-center justify-between">
                 <h2 className="text-3xl font-bold">{line.title}</h2>
-                <span className="text-sm px-3 py-1 rounded-full border text-gray-600">
+                <span className="rounded-full border px-3 py-1 text-sm text-gray-600">
                   생산 라인
                 </span>
               </div>
 
-              <p className="text-gray-700 leading-7 mb-6">{line.description}</p>
+              <p className="mb-6 leading-7 text-gray-700">{line.description}</p>
 
-              <div className="border rounded-2xl p-4 bg-[#fafaf8]">
-                <div className="font-semibold mb-3">주요 입력</div>
-                <ul className="space-y-2 text-sm text-gray-700 list-disc pl-5">
+              <div className="rounded-2xl border bg-[#fafaf8] p-4">
+                <div className="mb-3 font-semibold">주요 입력</div>
+                <ul className="list-disc space-y-2 pl-5 text-sm text-gray-700">
                   {line.points.map((point) => (
                     <li key={point}>{point}</li>
                   ))}
@@ -79,7 +208,7 @@ export default function HomePage() {
               </div>
 
               <div className="mt-6">
-                <div className="inline-flex items-center justify-center rounded-xl bg-black text-white px-5 py-3 text-sm font-medium">
+                <div className="inline-flex items-center justify-center rounded-xl bg-black px-5 py-3 text-sm font-medium text-white">
                   {line.title} 시작하기
                 </div>
               </div>
