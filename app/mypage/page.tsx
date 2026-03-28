@@ -26,6 +26,7 @@ export default function MyPage() {
   const [viewer, setViewer] = useState<Viewer | null>(null);
   const [logs, setLogs] = useState<PointLog[]>([]);
   const [loading, setLoading] = useState(true);
+  const [pageError, setPageError] = useState("");
 
   useEffect(() => {
     const loadPage = async () => {
@@ -44,18 +45,17 @@ export default function MyPage() {
           .from("users")
           .select("id, email, point_balance")
           .eq("id", user.id)
-          .single();
+          .maybeSingle();
 
-        if (profileError || !profile) {
+        if (profileError) {
           console.error("profile 오류:", profileError);
-          router.replace("/");
-          return;
+          setPageError("사용자 정보를 불러오지 못했습니다.");
         }
 
         setViewer({
-          id: profile.id,
-          email: profile.email,
-          pointBalance: profile.point_balance ?? 0,
+          id: user.id,
+          email: profile?.email ?? user.email ?? null,
+          pointBalance: profile?.point_balance ?? 0,
         });
 
         const { data: pointLogs, error: logsError } = await supabase
@@ -72,6 +72,7 @@ export default function MyPage() {
         }
       } catch (error) {
         console.error("mypage 로드 오류:", error);
+        setPageError("마이페이지를 불러오는 중 오류가 발생했습니다.");
       } finally {
         setLoading(false);
       }
@@ -120,6 +121,12 @@ export default function MyPage() {
             계정 정보와 포인트 사용 내역을 확인할 수 있습니다.
           </p>
         </div>
+
+        {pageError ? (
+          <div className="mb-6 rounded-2xl border bg-white p-4 text-sm text-red-500">
+            {pageError}
+          </div>
+        ) : null}
 
         <div className="grid grid-cols-1 gap-6 md:grid-cols-3 mb-8">
           <div className="rounded-3xl border bg-white p-6">
