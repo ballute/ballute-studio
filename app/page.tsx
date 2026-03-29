@@ -144,24 +144,23 @@ export default function HomePage() {
       <div className="mx-auto max-w-[1440px] px-5 pb-16 pt-6 sm:px-6 lg:px-10">
         <header className="mb-12 border-b border-[#d9d7d2] pb-6">
           <div className="flex flex-col gap-6 lg:flex-row lg:items-end lg:justify-between">
-            <div className="max-w-[860px]">
+            <div className="max-w-[920px]">
               <h1 className="text-[34px] font-bold leading-[0.9] tracking-[-0.055em] text-[#6f6d78] sm:text-[52px] lg:text-[68px]">
                 SIGNATURE
                 <br />
                 AI STUDIO
               </h1>
 
-              <div className="mt-6 max-w-[760px] text-[15px] leading-[1.9] text-[#7c7a84] sm:text-[17px] space-y-5">
+              <div className="mt-5 max-w-[980px] space-y-3 text-[13px] leading-[1.7] text-[#7c7a84] sm:mt-6 sm:space-y-4 sm:text-[15px] sm:leading-[1.85] lg:text-[17px]">
                 <p>생성이 아닌, 조립.</p>
 
                 <p>
-                  빛, 질감, 공간의 레이어를 쌓아 하나의 씬(Scene)을
-                  구성합니다.
+                  빛, 질감, 공간의 레이어를 쌓아 하나의 씬(Scene)을 구성합니다.
                 </p>
 
                 <p>
-                  설계된 무드 안에서 최적의 컷을 추출하고, 선택된 비주얼은
-                  다음 작업의 기준이 됩니다.
+                  설계된 무드 안에서 최적의 컷을 추출하고, 선택된 비주얼은 다음
+                  작업의 기준이 됩니다.
                 </p>
 
                 <p>통제 가능한 브랜드 아이덴티티.</p>
