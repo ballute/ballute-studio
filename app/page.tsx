@@ -144,14 +144,14 @@ export default function HomePage() {
       <div className="mx-auto max-w-[1440px] px-5 pb-16 pt-6 sm:px-6 lg:px-10">
         <header className="mb-12 border-b border-[#d9d7d2] pb-6">
           <div className="flex flex-col gap-6 lg:flex-row lg:items-end lg:justify-between">
-            <div className="max-w-[760px]">
-              <h1 className="text-[38px] font-bold leading-[0.95] tracking-[-0.05em] text-[#6f6d78] sm:text-[58px] lg:text-[78px]">
-                SIGNATURE AI
+            <div className="max-w-[860px]">
+              <h1 className="text-[34px] font-bold leading-[0.9] tracking-[-0.055em] text-[#6f6d78] sm:text-[52px] lg:text-[68px]">
+                SIGNATURE
                 <br />
-                STUDIO
+                AI STUDIO
               </h1>
 
-              <div className="mt-5 max-w-[620px] text-[15px] leading-7 text-[#7c7a84] sm:text-base space-y-4">
+              <div className="mt-6 max-w-[760px] text-[15px] leading-[1.9] text-[#7c7a84] sm:text-[17px] space-y-5">
                 <p>생성이 아닌, 조립.</p>
 
                 <p>
