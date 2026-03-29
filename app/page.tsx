@@ -145,20 +145,27 @@ export default function HomePage() {
         <header className="mb-12 border-b border-[#d9d7d2] pb-6">
           <div className="flex flex-col gap-6 lg:flex-row lg:items-end lg:justify-between">
             <div className="max-w-[760px]">
-              <div className="mb-3 text-[12px] uppercase tracking-[0.24em] text-[#8b8993]">
-                Ballute
-              </div>
-
               <h1 className="text-[38px] font-bold leading-[0.95] tracking-[-0.05em] text-[#6f6d78] sm:text-[58px] lg:text-[78px]">
-                SIGNATURE
+                SIGNATURE AI
                 <br />
                 STUDIO
               </h1>
 
-              <p className="mt-5 max-w-[520px] text-[15px] leading-7 text-[#7c7a84] sm:text-base">
-                Editorial-grade fashion image production through three signature
-                lines.
-              </p>
+              <div className="mt-5 max-w-[620px] text-[15px] leading-7 text-[#7c7a84] sm:text-base space-y-4">
+                <p>생성이 아닌, 조립.</p>
+
+                <p>
+                  빛, 질감, 공간의 레이어를 쌓아 하나의 씬(Scene)을
+                  구성합니다.
+                </p>
+
+                <p>
+                  설계된 무드 안에서 최적의 컷을 추출하고, 선택된 비주얼은
+                  다음 작업의 기준이 됩니다.
+                </p>
+
+                <p>통제 가능한 브랜드 아이덴티티.</p>
+              </div>
             </div>
 
             <div className="flex flex-col gap-3 sm:min-w-[320px] sm:max-w-[420px]">
