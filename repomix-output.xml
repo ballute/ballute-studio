@@ -1,0 +1,5910 @@
+This file is a merged representation of the entire codebase, combined into a single document by Repomix.
+
+<file_summary>
+This section contains a summary of this file.
+
+<purpose>
+This file contains a packed representation of the entire repository's contents.
+It is designed to be easily consumable by AI systems for analysis, code review,
+or other automated processes.
+</purpose>
+
+<file_format>
+The content is organized as follows:
+1. This summary section
+2. Repository information
+3. Directory structure
+4. Repository files (if enabled)
+5. Multiple file entries, each consisting of:
+  - File path as an attribute
+  - Full contents of the file
+</file_format>
+
+<usage_guidelines>
+- This file should be treated as read-only. Any changes should be made to the
+  original repository files, not this packed version.
+- When processing this file, use the file path to distinguish
+  between different files in the repository.
+- Be aware that this file may contain sensitive information. Handle it with
+  the same level of security as you would the original repository.
+</usage_guidelines>
+
+<notes>
+- Some files may have been excluded based on .gitignore rules and Repomix's configuration
+- Binary files are not included in this packed representation. Please refer to the Repository Structure section for a complete list of file paths, including binary files
+- Files matching patterns in .gitignore are excluded
+- Files matching default ignore patterns are excluded
+- Files are sorted by Git change count (files with more changes are at the bottom)
+</notes>
+
+</file_summary>
+
+<directory_structure>
+app/
+  api/
+    dig/
+      directions/
+        route.ts
+      generate-one/
+        route.ts
+      route.ts
+    fusion/
+      generate-one/
+        route.ts
+      prepare/
+        route.ts
+    generate/
+      route.ts
+    model-anchor/
+      route.ts
+    refrun/
+      run-one/
+        route.ts
+    toss/
+      confirm/
+        route.ts
+  charge/
+    fail/
+      page.tsx
+    success/
+      page.tsx
+    page.tsx
+  dig/
+    page.tsx
+  fusion/
+    page.tsx
+  login/
+    page.tsx
+  mypage/
+    page.tsx
+  refrun/
+    page.tsx
+  signup/
+    page.tsx
+  favicon.ico
+  globals.css
+  layout.tsx
+  page.tsx
+components/
+  face-input-section.tsx
+lib/
+  gemini-dig.ts
+  gemini-fusion.ts
+  gemini-refrun.ts
+  gemini-web.ts
+  points.ts
+  supabase.ts
+  utils.ts
+project_backup/
+  editor/
+    page.tsx
+  new/
+    page.tsx
+public/
+  dic설명.jpg
+  file.svg
+  fusion설명.jpg
+  globe.svg
+  home-dig.jpg
+  home-fusion.jpg
+  home-refrun.jpg
+  next.svg
+  refrun설명.jpg
+  vercel.svg
+  window.svg
+.gitignore
+AGENTS.md
+CLAUDE.md
+eslint.config.mjs
+next.config.ts
+package.json
+postcss.config.mjs
+README.md
+tsconfig.json
+</directory_structure>
+
+<files>
+This section contains the contents of the repository's files.
+
+<file path="app/api/dig/directions/route.ts">
+import { NextResponse } from "next/server";
+import { generateCreativeDirectionsWeb } from "@/lib/gemini-dig";
+
+export async function POST(req: Request) {
+  try {
+    const formData = await req.formData();
+
+    const moodQuery = (formData.get("moodQuery") as string) || "";
+    const countRaw = (formData.get("count") as string) || "4";
+    const count = Math.max(1, Math.min(8, Number(countRaw) || 4));
+
+    if (!moodQuery.trim()) {
+      return NextResponse.json(
+        { error: "무드 키워드가 필요하다." },
+        { status: 400 }
+      );
+    }
+
+    const directions = await generateCreativeDirectionsWeb(moodQuery, count);
+
+    return NextResponse.json({
+      success: true,
+      directions,
+    });
+  } catch (error) {
+    console.error("DIG_DIRECTIONS_ERROR:", error);
+
+    const message =
+      error instanceof Error ? error.message : "알 수 없는 directions 오류";
+
+    return NextResponse.json({ error: message }, { status: 500 });
+  }
+}
+</file>
+
+<file path="app/api/dig/generate-one/route.ts">
+import { NextResponse } from "next/server";
+import { fileToBase64 } from "@/lib/utils";
+import {
+  generateDigImageWeb,
+  LockedVibe,
+  DigDirection,
+} from "@/lib/gemini-dig";
+
+export async function POST(req: Request) {
+  try {
+    const formData = await req.formData();
+
+    const fitSpec = (formData.get("fitSpec") as string) || "";
+    const shootingMode = (formData.get("shootingMode") as string) || "default";
+    const customPrompt = (formData.get("customPrompt") as string) || "";
+    const outfitMode = (formData.get("outfitMode") as string) || "outfit";
+    const lockedVibeRaw = (formData.get("lockedVibe") as string) || "";
+    const directionRaw = (formData.get("direction") as string) || "";
+    const mixCaptionsRaw = (formData.get("mixCaptions") as string) || "[]";
+
+    const faceFiles = formData.getAll("faces") as File[];
+    const outfitFiles = formData.getAll("outfits") as File[];
+
+    if (!directionRaw) {
+      return NextResponse.json(
+        { error: "direction 정보가 필요하다." },
+        { status: 400 }
+      );
+    }
+
+    if (!faceFiles.length) {
+      return NextResponse.json(
+        { error: "얼굴 이미지는 최소 1장 필요하다." },
+        { status: 400 }
+      );
+    }
+
+    if (!outfitFiles.length) {
+      return NextResponse.json(
+        { error: "의상 이미지는 최소 1장 필요하다." },
+        { status: 400 }
+      );
+    }
+
+    const direction = JSON.parse(directionRaw) as DigDirection;
+    const mixCaptions = JSON.parse(mixCaptionsRaw) as string[];
+    const lockedVibe: LockedVibe | null = lockedVibeRaw
+      ? JSON.parse(lockedVibeRaw)
+      : null;
+
+    if (outfitMode === "mix" && mixCaptions.length !== outfitFiles.length) {
+      return NextResponse.json(
+        { error: "MIX 설명 수와 의상 이미지 수가 맞지 않는다." },
+        { status: 400 }
+      );
+    }
+
+    const faceBase64s = await Promise.all(faceFiles.map(fileToBase64));
+    const outfitBase64s = await Promise.all(outfitFiles.map(fileToBase64));
+
+    const generated = await generateDigImageWeb({
+      faceBase64s,
+      outfitBase64s,
+      dirSet: direction,
+      bodySpecs: fitSpec,
+      shootingMode,
+      customPrompt: shootingMode === "custom" ? customPrompt : undefined,
+      lockedVibe,
+      isMixMode: outfitMode === "mix",
+      mixCaptions,
+    });
+
+    return NextResponse.json({
+      success: true,
+      result: {
+        image: generated.base64,
+        summary: generated.summary,
+        direction,
+      },
+    });
+  } catch (error) {
+    console.error("DIG_GENERATE_ONE_ERROR:", error);
+
+    const message =
+      error instanceof Error ? error.message : "알 수 없는 generate-one 오류";
+
+    return NextResponse.json({ error: message }, { status: 500 });
+  }
+}
+</file>
+
+<file path="app/api/dig/route.ts">
+import { NextResponse } from "next/server";
+import { fileToBase64 } from "@/lib/utils";
+import {
+  generateCreativeDirectionsWeb,
+  generateDigImageWeb,
+  LockedVibe,
+} from "@/lib/gemini-dig";
+
+export async function POST(req: Request) {
+  try {
+    const formData = await req.formData();
+
+    const moodQuery = (formData.get("moodQuery") as string) || "";
+    const bodySpecs = (formData.get("fitSpec") as string) || "";
+    const shootingMode = (formData.get("shootingMode") as string) || "default";
+    const customPrompt = (formData.get("customPrompt") as string) || "";
+    const outfitMode = (formData.get("outfitMode") as string) || "outfit";
+    const countRaw = (formData.get("count") as string) || "4";
+    const lockedVibeRaw = (formData.get("lockedVibe") as string) || "";
+
+    const count = Math.max(1, Math.min(8, Number(countRaw) || 4));
+
+    const faceFiles = formData.getAll("faces") as File[];
+    const outfitFiles = formData.getAll("outfits") as File[];
+    const mixCaptionsRaw = (formData.get("mixCaptions") as string) || "[]";
+
+    const mixCaptions = JSON.parse(mixCaptionsRaw) as string[];
+    const lockedVibe: LockedVibe | null = lockedVibeRaw
+      ? JSON.parse(lockedVibeRaw)
+      : null;
+
+    if (!moodQuery.trim()) {
+      return NextResponse.json(
+        { error: "무드 키워드가 필요하다." },
+        { status: 400 }
+      );
+    }
+
+    if (!faceFiles.length) {
+      return NextResponse.json(
+        { error: "얼굴 이미지는 최소 1장 필요하다." },
+        { status: 400 }
+      );
+    }
+
+    if (!outfitFiles.length) {
+      return NextResponse.json(
+        { error: "의상 이미지는 최소 1장 필요하다." },
+        { status: 400 }
+      );
+    }
+
+    if (outfitMode === "mix" && mixCaptions.length !== outfitFiles.length) {
+      return NextResponse.json(
+        { error: "MIX 설명 수와 의상 이미지 수가 맞지 않는다." },
+        { status: 400 }
+      );
+    }
+
+    const faceBase64s = await Promise.all(faceFiles.map(fileToBase64));
+    const outfitBase64s = await Promise.all(outfitFiles.map(fileToBase64));
+
+    const directions = await generateCreativeDirectionsWeb(moodQuery, count);
+
+    const results = [];
+    for (const dirSet of directions) {
+      const generated = await generateDigImageWeb({
+        faceBase64s,
+        outfitBase64s,
+        dirSet,
+        bodySpecs,
+        shootingMode,
+        customPrompt: shootingMode === "custom" ? customPrompt : undefined,
+        lockedVibe,
+        isMixMode: outfitMode === "mix",
+        mixCaptions,
+      });
+
+      results.push({
+        image: generated.base64,
+        summary: generated.summary,
+        direction: dirSet,
+      });
+    }
+
+    return NextResponse.json({
+      success: true,
+      directions,
+      results,
+    });
+  } catch (error) {
+    console.error("DIG_ROUTE_ERROR:", error);
+
+    const message =
+      error instanceof Error ? error.message : "알 수 없는 DIG 서버 오류";
+
+    return NextResponse.json({ error: message }, { status: 500 });
+  }
+}
+</file>
+
+<file path="app/api/fusion/generate-one/route.ts">
+import { NextResponse } from "next/server";
+import { fileToBase64 } from "@/lib/utils";
+import {
+  generateFusionImageWeb,
+  BackgroundDNA,
+  PoseBlueprint,
+  LockedVibe,
+} from "@/lib/gemini-fusion";
+
+export async function POST(req: Request) {
+  try {
+    const formData = await req.formData();
+
+    const fitSpec = (formData.get("fitSpec") as string) || "";
+    const shootingMode = (formData.get("shootingMode") as string) || "default";
+    const customPrompt = (formData.get("customPrompt") as string) || "";
+    const outfitMode = (formData.get("outfitMode") as string) || "outfit";
+    const mixCaptionsRaw = (formData.get("mixCaptions") as string) || "[]";
+    const bgDNARaw = (formData.get("bgDNA") as string) || "{}";
+    const poseBlueprintRaw = (formData.get("poseBlueprint") as string) || "{}";
+    const locationPrompt = (formData.get("locationPrompt") as string) || "";
+    const lockedVibeRaw = (formData.get("lockedVibe") as string) || "";
+
+    const faceFiles = formData.getAll("faces") as File[];
+    const outfitFiles = formData.getAll("outfits") as File[];
+
+    if (!faceFiles.length) {
+      return NextResponse.json(
+        { error: "얼굴 이미지는 최소 1장 필요하다." },
+        { status: 400 }
+      );
+    }
+
+    if (!outfitFiles.length) {
+      return NextResponse.json(
+        { error: "의상 이미지는 최소 1장 필요하다." },
+        { status: 400 }
+      );
+    }
+
+    if (!locationPrompt.trim()) {
+      return NextResponse.json(
+        { error: "로케이션 프롬프트가 필요하다." },
+        { status: 400 }
+      );
+    }
+
+    const faceBase64s = await Promise.all(faceFiles.map(fileToBase64));
+    const outfitBase64s = await Promise.all(outfitFiles.map(fileToBase64));
+
+    const mixCaptions = JSON.parse(mixCaptionsRaw) as string[];
+    const bgDNA = JSON.parse(bgDNARaw) as BackgroundDNA;
+    const poseBlueprint = JSON.parse(poseBlueprintRaw) as PoseBlueprint;
+    const lockedVibe: LockedVibe | null = lockedVibeRaw
+      ? JSON.parse(lockedVibeRaw)
+      : null;
+
+    const generated = await generateFusionImageWeb({
+      faceBase64s,
+      outfitBase64s,
+      poseBlueprint,
+      targetLocationText: locationPrompt,
+      bgDNA,
+      bodySpecs: fitSpec,
+      isMixMode: outfitMode === "mix",
+      mixCaptions,
+      lockedVibe,
+      shootingMode,
+      customPrompt: shootingMode === "custom" ? customPrompt : undefined,
+    });
+
+    return NextResponse.json({
+      success: true,
+      result: {
+        image: generated.base64,
+        summary: generated.summary,
+        locationPrompt,
+        poseBlueprint,
+        bgDNA,
+      },
+    });
+  } catch (error) {
+    console.error("FUSION_GENERATE_ONE_ERROR:", error);
+
+    const message =
+      error instanceof Error ? error.message : "알 수 없는 FUSION 생성 오류";
+
+    return NextResponse.json({ error: message }, { status: 500 });
+  }
+}
+</file>
+
+<file path="app/api/fusion/prepare/route.ts">
+import { NextResponse } from "next/server";
+import { fileToBase64 } from "@/lib/utils";
+import {
+  analyzeBackgroundDNAFromBase64s,
+  analyzePoseBlueprintFromBase64,
+  searchLocationPrompts,
+} from "@/lib/gemini-fusion";
+
+export async function POST(req: Request) {
+  try {
+    const formData = await req.formData();
+
+    const countRaw = (formData.get("count") as string) || "4";
+    const count = Math.max(1, Math.min(8, Number(countRaw) || 4));
+
+    const bgFiles = formData.getAll("bgs") as File[];
+    const poseFiles = formData.getAll("poses") as File[];
+
+    if (!bgFiles.length || !poseFiles.length) {
+      return NextResponse.json(
+        { error: "BG 또는 POSE 사진 누락." },
+        { status: 400 }
+      );
+    }
+
+    const bgBase64s = await Promise.all(bgFiles.map(fileToBase64));
+    const poseBase64s = await Promise.all(poseFiles.map(fileToBase64));
+
+    const bgDNA = await analyzeBackgroundDNAFromBase64s(bgBase64s);
+    const locationPrompts = await searchLocationPrompts(bgDNA, count);
+
+    const poseBlueprints = [];
+    for (const poseBase64 of poseBase64s) {
+      const blueprint = await analyzePoseBlueprintFromBase64(poseBase64);
+      poseBlueprints.push(blueprint);
+    }
+
+    return NextResponse.json({
+      success: true,
+      bgDNA,
+      locationPrompts,
+      poseBlueprints,
+    });
+  } catch (error) {
+    console.error("FUSION_PREPARE_ERROR:", error);
+
+    const message =
+      error instanceof Error ? error.message : "알 수 없는 FUSION 준비 오류";
+
+    return NextResponse.json({ error: message }, { status: 500 });
+  }
+}
+</file>
+
+<file path="app/api/generate/route.ts">
+import { NextResponse } from "next/server";
+import { fileToBase64 } from "@/lib/utils";
+import { generateLookbookWeb } from "@/lib/gemini-web";
+
+export async function POST(req: Request) {
+  try {
+    const formData = await req.formData();
+
+    const projectName = formData.get("projectName") as string;
+    const projectType = formData.get("projectType") as string;
+
+    const face = formData.get("face") as File;
+    const outfit = formData.get("outfit") as File;
+    const bg = formData.get("bg") as File | null;
+    const pose = formData.get("pose") as File | null;
+
+    if (!face || !outfit) {
+      return NextResponse.json(
+        { error: "필수 이미지 누락" },
+        { status: 400 }
+      );
+    }
+
+    // 👉 base64 변환
+    const faceBase64 = await fileToBase64(face);
+    const outfitBase64 = await fileToBase64(outfit);
+    const bgBase64 = bg ? await fileToBase64(bg) : null;
+    const poseBase64 = pose ? await fileToBase64(pose) : null;
+
+    // 👉 프롬프트
+    const prompt = `
+You are a high-end fashion photographer.
+
+Create a professional fashion lookbook image.
+
+[Project]
+Name: ${projectName}
+Type: ${projectType}
+
+[Instructions]
+- Use the face image as identity
+- Use outfit image as exact clothing reference
+- Use background if provided
+- Apply pose if provided
+- Ultra realistic
+- Fashion editorial lighting
+- Clean composition
+- 8K quality
+`;
+
+    // 👉 Gemini 호출
+    const imageBase64 = await generateLookbookWeb({
+      prompt,
+      faceBase64,
+      outfitBase64,
+      bgBase64,
+      poseBase64,
+    });
+
+    return NextResponse.json({
+      success: true,
+      image: imageBase64,
+    });
+  } catch (error) {
+    console.error(error);
+
+    return NextResponse.json(
+      { error: "이미지 생성 실패" },
+      { status: 500 }
+    );
+  }
+}
+</file>
+
+<file path="app/api/refrun/run-one/route.ts">
+import { NextResponse } from "next/server";
+import { fileToBase64 } from "@/lib/utils";
+import {
+  analyzeReferenceWeb,
+  generateRefRunImageWeb,
+} from "@/lib/gemini-refrun";
+
+export async function POST(req: Request) {
+  try {
+    const formData = await req.formData();
+
+    const fitSpec = (formData.get("fitSpec") as string) || "";
+    const shootingMode = (formData.get("shootingMode") as string) || "default";
+    const customPrompt = (formData.get("customPrompt") as string) || "";
+
+    const faceFiles = formData.getAll("faces") as File[];
+    const outfitFiles = formData.getAll("outfits") as File[];
+    const referenceFile = formData.get("reference") as File | null;
+
+    if (!faceFiles.length) {
+      return NextResponse.json(
+        { error: "얼굴 이미지는 최소 1장 필요하다." },
+        { status: 400 }
+      );
+    }
+
+    if (!outfitFiles.length) {
+      return NextResponse.json(
+        { error: "의상 이미지는 최소 1장 필요하다." },
+        { status: 400 }
+      );
+    }
+
+    if (!referenceFile) {
+      return NextResponse.json(
+        { error: "레퍼런스 이미지는 최소 1장 필요하다." },
+        { status: 400 }
+      );
+    }
+
+    const faceBase64s = await Promise.all(faceFiles.map(fileToBase64));
+    const outfitBase64s = await Promise.all(outfitFiles.map(fileToBase64));
+    const referenceBase64 = await fileToBase64(referenceFile);
+
+    const analyzed = await analyzeReferenceWeb(referenceBase64);
+
+    const generated = await generateRefRunImageWeb({
+      faceBase64s,
+      outfitBase64s,
+      dirSet: analyzed,
+      bodySpecs: fitSpec,
+      shootingMode,
+      customPrompt: shootingMode === "custom" ? customPrompt : undefined,
+    });
+
+    return NextResponse.json({
+      success: true,
+      result: {
+        image: generated.base64,
+        summary: generated.summary,
+        direction: analyzed,
+      },
+    });
+  } catch (error) {
+    console.error("REFRUN_RUN_ONE_ERROR:", error);
+
+    const message =
+      error instanceof Error ? error.message : "알 수 없는 REFRUN 오류";
+
+    return NextResponse.json({ error: message }, { status: 500 });
+  }
+}
+</file>
+
+<file path="app/api/toss/confirm/route.ts">
+import { NextResponse } from "next/server";
+import { createClient } from "@supabase/supabase-js";
+
+export async function POST(req: Request) {
+  try {
+    const body = await req.json();
+    const { amount, points } = body;
+
+    const supabase = createClient(
+      process.env.NEXT_PUBLIC_SUPABASE_URL!,
+      process.env.SUPABASE_SERVICE_ROLE_KEY!
+    );
+
+    // 현재 유저 가져오기 (간단버전)
+    const {
+      data: { user },
+    } = await supabase.auth.getUser();
+
+    if (!user) {
+      throw new Error("유저 없음");
+    }
+
+    // 포인트 추가
+    const { error } = await supabase.rpc("add_points", {
+      p_user_id: user.id,
+      p_amount: Number(points),
+      p_reason: "충전",
+    });
+
+    if (error) throw error;
+
+    return NextResponse.json({ success: true });
+  } catch (e: any) {
+    return NextResponse.json(
+      { error: e.message },
+      { status: 500 }
+    );
+  }
+}
+</file>
+
+<file path="app/charge/fail/page.tsx">
+export default function FailPage() {
+  return (
+    <main className="min-h-screen flex items-center justify-center">
+      <div className="text-xl text-red-500">결제 실패</div>
+    </main>
+  );
+}
+</file>
+
+<file path="app/charge/success/page.tsx">
+"use client";
+
+import { useEffect, useState } from "react";
+
+export default function SuccessPage() {
+  const [message, setMessage] = useState("처리중...");
+
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const amount = params.get("amount");
+    const points = params.get("points");
+
+    const run = async () => {
+      try {
+        const res = await fetch("/api/toss/confirm", {
+          method: "POST",
+          body: JSON.stringify({
+            amount,
+            points,
+          }),
+        });
+
+        const data = await res.json();
+
+        if (!res.ok) throw new Error(data.error);
+
+        setMessage("충전 완료");
+      } catch (e) {
+        console.error(e);
+        setMessage("충전 실패");
+      }
+    };
+
+    run();
+  }, []);
+
+  return (
+    <main className="min-h-screen flex items-center justify-center">
+      <div className="text-xl">{message}</div>
+    </main>
+  );
+}
+</file>
+
+<file path="app/charge/page.tsx">
+"use client";
+
+import { useState } from "react";
+
+declare global {
+  interface Window {
+    TossPayments: any;
+  }
+}
+
+const PRODUCTS = [
+  { price: 1000, points: 100 },
+  { price: 3000, points: 300 },
+  { price: 5000, points: 500 },
+];
+
+export default function ChargePage() {
+  const [loading, setLoading] = useState(false);
+
+  const handlePayment = async (amount: number, points: number) => {
+    setLoading(true);
+
+    try {
+      const tossPayments = window.TossPayments(
+        process.env.NEXT_PUBLIC_TOSS_CLIENT_KEY
+      );
+
+      const orderId = `order_${Date.now()}`;
+
+      await tossPayments.requestPayment("카드", {
+        amount,
+        orderId,
+        orderName: `${points} 포인트 충전`,
+        successUrl: `${window.location.origin}/charge/success?amount=${amount}&points=${points}`,
+        failUrl: `${window.location.origin}/charge/fail`,
+      });
+    } catch (e) {
+      console.error(e);
+      alert("결제 실행 오류");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  return (
+    <main className="min-h-screen bg-white px-6 py-16">
+      <div className="max-w-md mx-auto">
+        <h1 className="text-3xl font-bold mb-8">포인트 충전</h1>
+
+        <div className="space-y-4">
+          {PRODUCTS.map((p) => (
+            <button
+              key={p.price}
+              onClick={() => handlePayment(p.price, p.points)}
+              disabled={loading}
+              className="w-full border rounded-xl px-4 py-4 text-left"
+            >
+              <div className="font-semibold">{p.points}P</div>
+              <div className="text-sm text-gray-600">{p.price}원</div>
+            </button>
+          ))}
+        </div>
+      </div>
+    </main>
+  );
+}
+</file>
+
+<file path="lib/gemini-dig.ts">
+import { GoogleGenAI, HarmCategory, HarmBlockThreshold } from "@google/genai";
+
+const ai = new GoogleGenAI({
+  apiKey: process.env.GEMINI_API_KEY!,
+});
+
+const safetySettings = [
+  {
+    category: HarmCategory.HARM_CATEGORY_HARASSMENT,
+    threshold: HarmBlockThreshold.BLOCK_ONLY_HIGH,
+  },
+  {
+    category: HarmCategory.HARM_CATEGORY_HATE_SPEECH,
+    threshold: HarmBlockThreshold.BLOCK_ONLY_HIGH,
+  },
+  {
+    category: HarmCategory.HARM_CATEGORY_SEXUALLY_EXPLICIT,
+    threshold: HarmBlockThreshold.BLOCK_ONLY_HIGH,
+  },
+  {
+    category: HarmCategory.HARM_CATEGORY_DANGEROUS_CONTENT,
+    threshold: HarmBlockThreshold.BLOCK_ONLY_HIGH,
+  },
+];
+
+export type DigDirection = {
+  background: string;
+  pose: string;
+  expression: string;
+  mood: string;
+  photography_technique: string;
+};
+
+export type LockedVibe = {
+  background?: string;
+  pose?: string;
+  expression?: string;
+  overall_mood?: string;
+  camera_angle_and_crop?: string;
+  lighting_and_exposure?: string;
+  color_grading_and_texture?: string;
+};
+
+const buildFitPromptContext = (
+  bodySpecs?: string
+): { fitPromptContext: string; fitSummarySuffix: string } => {
+  if (!bodySpecs) {
+    return {
+      fitPromptContext:
+        "- AUTO-FIT MODE: Replicate the garment's silhouette, fit, length, and drape exactly.",
+      fitSummarySuffix: "",
+    };
+  }
+
+  const specMatch = bodySpecs.match(/(\d+)\/(\d+)\s+(\d+)\/(\d+)/);
+  if (!specMatch) {
+    return {
+      fitPromptContext:
+        "- AUTO-FIT MODE: Replicate the garment's silhouette, fit, length, and drape exactly.",
+      fitSummarySuffix: "",
+    };
+  }
+
+  const h1 = parseInt(specMatch[1], 10);
+  const w1 = parseInt(specMatch[2], 10);
+  const h2 = parseInt(specMatch[3], 10);
+  const w2 = parseInt(specMatch[4], 10);
+
+  const hDiff = h2 - h1;
+  const wDiff = w2 - w1;
+
+  let hDesc = "";
+  let wDesc = "";
+  let lengthEffect = "";
+  let widthEffect = "";
+
+  if (hDiff >= 4) {
+    hDesc = "taller";
+    lengthEffect =
+      "Because the body is taller, sleeves expose more wrist and the garment sits naturally higher.";
+  } else if (hDiff <= -4) {
+    hDesc = "shorter";
+    lengthEffect =
+      "Because the body is shorter, sleeves cover more of the hands and the garment falls lower.";
+  }
+
+  if (wDiff >= 4) {
+    wDesc = "broader/heavier";
+    widthEffect =
+      "Because the body is thicker, the fixed garment fits tighter and drapes less.";
+  } else if (wDiff <= -4) {
+    wDesc = "slimmer/lighter";
+    widthEffect =
+      "Because the body is thinner, the fixed garment fits looser and drapes more.";
+  }
+
+  let bodyChange = [hDesc, wDesc].filter(Boolean).join(" and ");
+  if (!bodyChange) {
+    bodyChange = "similar proportions";
+    lengthEffect = "Maintain the original vertical fit.";
+    widthEffect = "Maintain the original width and drape.";
+  }
+
+  return {
+    fitPromptContext: `
+- FIT CALIBRATION (FIXED GARMENT PARADIGM):
+  * CRITICAL RULE: The physical size, pattern, and design of the garment are 100% FIXED.
+  * DO NOT redesign, resize, or alter the garment itself.
+  * THE BODY CHANGE: The target model is visually ${bodyChange}.
+  * THE VISUAL EFFECT:
+    1. ${lengthEffect}
+    2. ${widthEffect}
+  * Render the natural physical result of this new body wearing the exact same fixed-size garment.
+`,
+    fitSummarySuffix: ` + 📏 핏 보정: Body ${bodyChange}`,
+  };
+};
+
+export async function generateCreativeDirectionsWeb(
+  moodQuery: string,
+  count: number
+): Promise<DigDirection[]> {
+  const systemPrompt = `You are the Creative Director for 'Ballute'.
+Research visuals of '${moodQuery}' using Google Search.
+Extract ONLY these 5 editorial elements for ${count} photoshoot directions:
+1. background
+2. pose
+3. expression
+4. mood
+5. photography_technique
+
+CRITICAL RULE:
+- Embrace the unpredictability of research.
+- Include texture / film / digital look when relevant.
+- Return ONLY valid JSON array.
+Format:
+[
+  {
+    "background": "...",
+    "pose": "...",
+    "expression": "...",
+    "mood": "...",
+    "photography_technique": "..."
+  }
+]`;
+
+  const response = await ai.models.generateContent({
+    model: "gemini-3-flash-preview",
+    contents: {
+      parts: [{ text: systemPrompt }],
+    },
+    // @ts-ignore
+    tools: [{ googleSearch: {} }],
+  });
+
+  const rawText = response.candidates?.[0]?.content?.parts?.[0]?.text || "";
+  const jsonStart = rawText.indexOf("[");
+  const jsonEnd = rawText.lastIndexOf("]") + 1;
+
+  if (jsonStart === -1 || jsonEnd === 0) {
+    throw new Error("DIG 리서치 결과를 JSON으로 파싱하지 못했다.");
+  }
+
+  const parsed = JSON.parse(rawText.substring(jsonStart, jsonEnd));
+
+  if (!Array.isArray(parsed) || parsed.length === 0) {
+    throw new Error("DIG 리서치 결과가 비어 있다.");
+  }
+
+  return parsed.slice(0, count);
+}
+
+export async function generateDigImageWeb(args: {
+  faceBase64s: string[];
+  outfitBase64s: string[];
+  dirSet: DigDirection;
+  bodySpecs?: string;
+  shootingMode?: string;
+  customPrompt?: string;
+  lockedVibe?: LockedVibe | null;
+  isMixMode?: boolean;
+  mixCaptions?: string[];
+}): Promise<{ base64: string; summary: string }> {
+  const {
+    faceBase64s,
+    outfitBase64s,
+    dirSet,
+    bodySpecs,
+    shootingMode = "default",
+    customPrompt,
+    lockedVibe,
+    isMixMode = false,
+    mixCaptions = [],
+  } = args;
+
+  if (!faceBase64s.length) {
+    throw new Error("얼굴 이미지가 없다.");
+  }
+
+  if (!outfitBase64s.length) {
+    throw new Error("의상 이미지가 없다.");
+  }
+
+  const parts: any[] = [];
+
+  for (const faceBase64 of faceBase64s) {
+    parts.push({
+      inlineData: {
+        data: faceBase64,
+        mimeType: "image/jpeg",
+      },
+    });
+  }
+
+  outfitBase64s.forEach((outfitBase64, index) => {
+    parts.push({
+      inlineData: {
+        data: outfitBase64,
+        mimeType: "image/jpeg",
+      },
+    });
+
+    if (isMixMode) {
+      const caption = mixCaptions[index] || "No specific styling instruction provided.";
+      parts.push({
+        text: `[Mix Item ${index + 1} Instruction: ${caption}]`,
+      });
+    }
+  });
+
+  const faceContext =
+    faceBase64s.length === 1
+      ? "Use the single face reference precisely."
+      : "3D FACE ID ENGINE ACTIVE. Maintain the exact identity consistently across all results.";
+
+  const { fitPromptContext, fitSummarySuffix } =
+    buildFitPromptContext(bodySpecs);
+
+  const modeDict: Record<string, string> = {
+    fuji: "Texture: Fujifilm 400H (cool greens, cyan shadows, high contrast cinematic film).",
+    mono: "Texture: Ilford HP5 Plus. Force strict black and white. No color.",
+    studio:
+      "Texture: clean commercial high-key studio lighting. Zero grain. High-end digital clarity.",
+    raw: "Texture: natural raw light. Minimal grading. Realistic exposure.",
+    default:
+      "Texture: Kodak Portra 400 (warm skin tones, subtle analog grain, soft cinematic light).",
+  };
+
+  let textureAndColor = modeDict.default;
+
+  if (lockedVibe?.color_grading_and_texture) {
+    textureAndColor = lockedVibe.color_grading_and_texture;
+  } else if (shootingMode === "custom" && customPrompt) {
+    textureAndColor = `Texture & Photography Style: ${customPrompt}`;
+  } else if (shootingMode !== "default" && modeDict[shootingMode]) {
+    textureAndColor = modeDict[shootingMode];
+  }
+
+  const backgroundText = lockedVibe?.background || dirSet.background;
+  const poseText = lockedVibe?.pose || dirSet.pose;
+  const expressionText = lockedVibe?.expression || dirSet.expression;
+  const moodText = lockedVibe?.overall_mood || dirSet.mood;
+  const cameraText =
+    lockedVibe?.camera_angle_and_crop || dirSet.photography_technique;
+  const lightingText =
+    lockedVibe?.lighting_and_exposure || dirSet.photography_technique;
+
+  const modeSummary = isMixMode ? "🧩 MIX" : "👕 OUTFIT";
+  const vibeSummary = lockedVibe ? " + 🔒 VIBE LOCK" : "";
+  const fitSummary = `${modeSummary}${vibeSummary}${fitSummarySuffix}`;
+
+  const outfitInstruction = isMixMode
+    ? `
+[MIX MODE]
+- Use only the uploaded outfit items.
+- Respect each item instruction exactly.
+- Preserve layer order and item hierarchy.
+- Do not invent extra garments.
+`
+    : `
+[OUTFIT MODE]
+- Reconstruct the exact uploaded outfit references.
+- Preserve pattern, material read, silhouette, drape, and key construction details.
+- Do not invent extra garments.
+`;
+
+  const prompt = `
+Task: Exact Aesthetic Replication & High-End Fashion Try-On.
+
+[IDENTITY]
+- ${faceContext}
+
+${fitPromptContext}
+
+${outfitInstruction}
+
+[EDITORIAL ART DIRECTION]
+- BACKGROUND: ${backgroundText}
+- POSE: ${poseText}
+- EXPRESSION: ${expressionText}
+- OVERALL MOOD: ${moodText}
+
+[TECHNICAL EXECUTION]
+- ${textureAndColor}
+- CAMERA / PHOTOGRAPHY: ${cameraText}
+- LIGHTING: ${lightingText}
+- Render as a real premium fashion photograph.
+- Avoid generic AI 3D / plastic skin look.
+- 3:4 vertical composition.
+- Output should feel like a luxury editorial lookbook image.
+`;
+
+  const response = await ai.models.generateContent({
+    model: "gemini-3.1-flash-image-preview",
+    contents: {
+      parts: [...parts, { text: prompt }],
+    },
+    config: {
+      imageConfig: {
+        aspectRatio: "3:4",
+        imageSize: "2K",
+      },
+      safetySettings,
+    },
+  });
+
+  const imageBase64 =
+    response.candidates?.[0]?.content?.parts?.find(
+      (part: any) => part.inlineData
+    )?.inlineData?.data || null;
+
+  if (!imageBase64) {
+    throw new Error("DIG 이미지 생성 결과가 비어 있다.");
+  }
+
+  return {
+    base64: imageBase64,
+    summary: fitSummary,
+  };
+}
+</file>
+
+<file path="lib/gemini-fusion.ts">
+import {
+  GoogleGenAI,
+  HarmCategory,
+  HarmBlockThreshold,
+} from "@google/genai";
+
+const ai = new GoogleGenAI({
+  apiKey: process.env.GEMINI_API_KEY!,
+});
+
+const safetySettings = [
+  {
+    category: HarmCategory.HARM_CATEGORY_HARASSMENT,
+    threshold: HarmBlockThreshold.BLOCK_ONLY_HIGH,
+  },
+  {
+    category: HarmCategory.HARM_CATEGORY_HATE_SPEECH,
+    threshold: HarmBlockThreshold.BLOCK_ONLY_HIGH,
+  },
+  {
+    category: HarmCategory.HARM_CATEGORY_SEXUALLY_EXPLICIT,
+    threshold: HarmBlockThreshold.BLOCK_ONLY_HIGH,
+  },
+  {
+    category: HarmCategory.HARM_CATEGORY_DANGEROUS_CONTENT,
+    threshold: HarmBlockThreshold.BLOCK_ONLY_HIGH,
+  },
+];
+
+export type LockedVibe = {
+  background?: string;
+  pose?: string;
+  expression?: string;
+  overall_mood?: string;
+  camera_angle_and_crop?: string;
+  lighting_and_exposure?: string;
+  color_grading_and_texture?: string;
+};
+
+export type BackgroundDNA = {
+  environment_type?: string;
+  architectural_language?: string;
+  lighting_and_exposure?: string;
+  color_grading_and_texture?: string;
+  spatial_mood?: string;
+  camera_feel?: string;
+  do_not_copy?: string[];
+};
+
+export type PoseBlueprint = {
+  pose?: string;
+  expression?: string;
+  camera_angle_and_crop?: string;
+  body_attitude?: string;
+};
+
+const buildFitPromptContext = (
+  bodySpecs?: string
+): { fitPromptContext: string; fitSummarySuffix: string } => {
+  if (!bodySpecs) {
+    return {
+      fitPromptContext:
+        "- AUTO-FIT MODE: Replicate the garment's silhouette, fit, length, and drape EXACTLY.",
+      fitSummarySuffix: "",
+    };
+  }
+
+  const specMatch = bodySpecs.match(/(\d+)\/(\d+)\s+(\d+)\/(\d+)/);
+  if (!specMatch) {
+    return {
+      fitPromptContext:
+        "- AUTO-FIT MODE: Replicate the garment's silhouette, fit, length, and drape EXACTLY.",
+      fitSummarySuffix: "",
+    };
+  }
+
+  const h1 = parseInt(specMatch[1], 10);
+  const w1 = parseInt(specMatch[2], 10);
+  const h2 = parseInt(specMatch[3], 10);
+  const w2 = parseInt(specMatch[4], 10);
+
+  const hDiff = h2 - h1;
+  const wDiff = w2 - w1;
+
+  let hDesc = "";
+  let wDesc = "";
+  let lengthEffect = "";
+  let widthEffect = "";
+
+  if (hDiff >= 4) {
+    hDesc = "taller";
+    lengthEffect =
+      "Because the body is taller/longer, the fixed garment sits naturally higher. Sleeves expose more wrist and pants break higher.";
+  } else if (hDiff <= -4) {
+    hDesc = "shorter";
+    lengthEffect =
+      "Because the body is shorter, the fixed garment falls lower. Sleeves cover more hands and pants stack more.";
+  }
+
+  if (wDiff >= 4) {
+    wDesc = "broader/heavier";
+    widthEffect =
+      "Because the body is thicker, the fixed garment fits tighter with reduced drape.";
+  } else if (wDiff <= -4) {
+    wDesc = "slimmer/lighter";
+    widthEffect =
+      "Because the body is thinner, the fixed garment fits looser with more drape.";
+  }
+
+  let bodyChange = [hDesc, wDesc].filter(Boolean).join(" and ");
+  if (!bodyChange) {
+    bodyChange = "similar proportions";
+    lengthEffect = "Maintain original vertical fit.";
+    widthEffect = "Maintain original width and drape.";
+  }
+
+  return {
+    fitPromptContext: `
+- FIT CALIBRATION (FIXED GARMENT PARADIGM):
+  * The garment size and design are fixed.
+  * Do NOT redesign or resize the garment itself.
+  * The target body is visually ${bodyChange}.
+  * Visual effect:
+    1. ${lengthEffect}
+    2. ${widthEffect}
+`,
+    fitSummarySuffix: ` + 📏 핏 보정: Body ${bodyChange}`,
+  };
+};
+
+export async function analyzeBackgroundDNAFromBase64s(
+  bgBase64s: string[]
+): Promise<BackgroundDNA> {
+  const analyses: any[] = [];
+
+  for (const base64 of bgBase64s) {
+    const response = await ai.models.generateContent({
+      model: "gemini-3-flash-preview",
+      contents: {
+        parts: [
+          {
+            inlineData: {
+              data: base64,
+              mimeType: "image/jpeg",
+            },
+          },
+          {
+            text: `Analyze this location/environment image for fashion lookbook worldbuilding.
+
+Return ONLY raw JSON with:
+{
+  "environment_type": "what kind of place this is",
+  "architectural_language": "materials, shapes, structural language",
+  "lighting_and_exposure": "light quality and exposure character",
+  "color_grading_and_texture": "color cast, grain, texture, surface feeling",
+  "spatial_mood": "psychological feel of the place",
+  "camera_feel": "what kind of framing / distance this world suggests",
+  "key_non_repeatable_elements": ["specific one-off details that should NOT be copied literally"]
+}
+
+Focus on environmental DNA only. No people, no clothes.`,
+          },
+        ],
+      },
+    });
+
+    let text = response.candidates?.[0]?.content?.parts?.[0]?.text || "{}";
+    const jsonStart = text.indexOf("{");
+    const jsonEnd = text.lastIndexOf("}") + 1;
+    if (jsonStart !== -1 && jsonEnd !== -1) {
+      text = text.substring(jsonStart, jsonEnd);
+    }
+    analyses.push(JSON.parse(text));
+  }
+
+  const summaryResp = await ai.models.generateContent({
+    model: "gemini-3-flash-preview",
+    contents: {
+      parts: [
+        {
+          text: `You are merging multiple environment analyses into one unified background DNA for a fashion lookbook engine.
+
+Input analyses:
+${JSON.stringify(analyses, null, 2)}
+
+Return ONLY raw JSON:
+{
+  "environment_type": "...",
+  "architectural_language": "...",
+  "lighting_and_exposure": "...",
+  "color_grading_and_texture": "...",
+  "spatial_mood": "...",
+  "camera_feel": "...",
+  "do_not_copy": ["specific literal geometry/details to avoid repeating"]
+}
+
+Goal:
+- keep shared DNA
+- remove one-off literal geometry
+- produce a reusable neighborhood/world description`,
+        },
+      ],
+    },
+  });
+
+  let summaryText =
+    summaryResp.candidates?.[0]?.content?.parts?.[0]?.text || "{}";
+  const sumStart = summaryText.indexOf("{");
+  const sumEnd = summaryText.lastIndexOf("}") + 1;
+  if (sumStart !== -1 && sumEnd !== -1) {
+    summaryText = summaryText.substring(sumStart, sumEnd);
+  }
+
+  return JSON.parse(summaryText);
+}
+
+export async function analyzePoseBlueprintFromBase64(
+  poseBase64: string
+): Promise<PoseBlueprint> {
+  const response = await ai.models.generateContent({
+    model: "gemini-3-flash-preview",
+    contents: {
+      parts: [
+        {
+          inlineData: {
+            data: poseBase64,
+            mimeType: "image/jpeg",
+          },
+        },
+        {
+          text: `Analyze this pose reference image as a HIGH-END FASHION EDITORIAL POSE.
+
+IMPORTANT:
+Do NOT reduce the pose into only dry skeletal coordinates.
+Read it like a fashion photographer for a luxury brand.
+
+Return ONLY raw JSON:
+{
+  "pose": "body posture, weight balance, arm/leg attitude",
+  "expression": "facial expression and gaze direction",
+  "camera_angle_and_crop": "camera angle / crop feeling",
+  "body_attitude": "editorial attitude / emotion carried by the body"
+}`,
+        },
+      ],
+    },
+  });
+
+  let text = response.candidates?.[0]?.content?.parts?.[0]?.text || "{}";
+  const jsonStart = text.indexOf("{");
+  const jsonEnd = text.lastIndexOf("}") + 1;
+  if (jsonStart !== -1 && jsonEnd !== -1) {
+    text = text.substring(jsonStart, jsonEnd);
+  }
+
+  return JSON.parse(text);
+}
+
+export async function searchLocationPrompts(
+  bgDNA: BackgroundDNA,
+  count: number
+): Promise<string[]> {
+  const systemPrompt = `Background DNA (Material & Lighting World):
+${JSON.stringify(bgDNA, null, 2)}
+
+TASK:
+Generate EXACTLY ${count} spatially distinct location prompts based strictly on the provided Background DNA.
+
+CRITICAL DIVERSITY RULE:
+If generating multiple locations, each prompt must focus on a DIFFERENT structural element or camera perspective while keeping the core DNA identical.
+
+Return ONLY a valid JSON array of strings containing EXACTLY ${count} elements.
+Format: ["location description 1", "location description 2", ...]`;
+
+  const response = await ai.models.generateContent({
+    model: "gemini-3-flash-preview",
+    contents: { parts: [{ text: systemPrompt }] },
+  });
+
+  const rawText = response.candidates?.[0]?.content?.parts?.[0]?.text || "[]";
+  const jsonStart = rawText.indexOf("[");
+  const jsonEnd = rawText.lastIndexOf("]") + 1;
+
+  if (jsonStart === -1 || jsonEnd === 0) {
+    throw new Error("로케이션 프롬프트 JSON 파싱 실패");
+  }
+
+  const result = JSON.parse(rawText.substring(jsonStart, jsonEnd));
+  return Array.isArray(result) ? result.slice(0, count) : [];
+}
+
+export async function generateFusionImageWeb(args: {
+  faceBase64s: string[];
+  outfitBase64s: string[];
+  poseBlueprint: PoseBlueprint;
+  targetLocationText: string;
+  bgDNA: BackgroundDNA;
+  bodySpecs?: string;
+  isMixMode?: boolean;
+  mixCaptions?: string[];
+  lockedVibe?: LockedVibe | null;
+  shootingMode?: string;
+  customPrompt?: string;
+}): Promise<{ base64: string; summary: string }> {
+  const {
+    faceBase64s,
+    outfitBase64s,
+    poseBlueprint,
+    targetLocationText,
+    bgDNA,
+    bodySpecs,
+    isMixMode = false,
+    mixCaptions = [],
+    lockedVibe,
+    shootingMode = "default",
+    customPrompt,
+  } = args;
+
+  const parts: any[] = [];
+
+  faceBase64s.forEach((faceBase64) => {
+    parts.push({
+      inlineData: {
+        data: faceBase64,
+        mimeType: "image/jpeg",
+      },
+    });
+  });
+
+  outfitBase64s.forEach((outfitBase64, index) => {
+    parts.push({
+      inlineData: {
+        data: outfitBase64,
+        mimeType: "image/jpeg",
+      },
+    });
+
+    if (isMixMode) {
+      const itemCaption =
+        mixCaptions[index] || "No specific styling instruction provided.";
+      parts.push({
+        text: `[Outfit Detail ${index + 1}: Extracted based on "${itemCaption}"]`,
+      });
+    }
+  });
+
+  let fitSummary = lockedVibe
+    ? `🧬 FUSION [VIBE LOCK]`
+    : `🧬 FUSION [${shootingMode.toUpperCase()}]`;
+
+  if (shootingMode === "custom") {
+    fitSummary += ` (CUSTOM: ${customPrompt})`;
+  }
+
+  const { fitPromptContext, fitSummarySuffix } =
+    buildFitPromptContext(bodySpecs);
+  fitSummary += fitSummarySuffix;
+
+  const modeDict: Record<string, string> = {
+    fuji: "Texture: Fujifilm 400H characteristic (cool greens, cyan shadows, high contrast cinematic feel).",
+    mono: "Texture: Ilford HP5 Plus (high-end monochrome, rich blacks, heavy grain). FORCE STRICT BLACK AND WHITE. NO COLOR.",
+    studio:
+      "Texture: clean commercial high-key studio lighting. Sharp focus, zero grain, high-end digital clarity.",
+    raw: "Texture: unprocessed natural raw light. realistic exposure, zero film simulation.",
+    default:
+      "Texture: Kodak Portra 400 (warm skin tones, subtle analog grain, soft cinematic light).",
+  };
+
+  let textureAndColor = "";
+  if (lockedVibe?.color_grading_and_texture) {
+    textureAndColor = lockedVibe.color_grading_and_texture;
+  } else if (shootingMode === "custom" && customPrompt) {
+    textureAndColor = `Texture & Photography Style: ${customPrompt}`;
+  } else if (shootingMode !== "default") {
+    textureAndColor = modeDict[shootingMode];
+  } else {
+    textureAndColor =
+      bgDNA?.color_grading_and_texture || modeDict["default"];
+  }
+
+  const lightingStyle =
+    lockedVibe?.lighting_and_exposure ||
+    bgDNA?.lighting_and_exposure ||
+    "Soft editorial natural lighting.";
+
+  const moodStyle =
+    lockedVibe?.overall_mood ||
+    bgDNA?.spatial_mood ||
+    "High-end restrained editorial mood.";
+
+  const cameraFeel =
+    lockedVibe?.camera_angle_and_crop ||
+    bgDNA?.camera_feel ||
+    "Editorial framing with natural negative space.";
+
+  const finalPose = lockedVibe?.pose || poseBlueprint?.pose || "";
+  const finalExpression =
+    lockedVibe?.expression || poseBlueprint?.expression || "";
+  const finalBackground = lockedVibe?.background || targetLocationText;
+
+  const prompt = `
+Task: Create a premium FUSION fashion editorial image.
+
+[IDENTITY]
+- Maintain exact identity from face references.
+
+[OUTFIT]
+- Reconstruct the exact outfit from the uploaded outfit images.
+- ${isMixMode ? "This is MIX mode. Respect each item detail text exactly." : "This is standard outfit mode."}
+
+${fitPromptContext}
+
+[WORLD]
+- BACKGROUND / LOCATION: ${finalBackground}
+- ENVIRONMENT DNA: ${bgDNA.environment_type || ""}
+- ARCHITECTURAL LANGUAGE: ${bgDNA.architectural_language || ""}
+- DO NOT COPY LITERALLY: ${(bgDNA.do_not_copy || []).join(", ")}
+
+[POSE / ATTITUDE]
+- POSE: ${finalPose}
+- EXPRESSION: ${finalExpression}
+- BODY ATTITUDE: ${poseBlueprint.body_attitude || ""}
+
+[PHOTO GRAMMAR]
+- MOOD: ${moodStyle}
+- CAMERA: ${cameraFeel}
+- LIGHTING: ${lightingStyle}
+- TEXTURE / COLOR: ${textureAndColor}
+
+CRITICAL:
+- The image must feel like a high-end fashion editorial.
+- Use the background DNA and pose blueprint together.
+- Do not output a generic AI portrait.
+- 3:4 vertical composition.
+- 2K quality.
+`;
+
+  const response = await ai.models.generateContent({
+    model: "gemini-3.1-flash-image-preview",
+    contents: { parts: [...parts, { text: prompt }] },
+    config: {
+      imageConfig: {
+        aspectRatio: "3:4",
+        imageSize: "2K",
+      },
+      safetySettings,
+    },
+  });
+
+  const imageBase64 =
+    response.candidates?.[0]?.content?.parts?.find(
+      (part: any) => part.inlineData
+    )?.inlineData?.data || null;
+
+  if (!imageBase64) {
+    throw new Error("FUSION 이미지 생성 결과가 비어 있다.");
+  }
+
+  return {
+    base64: imageBase64,
+    summary: fitSummary,
+  };
+}
+</file>
+
+<file path="lib/gemini-refrun.ts">
+import {
+  GoogleGenAI,
+  HarmCategory,
+  HarmBlockThreshold,
+} from "@google/genai";
+
+const ai = new GoogleGenAI({
+  apiKey: process.env.GEMINI_API_KEY!,
+});
+
+const safetySettings = [
+  {
+    category: HarmCategory.HARM_CATEGORY_HARASSMENT,
+    threshold: HarmBlockThreshold.BLOCK_ONLY_HIGH,
+  },
+  {
+    category: HarmCategory.HARM_CATEGORY_HATE_SPEECH,
+    threshold: HarmBlockThreshold.BLOCK_ONLY_HIGH,
+  },
+  {
+    category: HarmCategory.HARM_CATEGORY_SEXUALLY_EXPLICIT,
+    threshold: HarmBlockThreshold.BLOCK_ONLY_HIGH,
+  },
+  {
+    category: HarmCategory.HARM_CATEGORY_DANGEROUS_CONTENT,
+    threshold: HarmBlockThreshold.BLOCK_ONLY_HIGH,
+  },
+];
+
+export type RefRunDirection = {
+  background: string;
+  pose: string;
+  expression: string;
+  camera_angle_and_crop: string;
+  lighting_and_exposure: string;
+  color_grading_and_texture: string;
+  overall_mood: string;
+};
+
+const buildFitPromptContext = (
+  bodySpecs?: string
+): { fitPromptContext: string; fitSummarySuffix: string } => {
+  if (!bodySpecs) {
+    return {
+      fitPromptContext:
+        "- AUTO-FIT MODE: Replicate the garment's silhouette, fit, length, and drape EXACTLY.",
+      fitSummarySuffix: "",
+    };
+  }
+
+  const specMatch = bodySpecs.match(/(\d+)\/(\d+)\s+(\d+)\/(\d+)/);
+  if (!specMatch) {
+    return {
+      fitPromptContext:
+        "- AUTO-FIT MODE: Replicate the garment's silhouette, fit, length, and drape EXACTLY.",
+      fitSummarySuffix: "",
+    };
+  }
+
+  const h1 = parseInt(specMatch[1], 10);
+  const w1 = parseInt(specMatch[2], 10);
+  const h2 = parseInt(specMatch[3], 10);
+  const w2 = parseInt(specMatch[4], 10);
+
+  const hDiff = h2 - h1;
+  const wDiff = w2 - w1;
+
+  let hDesc = "";
+  let wDesc = "";
+  let lengthEffect = "";
+  let widthEffect = "";
+
+  if (hDiff >= 4) {
+    hDesc = "taller";
+    lengthEffect =
+      "Because the body is taller/longer, the fixed garment sits naturally higher. Sleeves expose more wrist, and pants break higher above the shoes.";
+  } else if (hDiff <= -4) {
+    hDesc = "shorter";
+    lengthEffect =
+      "Because the body is shorter, the fixed garment falls lower. Sleeves cover the hands more, and pants stack heavily on the shoes.";
+  }
+
+  if (wDiff >= 4) {
+    wDesc = "broader/heavier";
+    widthEffect =
+      "Because the body is thicker, the fixed garment fits tighter. Fabric stretches closer to the body, reducing drape.";
+  } else if (wDiff <= -4) {
+    wDesc = "slimmer/lighter";
+    widthEffect =
+      "Because the body is thinner, the fixed garment fits much looser. More drape, excess fabric, resulting in a baggier silhouette.";
+  }
+
+  let bodyChange = [hDesc, wDesc].filter(Boolean).join(" and ");
+  if (!bodyChange) {
+    bodyChange = "similar proportions";
+    lengthEffect = "Maintain exact original vertical fit.";
+    widthEffect = "Maintain exact original drape and width.";
+  }
+
+  return {
+    fitPromptContext: `
+- FIT CALIBRATION (FIXED GARMENT PARADIGM):
+  * CRITICAL RULE: The physical size, pattern, and design of the garment are 100% FIXED.
+  * DO NOT alter, redesign, shrink, or enlarge the clothing item itself.
+  * THE BODY CHANGE: The target model inside the clothes is visually ${bodyChange} than the original model.
+  * THE VISUAL EFFECT:
+    1. ${lengthEffect}
+    2. ${widthEffect}
+  * DIRECTIVE: Render the natural, physical result of this specific new body wearing the exact same fixed-size garment. Maintain believable human anatomy.
+`,
+    fitSummarySuffix: ` + 📏 핏 보정: Body ${bodyChange || "유사"}`,
+  };
+};
+
+export async function analyzeReferenceWeb(
+  referenceBase64: string
+): Promise<RefRunDirection> {
+  const parts = [
+    {
+      inlineData: {
+        data: referenceBase64,
+        mimeType: "image/jpeg",
+      },
+    },
+  ];
+
+  const systemPrompt = `Analyze the provided reference fashion photograph meticulously.
+Extract the exact visual structure, aesthetic, and mood.
+
+CRITICAL RULE (NEGATIVE CONSTRAINT):
+Ignore all details regarding clothing or accessories worn by the model.
+
+Return ONLY raw JSON with:
+{
+  "background": "describe the environment and set design",
+  "pose": "describe the subject's posture, limb positioning, and attitude",
+  "expression": "describe the facial expression and gaze direction",
+  "camera_angle_and_crop": "camera angle and crop",
+  "lighting_and_exposure": "lighting setup and exposure character",
+  "color_grading_and_texture": "color grading and texture",
+  "overall_mood": "overall mood"
+}`;
+
+  const response = await ai.models.generateContent({
+    model: "gemini-3-flash-preview",
+    contents: {
+      parts: [...parts, { text: systemPrompt }],
+    },
+  });
+
+  let text = response.candidates?.[0]?.content?.parts?.[0]?.text || "{}";
+  const jsonStart = text.indexOf("{");
+  const jsonEnd = text.lastIndexOf("}") + 1;
+
+  if (jsonStart !== -1 && jsonEnd !== -1) {
+    text = text.substring(jsonStart, jsonEnd);
+  }
+
+  return JSON.parse(text);
+}
+
+export async function generateRefRunImageWeb(args: {
+  faceBase64s: string[];
+  outfitBase64s: string[];
+  dirSet: RefRunDirection;
+  bodySpecs?: string;
+  shootingMode?: string;
+  customPrompt?: string;
+}): Promise<{ base64: string; summary: string }> {
+  const {
+    faceBase64s,
+    outfitBase64s,
+    dirSet,
+    bodySpecs,
+    shootingMode = "default",
+    customPrompt,
+  } = args;
+
+  if (!faceBase64s.length) {
+    throw new Error("얼굴 이미지가 없다.");
+  }
+
+  if (!outfitBase64s.length) {
+    throw new Error("의상 이미지가 없다.");
+  }
+
+  const parts: any[] = [];
+
+  faceBase64s.forEach((faceBase64) => {
+    parts.push({
+      inlineData: {
+        data: faceBase64,
+        mimeType: "image/jpeg",
+      },
+    });
+  });
+
+  outfitBase64s.forEach((outfitBase64) => {
+    parts.push({
+      inlineData: {
+        data: outfitBase64,
+        mimeType: "image/jpeg",
+      },
+    });
+  });
+
+  const faceContext =
+    faceBase64s.length === 1
+      ? "Use face reference."
+      : "3D FACE ID ENGINE ACTIVE to maintain identity.";
+
+  const { fitPromptContext, fitSummarySuffix } =
+    buildFitPromptContext(bodySpecs);
+
+  const modeDict: Record<string, string> = {
+    fuji: "Texture: Fujifilm 400H (Cool greens, cyan shadows, high contrast cinematic film).",
+    mono: "Texture: Ilford HP5 Plus (High-end monochrome, heavy grain, deep noir look). FORCE STRICT BLACK AND WHITE. NO COLOR.",
+    studio: "Texture: Sharp high-key studio lighting. Zero grain, high-end digital clarity.",
+    raw: "Texture: Natural raw light. iPhone-style snapshot clarity, zero film simulation.",
+    default: "Texture: Kodak Portra 400 (Warm skin tones, subtle analog grain, soft cinematic light).",
+  };
+
+  let textureAndColor = "";
+  if (shootingMode === "custom" && customPrompt) {
+    textureAndColor = `Texture & Photography Style: ${customPrompt}`;
+  } else if (shootingMode === "dig_original") {
+    textureAndColor = `Texture & Photography Style: ${dirSet.camera_angle_and_crop}`;
+  } else if (shootingMode !== "default") {
+    textureAndColor = modeDict[shootingMode];
+  } else {
+    textureAndColor =
+      dirSet.color_grading_and_texture || modeDict["default"];
+  }
+
+  const lightingStyle =
+    dirSet.lighting_and_exposure || "Natural editorial lighting";
+  const finalPhotography =
+    dirSet.camera_angle_and_crop || "Editorial framing";
+
+  let fitSummary = "🖼️ REFRUN";
+  if (shootingMode === "custom") {
+    fitSummary += ` (CUSTOM: ${customPrompt})`;
+  } else if (shootingMode === "dig_original") {
+    fitSummary += ` (REF 원본 기법)`;
+  } else if (shootingMode !== "default") {
+    fitSummary += ` (${shootingMode.toUpperCase()})`;
+  }
+  fitSummary += fitSummarySuffix;
+
+  const prompt = `Task: Exact Aesthetic Replication & High-End Fashion Try-On.
+- IDENTITY: ${faceContext}
+${fitPromptContext}
+
+[HOLISTIC GARMENT RECOGNITION]
+- Reconstruct the exact outfit from the provided garment references.
+
+[EDITORIAL ART DIRECTION]
+- ENVIRONMENT: ${dirSet.background}
+- POSE & ATTITUDE: ${dirSet.pose}
+- EXPRESSION: ${dirSet.expression}
+- OVERALL MOOD: ${dirSet.overall_mood}
+
+[TECHNICAL EXECUTION]
+- TEXTURE & COLOR: ${textureAndColor}
+- CAMERA & CROP: ${finalPhotography}
+- LIGHTING: ${lightingStyle}
+
+CRITICAL:
+- Replicate the photographic language of the reference.
+- Ignore the original reference clothing and accessories.
+- Prioritize atmospheric realism over digital sharpness.
+- Output 2K museum quality.`;
+
+  const response = await ai.models.generateContent({
+    model: "gemini-3.1-flash-image-preview",
+    contents: {
+      parts: [...parts, { text: prompt }],
+    },
+    config: {
+      imageConfig: {
+        aspectRatio: "3:4",
+        imageSize: "2K",
+      },
+      safetySettings,
+    },
+  });
+
+  const imageBase64 =
+    response.candidates?.[0]?.content?.parts?.find(
+      (part: any) => part.inlineData
+    )?.inlineData?.data || null;
+
+  if (!imageBase64) {
+    throw new Error("REFRUN 이미지 생성 결과가 비어 있다.");
+  }
+
+  return {
+    base64: imageBase64,
+    summary: fitSummary,
+  };
+}
+</file>
+
+<file path="lib/gemini-web.ts">
+import { GoogleGenAI } from "@google/genai";
+
+const ai = new GoogleGenAI({
+  apiKey: process.env.GEMINI_API_KEY!,
+});
+
+export const generateLookbookWeb = async ({
+  prompt,
+  faceBase64,
+  outfitBase64,
+  bgBase64,
+  poseBase64,
+}: {
+  prompt: string;
+  faceBase64: string;
+  outfitBase64: string;
+  bgBase64: string | null;
+  poseBase64: string | null;
+}) => {
+  const parts: any[] = [
+    {
+      inlineData: {
+        mimeType: "image/jpeg",
+        data: faceBase64,
+      },
+    },
+    {
+      inlineData: {
+        mimeType: "image/jpeg",
+        data: outfitBase64,
+      },
+    },
+  ];
+
+  if (bgBase64) {
+    parts.push({
+      inlineData: {
+        mimeType: "image/jpeg",
+        data: bgBase64,
+      },
+    });
+  }
+
+  if (poseBase64) {
+    parts.push({
+      inlineData: {
+        mimeType: "image/jpeg",
+        data: poseBase64,
+      },
+    });
+  }
+
+  const response = await ai.models.generateContent({
+    model: "gemini-3.1-flash-image-preview",
+    contents: {
+      parts: [...parts, { text: prompt }],
+    },
+    config: {
+      imageConfig: {
+        aspectRatio: "3:4",
+        imageSize: "2K",
+      },
+    },
+  });
+
+  const imageBase64 =
+    response.candidates?.[0]?.content?.parts?.find(
+      (part: any) => part.inlineData
+    )?.inlineData?.data || null;
+
+  if (!imageBase64) {
+    throw new Error("생성된 이미지가 없습니다.");
+  }
+
+  return imageBase64;
+};
+</file>
+
+<file path="lib/points.ts">
+import { supabase } from "@/lib/supabase";
+
+/**
+ * 포인트 차감 함수
+ * @param amount 차감할 포인트
+ * @param reason 로그 기록용 설명
+ */
+export async function spendPoints(amount: number, reason: string) {
+  // 현재 로그인 유저 가져오기
+  const {
+    data: { user },
+    error: userError,
+  } = await supabase.auth.getUser();
+
+  if (userError || !user) {
+    throw new Error("로그인이 필요합니다.");
+  }
+
+  // RPC 호출 (DB 함수 실행)
+  const { data, error } = await supabase.rpc("spend_points", {
+    p_user_id: user.id,
+    p_amount: amount,
+    p_reason: reason,
+  });
+
+  console.log("spend_points result:", data, error);
+
+  if (error) {
+    throw new Error("포인트 처리 중 오류 발생");
+  }
+
+  if (!data.success) {
+    throw new Error(data.message);
+  }
+
+  return data;
+}
+</file>
+
+<file path="lib/supabase.ts">
+import { createClient } from "@supabase/supabase-js";
+
+const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!;
+const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!;
+
+export const supabase = createClient(supabaseUrl, supabaseAnonKey);
+</file>
+
+<file path="lib/utils.ts">
+export const fileToBase64 = async (file: File): Promise<string> => {
+  const arrayBuffer = await file.arrayBuffer();
+  const buffer = Buffer.from(arrayBuffer);
+  return buffer.toString("base64");
+};
+</file>
+
+<file path="project_backup/editor/page.tsx">
+"use client";
+
+import { useSearchParams } from "next/navigation";
+import { useState } from "react";
+
+type UploadItem = {
+  file: File | null;
+  preview: string | null;
+};
+
+type UploadCardProps = {
+  title: string;
+  required?: boolean;
+  description: string;
+  goodExamples: string[];
+  badExamples: string[];
+  value: UploadItem;
+  onChange: (file: File | null) => void;
+};
+
+function UploadCard({
+  title,
+  required = false,
+  description,
+  goodExamples,
+  badExamples,
+  value,
+  onChange,
+}: UploadCardProps) {
+  return (
+    <div className="border rounded-2xl p-6 bg-white">
+      <div className="flex items-center gap-2 mb-2">
+        <h2 className="text-xl font-bold">{title}</h2>
+        {required ? (
+          <span className="text-xs px-2 py-1 rounded-full bg-black text-white">
+            필수
+          </span>
+        ) : (
+          <span className="text-xs px-2 py-1 rounded-full border text-gray-600">
+            선택
+          </span>
+        )}
+      </div>
+
+      <p className="text-sm text-gray-700 mb-4 leading-6">{description}</p>
+
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-5 text-sm">
+        <div className="border rounded-xl p-4 bg-gray-50">
+          <div className="font-semibold mb-2">좋은 예시</div>
+          <ul className="space-y-1 text-gray-700 list-disc pl-5">
+            {goodExamples.map((item) => (
+              <li key={item}>{item}</li>
+            ))}
+          </ul>
+        </div>
+
+        <div className="border rounded-xl p-4 bg-gray-50">
+          <div className="font-semibold mb-2">피해야 할 예시</div>
+          <ul className="space-y-1 text-gray-700 list-disc pl-5">
+            {badExamples.map((item) => (
+              <li key={item}>{item}</li>
+            ))}
+          </ul>
+        </div>
+      </div>
+
+      <label className="block cursor-pointer">
+        {value.preview ? (
+          <img
+            src={value.preview}
+            alt={title}
+            className="w-full h-64 object-cover rounded-xl border"
+          />
+        ) : (
+          <div className="w-full h-64 border-2 border-dashed rounded-xl flex items-center justify-center text-gray-400 text-sm">
+            클릭해서 이미지 업로드
+          </div>
+        )}
+
+        <input
+          type="file"
+          accept="image/*"
+          className="hidden"
+          onChange={(e) => onChange(e.target.files?.[0] || null)}
+        />
+      </label>
+
+      {value.file ? (
+        <div className="mt-3 text-sm text-gray-600 truncate">
+          선택 파일: {value.file.name}
+        </div>
+      ) : (
+        <div className="mt-3 text-sm text-gray-400">아직 업로드 안 됨</div>
+      )}
+    </div>
+  );
+}
+
+export default function EditorPage() {
+  const searchParams = useSearchParams();
+  const projectName = searchParams.get("name") ?? "이름 없음";
+  const projectType = searchParams.get("type") ?? "타입 없음";
+
+  const [face, setFace] = useState<UploadItem>({ file: null, preview: null });
+  const [outfit, setOutfit] = useState<UploadItem>({ file: null, preview: null });
+  const [bg, setBg] = useState<UploadItem>({ file: null, preview: null });
+  const [pose, setPose] = useState<UploadItem>({ file: null, preview: null });
+
+  const [loading, setLoading] = useState(false);
+  const [resultImage, setResultImage] = useState<string | null>(null);
+  const [resultMessage, setResultMessage] = useState<string>("");
+
+  const updateUpload = (
+    setter: React.Dispatch<React.SetStateAction<UploadItem>>,
+    file: File | null
+  ) => {
+    if (!file) {
+      setter({ file: null, preview: null });
+      return;
+    }
+
+    const preview = URL.createObjectURL(file);
+    setter({ file, preview });
+  };
+
+  const handleGenerate = async () => {
+    if (!face.file || !outfit.file) {
+      alert("얼굴 이미지와 의상 이미지는 필수다.");
+      return;
+    }
+
+    try {
+      setLoading(true);
+      setResultImage(null);
+      setResultMessage("");
+
+      const formData = new FormData();
+      formData.append("projectName", projectName);
+      formData.append("projectType", projectType);
+      formData.append("face", face.file);
+      formData.append("outfit", outfit.file);
+
+      if (bg.file) formData.append("bg", bg.file);
+      if (pose.file) formData.append("pose", pose.file);
+
+      const res = await fetch("/api/generate", {
+        method: "POST",
+        body: formData,
+      });
+
+      const data = await res.json();
+
+      if (!res.ok) {
+        throw new Error(data?.error || "생성 실패");
+      }
+
+      if (data.image) {
+        setResultImage(`data:image/png;base64,${data.image}`);
+        setResultMessage("생성 완료");
+      } else {
+        setResultMessage(data?.message || "응답은 왔지만 이미지가 없음");
+      }
+    } catch (error) {
+      const message =
+        error instanceof Error ? error.message : "알 수 없는 오류";
+      setResultMessage(`오류: ${message}`);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  return (
+    <main className="min-h-screen bg-[#f7f7f5] px-6 py-10">
+      <div className="max-w-7xl mx-auto">
+        <div className="mb-8">
+          <h1 className="text-4xl font-bold mb-3">프로젝트 편집기</h1>
+          <div className="border rounded-2xl p-5 bg-white space-y-2">
+            <div>
+              <span className="font-semibold">프로젝트 이름:</span> {projectName}
+            </div>
+            <div>
+              <span className="font-semibold">타입:</span> {projectType}
+            </div>
+          </div>
+        </div>
+
+        <div className="grid grid-cols-1 xl:grid-cols-2 gap-6">
+          <UploadCard
+            title="얼굴 업로드"
+            required
+            description="모델 정체성을 고정하는 기준 이미지다. 얼굴 윤곽, 턱선, 눈/코/입 비율이 잘 보이는 사진이 좋다."
+            goodExamples={[
+              "정면 또는 반측면 얼굴",
+              "얼굴이 크게 보이고 선명한 사진",
+              "과하지 않은 표정",
+              "마스크/선글라스 없이 얼굴이 드러난 이미지",
+            ]}
+            badExamples={[
+              "얼굴이 잘린 사진",
+              "셀카 왜곡이 심한 사진",
+              "선글라스/모자/마스크로 가려진 사진",
+              "조명이 너무 강해서 얼굴이 날아간 사진",
+            ]}
+            value={face}
+            onChange={(file) => updateUpload(setFace, file)}
+          />
+
+          <UploadCard
+            title="의상 업로드"
+            required
+            description="AI가 실제로 재구성해야 하는 착장 기준 이미지다. 가능하면 얼굴 없는 착장컷이 가장 좋다."
+            goodExamples={[
+              "얼굴 없이 옷 중심으로 보이는 착장컷",
+              "핏, 길이감, 주름이 확인되는 사진",
+              "상의/하의 실루엣이 명확한 이미지",
+              "배경 방해가 적은 사진",
+            ]}
+            badExamples={[
+              "누끼 제품컷만 있는 이미지",
+              "옷 일부만 보이는 사진",
+              "핏이 보이지 않는 접힌 옷 사진",
+              "여러 옷이 섞여서 기준이 모호한 사진",
+            ]}
+            value={outfit}
+            onChange={(file) => updateUpload(setOutfit, file)}
+          />
+
+          <UploadCard
+            title="배경 업로드"
+            description="장소의 분위기, 재질감, 빛의 방향을 정하는 참고 이미지다. 공간 사진 위주가 좋다."
+            goodExamples={[
+              "사람 없는 공간 사진",
+              "벽, 바닥, 계단, 건물 재질이 잘 보이는 이미지",
+              "빛과 공기감이 느껴지는 장소 사진",
+              "브랜드 무드에 맞는 환경 이미지",
+            ]}
+            badExamples={[
+              "모델이 중심인 화보 사진",
+              "옷 참고까지 섞인 이미지",
+              "배경보다 인물이 주인공인 사진",
+              "너무 복잡해서 핵심 공간이 안 보이는 이미지",
+            ]}
+            value={bg}
+            onChange={(file) => updateUpload(setBg, file)}
+          />
+
+          <UploadCard
+            title="포즈 업로드"
+            description="모델의 자세, 체중 이동, 손 위치, 시선 방향을 정하는 참고 이미지다."
+            goodExamples={[
+              "전신 또는 반신 포즈 사진",
+              "팔, 손, 몸 기울기가 보이는 이미지",
+              "시선 방향과 태도가 읽히는 사진",
+              "포즈 자체가 명확한 컷",
+            ]}
+            badExamples={[
+              "몸이 너무 잘린 사진",
+              "포즈가 모호한 사진",
+              "배경 참고가 더 강한 이미지",
+              "옷 참고와 포즈 참고가 뒤섞인 사진",
+            ]}
+            value={pose}
+            onChange={(file) => updateUpload(setPose, file)}
+          />
+        </div>
+
+        <button
+          onClick={handleGenerate}
+          disabled={loading}
+          className="mt-8 w-full bg-black text-white py-5 rounded-2xl text-xl disabled:opacity-60"
+        >
+          {loading ? "생성중..." : "룩북 생성하기"}
+        </button>
+
+        <div className="mt-6 border rounded-2xl p-5 bg-white">
+          <div className="font-semibold mb-2">상태</div>
+          <div className="text-sm text-gray-700">
+            {resultMessage || "아직 생성 전"}
+          </div>
+        </div>
+
+        {resultImage ? (
+          <div className="mt-8 border rounded-2xl p-6 bg-white">
+            <h2 className="text-2xl font-bold mb-4">생성 결과</h2>
+            <img
+              src={resultImage}
+              alt="생성 결과"
+              className="w-full max-w-md rounded-xl border"
+            />
+          </div>
+        ) : null}
+      </div>
+    </main>
+  );
+}
+</file>
+
+<file path="project_backup/new/page.tsx">
+"use client";
+
+import { useState } from "react";
+import { useRouter } from "next/navigation";
+
+export default function NewProjectPage() {
+  const router = useRouter();
+
+  const [name, setName] = useState("");
+  const [type, setType] = useState("룩북");
+
+  const handleCreate = () => {
+    if (!name) {
+      alert("프로젝트 이름 입력해라");
+      return;
+    }
+
+    // 다음 단계로 이동 (임시)
+    router.push(`/project/editor?name=${name}&type=${type}`);
+  };
+
+  return (
+    <main className="min-h-screen bg-white flex items-center justify-center">
+      <div className="w-full max-w-xl px-6">
+        <h1 className="text-3xl font-bold mb-4">새 프로젝트</h1>
+
+        <div className="border rounded-xl p-6 space-y-4">
+          <div>
+            <label className="block text-sm font-medium mb-2">
+              프로젝트 이름
+            </label>
+            <input
+              value={name}
+              onChange={(e) => setName(e.target.value)}
+              type="text"
+              placeholder="예: 26SS 셔츠 룩북"
+              className="w-full border rounded-lg px-4 py-3"
+            />
+          </div>
+
+          <div>
+            <label className="block text-sm font-medium mb-2">
+              프로젝트 타입
+            </label>
+            <select
+              value={type}
+              onChange={(e) => setType(e.target.value)}
+              className="w-full border rounded-lg px-4 py-3"
+            >
+              <option>룩북</option>
+              <option>광고</option>
+              <option>상세페이지</option>
+            </select>
+          </div>
+
+          <button
+            onClick={handleCreate}
+            className="w-full bg-black text-white rounded-lg py-3"
+          >
+            생성하기
+          </button>
+        </div>
+      </div>
+    </main>
+  );
+}
+</file>
+
+<file path="public/file.svg">
+<svg fill="none" viewBox="0 0 16 16" xmlns="http://www.w3.org/2000/svg"><path d="M14.5 13.5V5.41a1 1 0 0 0-.3-.7L9.8.29A1 1 0 0 0 9.08 0H1.5v13.5A2.5 2.5 0 0 0 4 16h8a2.5 2.5 0 0 0 2.5-2.5m-1.5 0v-7H8v-5H3v12a1 1 0 0 0 1 1h8a1 1 0 0 0 1-1M9.5 5V2.12L12.38 5zM5.13 5h-.62v1.25h2.12V5zm-.62 3h7.12v1.25H4.5zm.62 3h-.62v1.25h7.12V11z" clip-rule="evenodd" fill="#666" fill-rule="evenodd"/></svg>
+</file>
+
+<file path="public/globe.svg">
+<svg fill="none" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16"><g clip-path="url(#a)"><path fill-rule="evenodd" clip-rule="evenodd" d="M10.27 14.1a6.5 6.5 0 0 0 3.67-3.45q-1.24.21-2.7.34-.31 1.83-.97 3.1M8 16A8 8 0 1 0 8 0a8 8 0 0 0 0 16m.48-1.52a7 7 0 0 1-.96 0H7.5a4 4 0 0 1-.84-1.32q-.38-.89-.63-2.08a40 40 0 0 0 3.92 0q-.25 1.2-.63 2.08a4 4 0 0 1-.84 1.31zm2.94-4.76q1.66-.15 2.95-.43a7 7 0 0 0 0-2.58q-1.3-.27-2.95-.43a18 18 0 0 1 0 3.44m-1.27-3.54a17 17 0 0 1 0 3.64 39 39 0 0 1-4.3 0 17 17 0 0 1 0-3.64 39 39 0 0 1 4.3 0m1.1-1.17q1.45.13 2.69.34a6.5 6.5 0 0 0-3.67-3.44q.65 1.26.98 3.1M8.48 1.5l.01.02q.41.37.84 1.31.38.89.63 2.08a40 40 0 0 0-3.92 0q.25-1.2.63-2.08a4 4 0 0 1 .85-1.32 7 7 0 0 1 .96 0m-2.75.4a6.5 6.5 0 0 0-3.67 3.44 29 29 0 0 1 2.7-.34q.31-1.83.97-3.1M4.58 6.28q-1.66.16-2.95.43a7 7 0 0 0 0 2.58q1.3.27 2.95.43a18 18 0 0 1 0-3.44m.17 4.71q-1.45-.12-2.69-.34a6.5 6.5 0 0 0 3.67 3.44q-.65-1.27-.98-3.1" fill="#666"/></g><defs><clipPath id="a"><path fill="#fff" d="M0 0h16v16H0z"/></clipPath></defs></svg>
+</file>
+
+<file path="public/next.svg">
+<svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 394 80"><path fill="#000" d="M262 0h68.5v12.7h-27.2v66.6h-13.6V12.7H262V0ZM149 0v12.7H94v20.4h44.3v12.6H94v21h55v12.6H80.5V0h68.7zm34.3 0h-17.8l63.8 79.4h17.9l-32-39.7 32-39.6h-17.9l-23 28.6-23-28.6zm18.3 56.7-9-11-27.1 33.7h17.8l18.3-22.7z"/><path fill="#000" d="M81 79.3 17 0H0v79.3h13.6V17l50.2 62.3H81Zm252.6-.4c-1 0-1.8-.4-2.5-1s-1.1-1.6-1.1-2.6.3-1.8 1-2.5 1.6-1 2.6-1 1.8.3 2.5 1a3.4 3.4 0 0 1 .6 4.3 3.7 3.7 0 0 1-3 1.8zm23.2-33.5h6v23.3c0 2.1-.4 4-1.3 5.5a9.1 9.1 0 0 1-3.8 3.5c-1.6.8-3.5 1.3-5.7 1.3-2 0-3.7-.4-5.3-1s-2.8-1.8-3.7-3.2c-.9-1.3-1.4-3-1.4-5h6c.1.8.3 1.6.7 2.2s1 1.2 1.6 1.5c.7.4 1.5.5 2.4.5 1 0 1.8-.2 2.4-.6a4 4 0 0 0 1.6-1.8c.3-.8.5-1.8.5-3V45.5zm30.9 9.1a4.4 4.4 0 0 0-2-3.3 7.5 7.5 0 0 0-4.3-1.1c-1.3 0-2.4.2-3.3.5-.9.4-1.6 1-2 1.6a3.5 3.5 0 0 0-.3 4c.3.5.7.9 1.3 1.2l1.8 1 2 .5 3.2.8c1.3.3 2.5.7 3.7 1.2a13 13 0 0 1 3.2 1.8 8.1 8.1 0 0 1 3 6.5c0 2-.5 3.7-1.5 5.1a10 10 0 0 1-4.4 3.5c-1.8.8-4.1 1.2-6.8 1.2-2.6 0-4.9-.4-6.8-1.2-2-.8-3.4-2-4.5-3.5a10 10 0 0 1-1.7-5.6h6a5 5 0 0 0 3.5 4.6c1 .4 2.2.6 3.4.6 1.3 0 2.5-.2 3.5-.6 1-.4 1.8-1 2.4-1.7a4 4 0 0 0 .8-2.4c0-.9-.2-1.6-.7-2.2a11 11 0 0 0-2.1-1.4l-3.2-1-3.8-1c-2.8-.7-5-1.7-6.6-3.2a7.2 7.2 0 0 1-2.4-5.7 8 8 0 0 1 1.7-5 10 10 0 0 1 4.3-3.5c2-.8 4-1.2 6.4-1.2 2.3 0 4.4.4 6.2 1.2 1.8.8 3.2 2 4.3 3.4 1 1.4 1.5 3 1.5 5h-5.8z"/></svg>
+</file>
+
+<file path="public/vercel.svg">
+<svg fill="none" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1155 1000"><path d="m577.3 0 577.4 1000H0z" fill="#fff"/></svg>
+</file>
+
+<file path="public/window.svg">
+<svg fill="none" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16"><path fill-rule="evenodd" clip-rule="evenodd" d="M1.5 2.5h13v10a1 1 0 0 1-1 1h-11a1 1 0 0 1-1-1zM0 1h16v11.5a2.5 2.5 0 0 1-2.5 2.5h-11A2.5 2.5 0 0 1 0 12.5zm3.75 4.5a.75.75 0 1 0 0-1.5.75.75 0 0 0 0 1.5M7 4.75a.75.75 0 1 1-1.5 0 .75.75 0 0 1 1.5 0m1.75.75a.75.75 0 1 0 0-1.5.75.75 0 0 0 0 1.5" fill="#666"/></svg>
+</file>
+
+<file path=".gitignore">
+# See https://help.github.com/articles/ignoring-files/ for more about ignoring files.
+
+# dependencies
+/node_modules
+/.pnp
+.pnp.*
+.yarn/*
+!.yarn/patches
+!.yarn/plugins
+!.yarn/releases
+!.yarn/versions
+
+# testing
+/coverage
+
+# next.js
+/.next/
+/out/
+
+# production
+/build
+
+# misc
+.DS_Store
+*.pem
+
+# debug
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+.pnpm-debug.log*
+
+# env files (can opt-in for committing if needed)
+.env*
+
+# vercel
+.vercel
+
+# typescript
+*.tsbuildinfo
+next-env.d.ts
+</file>
+
+<file path="AGENTS.md">
+<!-- BEGIN:nextjs-agent-rules -->
+# This is NOT the Next.js you know
+
+This version has breaking changes — APIs, conventions, and file structure may all differ from your training data. Read the relevant guide in `node_modules/next/dist/docs/` before writing any code. Heed deprecation notices.
+<!-- END:nextjs-agent-rules -->
+</file>
+
+<file path="CLAUDE.md">
+@AGENTS.md
+</file>
+
+<file path="eslint.config.mjs">
+import { defineConfig, globalIgnores } from "eslint/config";
+import nextVitals from "eslint-config-next/core-web-vitals";
+import nextTs from "eslint-config-next/typescript";
+
+const eslintConfig = defineConfig([
+  ...nextVitals,
+  ...nextTs,
+  // Override default ignores of eslint-config-next.
+  globalIgnores([
+    // Default ignores of eslint-config-next:
+    ".next/**",
+    "out/**",
+    "build/**",
+    "next-env.d.ts",
+  ]),
+]);
+
+export default eslintConfig;
+</file>
+
+<file path="next.config.ts">
+import type { NextConfig } from "next";
+
+const nextConfig: NextConfig = {
+  /* config options here */
+};
+
+export default nextConfig;
+</file>
+
+<file path="postcss.config.mjs">
+const config = {
+  plugins: {
+    "@tailwindcss/postcss": {},
+  },
+};
+
+export default config;
+</file>
+
+<file path="README.md">
+This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+
+## Getting Started
+
+First, run the development server:
+
+```bash
+npm run dev
+# or
+yarn dev
+# or
+pnpm dev
+# or
+bun dev
+```
+
+Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+
+You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+
+This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+
+## Learn More
+
+To learn more about Next.js, take a look at the following resources:
+
+- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
+- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+
+You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+
+## Deploy on Vercel
+
+The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
+
+Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+</file>
+
+<file path="tsconfig.json">
+{
+  "compilerOptions": {
+    "target": "ES2017",
+    "lib": ["dom", "dom.iterable", "esnext"],
+    "allowJs": true,
+    "skipLibCheck": true,
+    "strict": true,
+    "noEmit": true,
+    "esModuleInterop": true,
+    "module": "esnext",
+    "moduleResolution": "bundler",
+    "resolveJsonModule": true,
+    "isolatedModules": true,
+    "jsx": "react-jsx",
+    "incremental": true,
+    "plugins": [
+      {
+        "name": "next"
+      }
+    ],
+    "paths": {
+      "@/*": ["./*"]
+    }
+  },
+  "include": [
+    "next-env.d.ts",
+    "**/*.ts",
+    "**/*.tsx",
+    ".next/types/**/*.ts",
+    ".next/dev/types/**/*.ts",
+    "**/*.mts"
+  ],
+  "exclude": ["node_modules"]
+}
+</file>
+
+<file path="app/api/model-anchor/route.ts">
+import { NextRequest, NextResponse } from "next/server";
+import { GoogleGenAI } from "@google/genai";
+
+const ai = new GoogleGenAI({
+  apiKey: process.env.GEMINI_API_KEY!,
+});
+
+export async function POST(req: NextRequest) {
+  try {
+    const body = await req.json();
+
+    const ethnicity = body.ethnicity || "East Asian";
+    const gender = body.gender || "Male";
+    const age = body.age || "Early 20s";
+    const hairStyle = body.hairStyle || "Short black hair";
+    const skinTone = body.skinTone || "Light neutral skin tone";
+    const eyeColor = body.eyeColor || "Dark brown";
+    const mood = body.mood || "Calm and confident";
+    const extraDetails = body.extraDetails || "";
+
+    const prompt = `
+Create a single high-resolution "Fixed Face Anchor" collage for a virtual fashion model.
+
+MODEL PROFILE:
+- ethnicity: ${ethnicity}
+- gender: ${gender}
+- age: ${age}
+- hair style: ${hairStyle}
+- skin tone: ${skinTone}
+- eye color: ${eyeColor}
+- mood: ${mood}
+- extra details: ${extraDetails}
+
+STRICT COMPOSITION RULES:
+- output must be a 3-panel collage in one single image
+- panel 1: FRONT VIEW
+- panel 2: 45-DEGREE VIEW
+- panel 3: SIDE PROFILE
+
+STRICT CROP RULES:
+- head-only portrait
+- crop from top of head to base of neck
+- no shoulders below clavicle
+- no torso
+- no chest
+- no hands
+- face occupies about 80% of each panel
+- keep all three panels tightly framed around the face and neck only
+
+AESTHETIC:
+- photorealistic
+- beauty editorial headshot
+- neutral studio lighting
+- white seamless background
+- ultra clean skin detail
+- premium fashion casting reference
+- consistent identity across all three views
+
+OUTPUT RULE:
+- return only the face anchor collage image
+- no text
+- no labels
+- no graphic decorations
+`;
+
+    const response = await ai.models.generateContent({
+      model: "gemini-3.1-flash-image-preview",
+      contents: {
+        parts: [{ text: prompt }],
+      },
+      config: {
+        imageConfig: {
+          aspectRatio: "1:1",
+          imageSize: "1K",
+        },
+      },
+    });
+
+    for (const part of response.candidates?.[0]?.content?.parts || []) {
+      if (part.inlineData?.data) {
+        return NextResponse.json({
+          image: `data:image/png;base64,${part.inlineData.data}`,
+        });
+      }
+    }
+
+    throw new Error("No image was generated.");
+  } catch (error) {
+    console.error("model-anchor route error:", error);
+    return NextResponse.json(
+      { error: "모델 생성 실패" },
+      { status: 500 }
+    );
+  }
+}
+</file>
+
+<file path="app/login/page.tsx">
+"use client";
+
+import { useState } from "react";
+import Link from "next/link";
+import { useRouter } from "next/navigation";
+import { supabase } from "@/lib/supabase";
+
+export default function LoginPage() {
+  const router = useRouter();
+
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
+  const [message, setMessage] = useState("");
+  const [loading, setLoading] = useState(false);
+
+  const handleLogin = async () => {
+    const trimmedEmail = email.trim();
+
+    if (!trimmedEmail) {
+      setMessage("이메일을 입력해주세요.");
+      return;
+    }
+
+    if (!password) {
+      setMessage("비밀번호를 입력해주세요.");
+      return;
+    }
+
+    setLoading(true);
+    setMessage("");
+
+    try {
+      const { error } = await supabase.auth.signInWithPassword({
+        email: trimmedEmail,
+        password,
+      });
+
+      if (error) {
+        setMessage(`오류: ${error.message}`);
+        return;
+      }
+
+      setMessage("로그인 완료");
+      router.push("/");
+      router.refresh();
+    } catch (error) {
+      console.error("로그인 예외:", error);
+      setMessage("로그인 중 예상치 못한 오류가 발생했습니다.");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleGoogleLogin = async () => {
+    setLoading(true);
+    setMessage("");
+
+    try {
+      const { error } = await supabase.auth.signInWithOAuth({
+        provider: "google",
+        options: {
+          redirectTo: "https://studio.ballute.co.kr/",
+        },
+      });
+
+      if (error) {
+        setMessage(`오류: ${error.message}`);
+        setLoading(false);
+      }
+    } catch (error) {
+      console.error("Google 로그인 예외:", error);
+      setMessage("Google 로그인 중 예상치 못한 오류가 발생했습니다.");
+      setLoading(false);
+    }
+  };
+
+  return (
+    <main className="min-h-screen bg-white px-6 py-16">
+      <div className="mx-auto max-w-md">
+        <h1 className="mb-8 text-3xl font-bold">로그인</h1>
+
+        <div className="space-y-4">
+          <button
+            type="button"
+            onClick={handleGoogleLogin}
+            disabled={loading}
+            className="w-full rounded-xl border px-4 py-3 text-left disabled:opacity-50"
+          >
+            Google로 시작하기
+          </button>
+
+          <div className="text-center text-sm text-gray-500">또는</div>
+
+          <input
+            type="email"
+            placeholder="이메일"
+            value={email}
+            onChange={(e) => setEmail(e.target.value)}
+            className="w-full rounded-xl border px-4 py-3"
+          />
+
+          <input
+            type="password"
+            placeholder="비밀번호"
+            value={password}
+            onChange={(e) => setPassword(e.target.value)}
+            className="w-full rounded-xl border px-4 py-3"
+          />
+
+          <button
+            type="button"
+            onClick={handleLogin}
+            disabled={loading}
+            className="w-full rounded-xl bg-black py-3 text-white disabled:opacity-50"
+          >
+            {loading ? "처리 중..." : "로그인"}
+          </button>
+
+          <div className="text-sm text-gray-600">
+            계정이 없으면{" "}
+            <Link href="/signup" className="underline">
+              회원가입
+            </Link>
+          </div>
+
+          {message && (
+            <div className="rounded-xl border p-4 text-sm text-gray-700">
+              {message}
+            </div>
+          )}
+        </div>
+      </div>
+    </main>
+  );
+}
+</file>
+
+<file path="app/mypage/page.tsx">
+"use client";
+
+import Link from "next/link";
+import { useEffect, useMemo, useState } from "react";
+import { useRouter } from "next/navigation";
+import { supabase } from "@/lib/supabase";
+
+type Viewer = {
+  id: string;
+  email: string | null;
+  pointBalance: number;
+};
+
+type PointLog = {
+  id: string;
+  type: string;
+  amount: number;
+  balance_after: number | null;
+  reason: string | null;
+  created_at: string;
+};
+
+export default function MyPage() {
+  const router = useRouter();
+
+  const [viewer, setViewer] = useState<Viewer | null>(null);
+  const [logs, setLogs] = useState<PointLog[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [pageError, setPageError] = useState("");
+
+  useEffect(() => {
+    const loadPage = async () => {
+      try {
+        const {
+          data: { user },
+          error: userError,
+        } = await supabase.auth.getUser();
+
+        if (userError || !user) {
+          router.replace("/login");
+          return;
+        }
+
+        const { data: profile, error: profileError } = await supabase
+          .from("users")
+          .select("id, email, point_balance")
+          .eq("id", user.id)
+          .maybeSingle();
+
+        if (profileError) {
+          console.error("profile 오류:", profileError);
+          setPageError("사용자 정보를 불러오지 못했습니다.");
+        }
+
+        setViewer({
+          id: user.id,
+          email: profile?.email ?? user.email ?? null,
+          pointBalance: profile?.point_balance ?? 0,
+        });
+
+        const { data: pointLogs, error: logsError } = await supabase
+          .from("point_logs")
+          .select("id, type, amount, balance_after, reason, created_at")
+          .eq("user_id", user.id)
+          .order("created_at", { ascending: false });
+
+        if (logsError) {
+          console.error("point_logs 오류:", logsError);
+          setLogs([]);
+        } else {
+          setLogs(pointLogs ?? []);
+        }
+      } catch (error) {
+        console.error("mypage 로드 오류:", error);
+        setPageError("마이페이지를 불러오는 중 오류가 발생했습니다.");
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    loadPage();
+  }, [router]);
+
+  const totalUsedPoints = useMemo(() => {
+    return logs
+      .filter((log) => Number(log.amount) < 0)
+      .reduce((sum, log) => sum + Math.abs(Number(log.amount)), 0);
+  }, [logs]);
+
+  const totalChargedPoints = useMemo(() => {
+    return logs
+      .filter((log) => Number(log.amount) > 0)
+      .reduce((sum, log) => sum + Number(log.amount), 0);
+  }, [logs]);
+
+  if (loading) {
+    return (
+      <main className="min-h-screen bg-[#f7f7f5] px-6 py-12">
+        <div className="mx-auto max-w-5xl text-sm text-gray-500">불러오는 중...</div>
+      </main>
+    );
+  }
+
+  if (!viewer) {
+    return null;
+  }
+
+  return (
+    <main className="min-h-screen bg-[#f7f7f5] px-6 py-12">
+      <div className="mx-auto max-w-5xl">
+        <div className="mb-8">
+          <Link
+            href="/"
+            className="inline-flex items-center text-sm text-gray-600 mb-4"
+          >
+            ← 홈으로
+          </Link>
+
+          <h1 className="text-4xl font-bold mb-3">마이페이지</h1>
+          <p className="text-gray-700 text-lg leading-8">
+            계정 정보와 포인트 사용 내역을 확인할 수 있습니다.
+          </p>
+        </div>
+
+        {pageError ? (
+          <div className="mb-6 rounded-2xl border bg-white p-4 text-sm text-red-500">
+            {pageError}
+          </div>
+        ) : null}
+
+        <div className="grid grid-cols-1 gap-6 md:grid-cols-3 mb-8">
+          <div className="rounded-3xl border bg-white p-6">
+            <div className="text-sm text-gray-500 mb-2">로그인 계정</div>
+            <div className="text-lg font-semibold break-all">{viewer.email}</div>
+          </div>
+
+          <div className="rounded-3xl border bg-white p-6">
+            <div className="text-sm text-gray-500 mb-2">현재 잔액</div>
+            <div className="text-3xl font-bold">{viewer.pointBalance}P</div>
+          </div>
+
+          <div className="rounded-3xl border bg-white p-6">
+            <div className="text-sm text-gray-500 mb-2">총 사용 포인트</div>
+            <div className="text-3xl font-bold">{totalUsedPoints}P</div>
+          </div>
+        </div>
+
+        <div className="grid grid-cols-1 gap-6 md:grid-cols-2 mb-8">
+          <div className="rounded-3xl border bg-white p-6">
+            <div className="text-sm text-gray-500 mb-2">총 적립/충전 포인트</div>
+            <div className="text-3xl font-bold">{totalChargedPoints}P</div>
+          </div>
+
+          <div className="rounded-3xl border bg-white p-6">
+            <div className="text-sm text-gray-500 mb-2">로그 수</div>
+            <div className="text-3xl font-bold">{logs.length}건</div>
+          </div>
+        </div>
+
+        <div className="rounded-3xl border bg-white p-6">
+          <div className="mb-4 text-2xl font-bold">최근 포인트 내역</div>
+
+          {logs.length === 0 ? (
+            <div className="text-sm text-gray-500">아직 내역이 없습니다.</div>
+          ) : (
+            <div className="space-y-3">
+              {logs.map((log) => (
+                <div
+                  key={log.id}
+                  className="flex flex-col gap-2 rounded-2xl border p-4 md:flex-row md:items-center md:justify-between"
+                >
+                  <div>
+                    <div className="font-semibold">{log.reason || "사유 없음"}</div>
+                    <div className="text-sm text-gray-500">
+                      {log.type} ·{" "}
+                      {log.created_at
+                        ? new Date(log.created_at).toLocaleString("ko-KR")
+                        : "-"}
+                    </div>
+                  </div>
+
+                  <div className="text-right">
+                    <div
+                      className={`font-bold ${
+                        Number(log.amount) < 0 ? "text-red-500" : "text-blue-600"
+                      }`}
+                    >
+                      {Number(log.amount) > 0 ? "+" : ""}
+                      {log.amount}P
+                    </div>
+                    <div className="text-sm text-gray-500">
+                      잔액 후: {log.balance_after ?? "-"}P
+                    </div>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      </div>
+    </main>
+  );
+}
+</file>
+
+<file path="app/signup/page.tsx">
+"use client";
+
+import { useState } from "react";
+import Link from "next/link";
+import { supabase } from "@/lib/supabase";
+
+export default function SignupPage() {
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
+  const [message, setMessage] = useState("");
+  const [loading, setLoading] = useState(false);
+
+  const handleSignup = async () => {
+    const trimmedEmail = email.trim();
+
+    if (!trimmedEmail) {
+      setMessage("이메일을 입력해주세요.");
+      return;
+    }
+
+    if (!password) {
+      setMessage("비밀번호를 입력해주세요.");
+      return;
+    }
+
+    if (password.length < 6) {
+      setMessage("비밀번호는 최소 6자 이상 입력해주세요.");
+      return;
+    }
+
+    setLoading(true);
+    setMessage("");
+
+    try {
+      const { data, error } = await supabase.auth.signUp({
+        email: trimmedEmail,
+        password,
+      });
+
+      if (error) {
+        setMessage(`오류: ${error.message}`);
+        return;
+      }
+
+      if (data.user && !data.session) {
+        setMessage("회원가입 완료. 이메일 인증 후 로그인해주세요.");
+        return;
+      }
+
+      setMessage("회원가입 완료");
+    } catch (error) {
+      console.error(error);
+      setMessage("회원가입 중 오류 발생");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleGoogleSignup = async () => {
+    setLoading(true);
+    setMessage("");
+
+    try {
+      const { error } = await supabase.auth.signInWithOAuth({
+        provider: "google",
+        options: {
+          redirectTo: "https://studio.ballute.co.kr/",
+        },
+      });
+
+      if (error) {
+        setMessage(`오류: ${error.message}`);
+        setLoading(false);
+      }
+    } catch (error) {
+      console.error(error);
+      setMessage("Google 로그인 오류");
+      setLoading(false);
+    }
+  };
+
+  return (
+    <main className="min-h-screen bg-white px-6 py-16">
+      <div className="mx-auto max-w-md">
+        <h1 className="mb-8 text-3xl font-bold">회원가입</h1>
+
+        <div className="space-y-4">
+          <button
+            type="button"
+            onClick={handleGoogleSignup}
+            disabled={loading}
+            className="w-full rounded-xl border px-4 py-3 text-left disabled:opacity-50"
+          >
+            Google로 시작하기
+          </button>
+
+          <div className="text-center text-sm text-gray-500">또는</div>
+
+          <input
+            type="email"
+            placeholder="이메일"
+            value={email}
+            onChange={(e) => setEmail(e.target.value)}
+            className="w-full rounded-xl border px-4 py-3"
+          />
+
+          <input
+            type="password"
+            placeholder="비밀번호"
+            value={password}
+            onChange={(e) => setPassword(e.target.value)}
+            className="w-full rounded-xl border px-4 py-3"
+          />
+
+          <button
+            type="button"
+            onClick={handleSignup}
+            disabled={loading}
+            className="w-full rounded-xl bg-black py-3 text-white disabled:opacity-50"
+          >
+            {loading ? "가입 중..." : "회원가입"}
+          </button>
+
+          <div className="text-sm text-gray-600">
+            이미 계정이 있으면{" "}
+            <Link href="/login" className="underline">
+              로그인
+            </Link>
+          </div>
+
+          {message && (
+            <div className="rounded-xl border p-4 text-sm text-gray-700">
+              {message}
+            </div>
+          )}
+        </div>
+      </div>
+    </main>
+  );
+}
+</file>
+
+<file path="app/globals.css">
+@import "tailwindcss";
+
+:root {
+  --background: #ffffff;
+  --foreground: #171717;
+}
+
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --font-sans: var(--font-geist-sans);
+  --font-mono: var(--font-geist-mono);
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --background: #0a0a0a;
+    --foreground: #ededed;
+  }
+}
+
+body {
+  background: var(--background);
+  color: var(--foreground);
+  font-family: Arial, Helvetica, sans-serif;
+}
+html,
+body {
+  font-family: "Helvetica Neue", Helvetica, Arial, sans-serif;
+  background: #f7f7f5;
+  color: #73727c;
+}
+
+* {
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+</file>
+
+<file path="app/layout.tsx">
+import type { Metadata } from "next";
+import { Geist, Geist_Mono } from "next/font/google";
+import "./globals.css";
+
+const geistSans = Geist({
+  variable: "--font-geist-sans",
+  subsets: ["latin"],
+});
+
+const geistMono = Geist_Mono({
+  variable: "--font-geist-mono",
+  subsets: ["latin"],
+});
+
+export const metadata: Metadata = {
+  title: "SIGNATURE AI STUDIO",
+  description: "Brand lookbook AI built for controllable visual production.",
+};
+
+export default function RootLayout({
+  children,
+}: Readonly<{
+  children: React.ReactNode;
+}>) {
+  return (
+    <html
+      lang="en"
+      className={`${geistSans.variable} ${geistMono.variable} h-full antialiased`}
+    >
+      <body className="min-h-full flex flex-col">{children}</body>
+    </html>
+  );
+}
+</file>
+
+<file path="components/face-input-section.tsx">
+"use client";
+
+import { useState } from "react";
+
+type FaceUploadItem = {
+  file: File;
+  preview: string;
+};
+
+export type ModelGenerateOptions = {
+  ethnicity: string;
+  gender: string;
+  age: string;
+  hairStyle: string;
+  skinTone: string;
+  eyeColor: string;
+  mood: string;
+  extraDetails: string;
+};
+
+type FaceInputSectionProps = {
+  items: FaceUploadItem[];
+  onAddFiles: (files: FileList | null) => void;
+  onRemoveItem: (index: number) => void;
+  onClearAll: () => void;
+  onGenerate: (options: ModelGenerateOptions) => void;
+  generating: boolean;
+  disabled?: boolean;
+};
+
+export default function FaceInputSection({
+  items,
+  onAddFiles,
+  onRemoveItem,
+  onClearAll,
+  onGenerate,
+  generating,
+  disabled = false,
+}: FaceInputSectionProps) {
+  const [mode, setMode] = useState<"generate" | "upload">("generate");
+
+  const [ethnicity, setEthnicity] = useState("East Asian");
+  const [gender, setGender] = useState("Male");
+  const [age, setAge] = useState("Early 20s");
+  const [hairStyle, setHairStyle] = useState("Short messy black hair, city boy style");
+  const [skinTone, setSkinTone] = useState("Light neutral skin tone");
+  const [eyeColor, setEyeColor] = useState("Dark brown");
+  const [mood, setMood] = useState("Calm and confident");
+  const [extraDetails, setExtraDetails] = useState("");
+
+  const handleGenerateClick = () => {
+    onGenerate({
+      ethnicity,
+      gender,
+      age,
+      hairStyle,
+      skinTone,
+      eyeColor,
+      mood,
+      extraDetails,
+    });
+  };
+
+  const inputClass =
+    "w-full border-b border-black/70 bg-transparent px-0 py-3 text-[16px] outline-none placeholder:text-gray-400";
+  const labelClass =
+    "mb-2 text-[14px] font-semibold uppercase tracking-[0.02em] text-gray-500";
+
+  return (
+    <div className="border rounded-2xl p-6 bg-white">
+      <div className="flex items-center gap-2 mb-2">
+        <h2 className="text-xl font-bold">모델 얼굴 입력</h2>
+        <span className="text-xs px-2 py-1 rounded-full bg-black text-white">
+          필수
+        </span>
+      </div>
+
+      <p className="text-sm text-gray-700 mb-5 leading-6">
+        기존 모델 이미지를 업로드하거나, 원하는 조건을 입력해서 가상 모델 얼굴
+        앵커를 생성할 수 있다.
+      </p>
+
+      <div className="mb-6 grid grid-cols-2 border rounded-xl overflow-hidden">
+        <button
+          type="button"
+          onClick={() => setMode("generate")}
+          className={`px-4 py-4 text-sm font-semibold ${
+            mode === "generate"
+              ? "bg-black text-white"
+              : "bg-white text-black"
+          }`}
+        >
+          GENERATE VIRTUAL MODEL
+        </button>
+
+        <button
+          type="button"
+          onClick={() => setMode("upload")}
+          className={`px-4 py-4 text-sm font-semibold ${
+            mode === "upload"
+              ? "bg-black text-white"
+              : "bg-white text-black"
+          }`}
+        >
+          UPLOAD EXISTING MODEL
+        </button>
+      </div>
+
+      {mode === "upload" ? (
+        <div>
+          <div className="flex flex-wrap gap-3 mb-4">
+            <label className="block cursor-pointer">
+              <div className="px-4 py-3 border-2 border-dashed rounded-xl text-sm text-gray-500 bg-white">
+                여러 장 추가 업로드
+              </div>
+              <input
+                type="file"
+                accept="image/*"
+                multiple
+                className="hidden"
+                onChange={(e) => onAddFiles(e.target.files)}
+                disabled={disabled || generating}
+              />
+            </label>
+
+            <button
+              type="button"
+              onClick={onClearAll}
+              disabled={disabled || generating}
+              className="px-4 py-3 border rounded-xl text-sm text-gray-700 bg-white disabled:opacity-60"
+            >
+              전체 삭제
+            </button>
+          </div>
+        </div>
+      ) : (
+        <div className="space-y-7">
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-x-8 gap-y-7">
+            <div>
+              <div className={labelClass}>ETHNICITY</div>
+              <input
+                value={ethnicity}
+                onChange={(e) => setEthnicity(e.target.value)}
+                className={inputClass}
+                placeholder="East Asian"
+              />
+            </div>
+
+            <div>
+              <div className={labelClass}>GENDER</div>
+              <input
+                value={gender}
+                onChange={(e) => setGender(e.target.value)}
+                className={inputClass}
+                placeholder="Male / Female / Androgynous"
+              />
+            </div>
+
+            <div>
+              <div className={labelClass}>AGE</div>
+              <input
+                value={age}
+                onChange={(e) => setAge(e.target.value)}
+                className={inputClass}
+                placeholder="Early 20s"
+              />
+            </div>
+
+            <div>
+              <div className={labelClass}>SKIN TONE</div>
+              <input
+                value={skinTone}
+                onChange={(e) => setSkinTone(e.target.value)}
+                className={inputClass}
+                placeholder="Light neutral skin tone"
+              />
+            </div>
+          </div>
+
+          <div>
+            <div className={labelClass}>HAIR STYLE</div>
+            <input
+              value={hairStyle}
+              onChange={(e) => setHairStyle(e.target.value)}
+              className={inputClass}
+              placeholder="Short messy black hair, city boy style"
+            />
+          </div>
+
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-x-8 gap-y-7">
+            <div>
+              <div className={labelClass}>EYE COLOR</div>
+              <input
+                value={eyeColor}
+                onChange={(e) => setEyeColor(e.target.value)}
+                className={inputClass}
+                placeholder="Dark brown"
+              />
+            </div>
+
+            <div>
+              <div className={labelClass}>MOOD</div>
+              <input
+                value={mood}
+                onChange={(e) => setMood(e.target.value)}
+                className={inputClass}
+                placeholder="Calm and confident"
+              />
+            </div>
+          </div>
+
+          <div>
+            <div className={labelClass}>ETC</div>
+            <textarea
+              value={extraDetails}
+              onChange={(e) => setExtraDetails(e.target.value)}
+              className="w-full border-b border-black/70 bg-transparent px-0 py-3 text-[16px] outline-none placeholder:text-gray-400 resize-none"
+              rows={4}
+              placeholder="예: soft straight brows, clean jawline, no facial hair, natural lips, balanced symmetry"
+            />
+          </div>
+
+          <button
+            type="button"
+            onClick={handleGenerateClick}
+            disabled={disabled || generating}
+            className="px-5 py-3 rounded-xl bg-black text-white text-sm disabled:opacity-60"
+          >
+            {generating ? "모델 생성중..." : "모델 생성 (30P)"}
+          </button>
+        </div>
+      )}
+
+      <div className="mt-6 text-sm text-gray-600">
+        현재 업로드 수: <b>{items.length}장</b>
+      </div>
+
+      {items.length > 0 ? (
+        <div className="grid grid-cols-2 md:grid-cols-3 gap-3 mt-4">
+          {items.map((item, index) => (
+            <div
+              key={`${item.file.name}-${index}`}
+              className="border rounded-xl p-2"
+            >
+              <img
+                src={item.preview}
+                alt={item.file.name}
+                className="w-full h-32 object-cover rounded-lg"
+              />
+              <div className="mt-2 text-xs text-gray-600 truncate">
+                {item.file.name}
+              </div>
+
+              <button
+                type="button"
+                onClick={() => onRemoveItem(index)}
+                className="mt-2 w-full bg-red-500 text-white text-xs py-2 rounded-lg"
+              >
+                이 사진 삭제
+              </button>
+            </div>
+          ))}
+        </div>
+      ) : (
+        <div className="mt-4 text-sm text-gray-400">아직 업로드 안 됨</div>
+      )}
+    </div>
+  );
+}
+</file>
+
+<file path="package.json">
+{
+  "name": "ballute-studio",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "dev": "next dev",
+    "build": "next build",
+    "start": "next start",
+    "lint": "eslint"
+  },
+  "dependencies": {
+    "@google/genai": "^1.46.0",
+    "@supabase/supabase-js": "^2.100.1",
+    "next": "16.2.1",
+    "react": "19.2.4",
+    "react-dom": "19.2.4"
+  },
+  "devDependencies": {
+    "@tailwindcss/postcss": "^4",
+    "@types/node": "^20",
+    "@types/react": "^19",
+    "@types/react-dom": "^19",
+    "eslint": "^9",
+    "eslint-config-next": "16.2.1",
+    "tailwindcss": "^4",
+    "typescript": "^5"
+  }
+}
+</file>
+
+<file path="app/fusion/page.tsx">
+"use client";
+
+import { useMemo, useState } from "react";
+import Link from "next/link";
+import { spendPoints } from "@/lib/points";
+import FaceInputSection, {
+  ModelGenerateOptions,
+} from "@/components/face-input-section";
+
+type UploadItem = {
+  file: File;
+  preview: string;
+  caption?: string;
+};
+
+type LockedVibe = {
+  background?: string;
+  pose?: string;
+  expression?: string;
+  overall_mood?: string;
+  camera_angle_and_crop?: string;
+  lighting_and_exposure?: string;
+  color_grading_and_texture?: string;
+};
+
+type FusionResult = {
+  image: string;
+  summary?: string;
+  locationPrompt?: string;
+  poseBlueprint?: {
+    pose?: string;
+    expression?: string;
+    camera_angle_and_crop?: string;
+  };
+  bgDNA?: {
+    spatial_mood?: string;
+    lighting_and_exposure?: string;
+    color_grading_and_texture?: string;
+    camera_feel?: string;
+  };
+};
+
+type ResultSlot = {
+  status: "waiting" | "generating" | "done" | "error";
+  result: FusionResult | null;
+  error?: string;
+  poseIndex: number;
+  locationIndex: number;
+};
+
+type UploadSectionProps = {
+  title: string;
+  required?: boolean;
+  description: string;
+  items: UploadItem[];
+  onAddFiles: (files: FileList | null) => void;
+  onRemoveItem: (index: number) => void;
+  onClearAll: () => void;
+  showCaptionInput?: boolean;
+  onCaptionChange?: (index: number, value: string) => void;
+};
+
+function UploadSection({
+  title,
+  required = false,
+  description,
+  items,
+  onAddFiles,
+  onRemoveItem,
+  onClearAll,
+  showCaptionInput = false,
+  onCaptionChange,
+}: UploadSectionProps) {
+  return (
+    <div className="border rounded-2xl p-6 bg-white shadow-sm">
+      <div className="flex items-center gap-2 mb-2">
+        <h2 className="text-xl font-bold">{title}</h2>
+        {required ? (
+          <span className="text-xs px-2 py-1 rounded-full bg-black text-white">
+            필수
+          </span>
+        ) : (
+          <span className="text-xs px-2 py-1 rounded-full border text-gray-600">
+            선택
+          </span>
+        )}
+      </div>
+
+      <p className="text-sm text-gray-700 mb-4 leading-6">{description}</p>
+
+      <div className="flex flex-wrap gap-3 mb-4">
+        <label className="block cursor-pointer">
+          <div className="px-4 py-3 border-2 border-dashed rounded-xl text-sm text-gray-500 hover:bg-gray-50 transition-colors">
+            여러 장 추가 업로드
+          </div>
+          <input
+            type="file"
+            accept="image/*"
+            multiple
+            className="hidden"
+            onChange={(e) => onAddFiles(e.target.files)}
+          />
+        </label>
+
+        <button
+          type="button"
+          onClick={onClearAll}
+          className="px-4 py-3 border rounded-xl text-sm text-gray-700 hover:bg-gray-50 transition-colors"
+        >
+          전체 삭제
+        </button>
+      </div>
+
+      <div className="mt-2 text-sm text-gray-600">
+        현재 업로드 수: <b>{items.length}장</b>
+      </div>
+
+      {items.length > 0 ? (
+        <div className="grid grid-cols-2 md:grid-cols-3 gap-3 mt-4">
+          {items.map((item, index) => (
+            <div key={`${item.file.name}-${index}`} className="border rounded-xl p-2 relative group">
+              <img
+                src={item.preview}
+                alt={item.file.name}
+                className="w-full h-32 object-cover rounded-lg"
+              />
+              <div className="mt-2 text-xs text-gray-600 truncate">
+                {item.file.name}
+              </div>
+
+              {showCaptionInput && onCaptionChange ? (
+                <textarea
+                  value={item.caption || ""}
+                  onChange={(e) => onCaptionChange(index, e.target.value)}
+                  placeholder="예: shirt untucked / layered under blazer"
+                  className="mt-2 w-full border rounded-lg px-2 py-2 text-xs focus:outline-none focus:ring-1 focus:ring-black"
+                  rows={3}
+                />
+              ) : null}
+
+              <button
+                type="button"
+                onClick={() => onRemoveItem(index)}
+                className="mt-2 w-full bg-red-500 text-white text-xs py-2 rounded-lg opacity-90 hover:opacity-100 transition-opacity"
+              >
+                이 사진 삭제
+              </button>
+            </div>
+          ))}
+        </div>
+      ) : (
+        <div className="mt-4 text-sm text-gray-400">아직 업로드 안 됨</div>
+      )}
+    </div>
+  );
+}
+
+function ShortTag({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="inline-flex items-center gap-2 rounded-full border px-3 py-2 text-xs bg-[#fafaf8]">
+      <span className="font-semibold text-gray-800">{label}</span>
+      <span className="text-gray-600 truncate max-w-[180px]">{value}</span>
+    </div>
+  );
+}
+
+function shorten(text?: string, max = 42) {
+  if (!text) return "-";
+  return text.length > max ? `${text.slice(0, max)}...` : text;
+}
+
+export default function FusionPage() {
+  const [faces, setFaces] = useState<UploadItem[]>([]);
+  const [outfits, setOutfits] = useState<UploadItem[]>([]);
+  const [bgs, setBgs] = useState<UploadItem[]>([]);
+  const [poses, setPoses] = useState<UploadItem[]>([]);
+
+  const [outfitMode, setOutfitMode] = useState<"outfit" | "mix">("outfit");
+  const [count, setCount] = useState(4);
+  const [fitSpec, setFitSpec] = useState("");
+  const [shootingMode, setShootingMode] = useState("default");
+  const [customPrompt, setCustomPrompt] = useState("");
+  const [lockedVibe, setLockedVibe] = useState<LockedVibe | null>(null);
+
+  const [loading, setLoading] = useState(false);
+  const [modelGenerating, setModelGenerating] = useState(false);
+  const [statusMessage, setStatusMessage] = useState("");
+  const [resultSlots, setResultSlots] = useState<ResultSlot[]>([]);
+
+  const costPerImage = 60;
+  const safeCount = useMemo(
+    () => Math.max(1, Math.min(8, Number(count) || 1)),
+    [count]
+  );
+  const expectedResultCount = poses.length * safeCount;
+  const totalCost = expectedResultCount * costPerImage;
+
+  const appendFiles = (
+    setter: React.Dispatch<React.SetStateAction<UploadItem[]>>,
+    files: FileList | null
+  ) => {
+    if (!files || files.length === 0) return;
+    const newItems: UploadItem[] = Array.from(files).map((file) => ({
+      file,
+      preview: URL.createObjectURL(file),
+      caption: "",
+    }));
+    setter((prev) => [...prev, ...newItems]);
+  };
+
+  const removeItem = (
+    setter: React.Dispatch<React.SetStateAction<UploadItem[]>>,
+    index: number
+  ) => {
+    setter((prev) => prev.filter((_, i) => i !== index));
+  };
+
+  const clearAll = (
+    setter: React.Dispatch<React.SetStateAction<UploadItem[]>>
+  ) => {
+    setter([]);
+  };
+
+  const updateOutfitCaption = (index: number, value: string) => {
+    setOutfits((prev) =>
+      prev.map((item, i) => (i === index ? { ...item, caption: value } : item))
+    );
+  };
+
+  const updateSlot = (index: number, patch: Partial<ResultSlot>) => {
+    setResultSlots((prev) =>
+      prev.map((slot, i) => (i === index ? { ...slot, ...patch } : slot))
+    );
+  };
+
+  const handleSetVibe = (result: FusionResult) => {
+    setLockedVibe({
+      background: result.locationPrompt,
+      pose: result.poseBlueprint?.pose,
+      expression: result.poseBlueprint?.expression,
+      overall_mood: result.bgDNA?.spatial_mood,
+      camera_angle_and_crop:
+        result.poseBlueprint?.camera_angle_and_crop || result.bgDNA?.camera_feel,
+      lighting_and_exposure: result.bgDNA?.lighting_and_exposure,
+      color_grading_and_texture: result.bgDNA?.color_grading_and_texture,
+    });
+    setStatusMessage("현재 컷 기준으로 Vibe Lock 설정됨");
+  };
+
+  const handleClearVibe = () => {
+    setLockedVibe(null);
+    setStatusMessage("Vibe Lock 해제됨");
+  };
+
+  const handleGenerateModel = async (options: ModelGenerateOptions) => {
+    try {
+      setModelGenerating(true);
+      setStatusMessage("모델 생성 준비중...");
+
+      await spendPoints(30, "MODEL GENERATE");
+
+      const res = await fetch("/api/model-anchor", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify(options),
+      });
+
+      const data = await res.json();
+
+      if (!res.ok) {
+        throw new Error(data?.error || "모델 생성 실패");
+      }
+
+      const blob = await fetch(data.image).then((r) => r.blob());
+      const file = new File([blob], `model-anchor-${Date.now()}.png`, {
+        type: "image/png",
+      });
+
+      const newItem: UploadItem = {
+        file,
+        preview: URL.createObjectURL(file),
+      };
+
+      setFaces((prev) => [...prev, newItem]);
+      setStatusMessage("모델 생성 완료 (30P 차감)");
+    } catch (error) {
+      const message =
+        error instanceof Error ? error.message : "모델 생성 중 오류";
+      setStatusMessage(`오류: ${message}`);
+      alert(message);
+    } finally {
+      setModelGenerating(false);
+    }
+  };
+
+  const handleRunFusion = async () => {
+    if (!faces.length || !outfits.length || !bgs.length || !poses.length) {
+      alert("얼굴 / 의상 / BG / POSE는 최소 1장씩 필요하다.");
+      return;
+    }
+
+    if (outfitMode === "mix") {
+      const hasEmptyCaption = outfits.some((item) => !(item.caption || "").trim());
+      if (hasEmptyCaption) {
+        alert("MIX 모드에서는 모든 아이템 설명이 필요하다.");
+        return;
+      }
+    }
+
+    if (expectedResultCount <= 0) {
+      alert("예상 결과 수가 0장이라 실행할 수 없다.");
+      return;
+    }
+
+    try {
+      setLoading(true);
+      setStatusMessage(`포인트 차감중... (${totalCost}P)`);
+
+      await spendPoints(totalCost, `FUSION 실행 (${expectedResultCount}장)`);
+
+      setStatusMessage("FUSION 준비중...");
+      setResultSlots([]);
+
+      const prepareForm = new FormData();
+      prepareForm.append("count", String(safeCount));
+      bgs.forEach((item) => prepareForm.append("bgs", item.file));
+      poses.forEach((item) => prepareForm.append("poses", item.file));
+
+      const prepareRes = await fetch("/api/fusion/prepare", {
+        method: "POST",
+        body: prepareForm,
+      });
+
+      const prepareData = await prepareRes.json();
+
+      if (!prepareRes.ok) {
+        throw new Error(prepareData?.error || "FUSION 준비 실패");
+      }
+
+      const { bgDNA, locationPrompts, poseBlueprints } = prepareData;
+
+      const initialSlots: ResultSlot[] = [];
+      poseBlueprints.forEach((_: unknown, poseIndex: number) => {
+        locationPrompts.forEach((_: string, locationIndex: number) => {
+          initialSlots.push({
+            status: "waiting",
+            result: null,
+            poseIndex,
+            locationIndex,
+          });
+        });
+      });
+
+      setResultSlots(initialSlots);
+
+      poseBlueprints.forEach(async (poseBlueprint: unknown, poseIndex: number) => {
+        for (let locationIndex = 0; locationIndex < locationPrompts.length; locationIndex++) {
+          const slotIndex = poseIndex * locationPrompts.length + locationIndex;
+          updateSlot(slotIndex, { status: "generating" });
+
+          try {
+            // 완전히 순정 원본 데이터 전송 로직으로 복원
+            const formData = new FormData();
+            formData.append("fitSpec", fitSpec);
+            formData.append("shootingMode", shootingMode);
+            formData.append("customPrompt", customPrompt);
+            formData.append("outfitMode", outfitMode);
+            formData.append(
+              "mixCaptions",
+              JSON.stringify(outfits.map((item) => item.caption || ""))
+            );
+            formData.append("bgDNA", JSON.stringify(bgDNA));
+            formData.append("poseBlueprint", JSON.stringify(poseBlueprint));
+            formData.append("locationPrompt", locationPrompts[locationIndex]);
+            formData.append(
+              "lockedVibe",
+              lockedVibe ? JSON.stringify(lockedVibe) : ""
+            );
+
+            faces.forEach((item) => formData.append("faces", item.file));
+            outfits.forEach((item) => formData.append("outfits", item.file));
+
+            const res = await fetch("/api/fusion/generate-one", {
+              method: "POST",
+              body: formData,
+            });
+
+            const data = await res.json();
+
+            if (!res.ok) {
+              throw new Error(data?.error || "FUSION 한 장 생성 실패");
+            }
+
+            updateSlot(slotIndex, {
+              status: "done",
+              result: data.result as FusionResult,
+            });
+
+            setStatusMessage(
+              `Pose ${poseIndex + 1} / Location ${locationIndex + 1} 생성 완료`
+            );
+          } catch (error) {
+            const message =
+              error instanceof Error ? error.message : "알 수 없는 FUSION 오류";
+
+            updateSlot(slotIndex, {
+              status: "error",
+              error: message,
+            });
+
+            setStatusMessage(
+              `Pose ${poseIndex + 1} / Location ${locationIndex + 1} 오류`
+            );
+          }
+        }
+      });
+    } catch (error) {
+      const message =
+        error instanceof Error ? error.message : "알 수 없는 FUSION 오류";
+      setStatusMessage(`오류: ${message}`);
+      alert(message);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  return (
+    <main className="min-h-screen bg-[#f7f7f5] px-6 py-10">
+      <div className="max-w-7xl mx-auto">
+        <div className="mb-8">
+          <Link
+            href="/"
+            className="inline-flex items-center text-sm text-gray-600 mb-4 hover:text-black transition-colors"
+          >
+            ← 홈으로
+          </Link>
+
+          <h1 className="text-4xl font-bold mb-3 tracking-tight">FUSION</h1>
+          <p className="text-gray-700 text-lg leading-8 max-w-4xl">
+            배경 DNA와 포즈 블루프린트를 결합해서 고급 editorial 결과를 만드는
+            생산 라인.
+          </p>
+        </div>
+
+        {/* --- 섹션 1: 피사체 (얼굴 및 의상) --- */}
+        <div className="grid grid-cols-1 xl:grid-cols-2 gap-6 mb-6">
+          <FaceInputSection
+            items={faces}
+            onAddFiles={(files) => appendFiles(setFaces, files)}
+            onRemoveItem={(index) => removeItem(setFaces, index)}
+            onClearAll={() => clearAll(setFaces)}
+            onGenerate={handleGenerateModel}
+            generating={modelGenerating}
+            disabled={loading}
+          />
+
+          <div className="space-y-4">
+            <div className="border rounded-2xl p-4 bg-white shadow-sm">
+              <div className="font-semibold mb-3">의상 입력 방식</div>
+              <div className="flex gap-3">
+                <button
+                  type="button"
+                  onClick={() => setOutfitMode("outfit")}
+                  className={`px-4 py-2 rounded-xl border transition-colors ${
+                    outfitMode === "outfit"
+                      ? "bg-black text-white border-black"
+                      : "bg-white text-gray-700 hover:bg-gray-50"
+                  }`}
+                >
+                  OUTFIT
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setOutfitMode("mix")}
+                  className={`px-4 py-2 rounded-xl border transition-colors ${
+                    outfitMode === "mix"
+                      ? "bg-black text-white border-black"
+                      : "bg-white text-gray-700 hover:bg-gray-50"
+                  }`}
+                >
+                  MIX
+                </button>
+              </div>
+            </div>
+
+            <UploadSection
+              title={outfitMode === "mix" ? "MIX 아이템 업로드" : "의상 착샷 업로드"}
+              required
+              description={
+                outfitMode === "mix"
+                  ? "아이템 여러 장을 조립하는 모드. 각 이미지마다 설명을 꼭 입력해야 한다."
+                  : "의상 재구성 기준 이미지. 정면/측면/디테일 등 여러 장 넣을 수 있다."
+              }
+              items={outfits}
+              onAddFiles={(files) => appendFiles(setOutfits, files)}
+              onRemoveItem={(index) => removeItem(setOutfits, index)}
+              onClearAll={() => clearAll(setOutfits)}
+              showCaptionInput={outfitMode === "mix"}
+              onCaptionChange={updateOutfitCaption}
+            />
+          </div>
+        </div>
+
+        {/* --- 섹션 2: DNA 추출 (배경 및 포즈) --- */}
+        <div className="grid grid-cols-1 xl:grid-cols-2 gap-6 mb-6">
+          <UploadSection
+            title="BG 업로드"
+            required
+            description="공간, 톤, 질감, 라이팅 DNA를 추출할 기준 이미지."
+            items={bgs}
+            onAddFiles={(files) => appendFiles(setBgs, files)}
+            onRemoveItem={(index) => removeItem(setBgs, index)}
+            onClearAll={() => clearAll(setBgs)}
+          />
+
+          <UploadSection
+            title="POSE 업로드"
+            required
+            description="포즈와 크롭, 카메라 감각을 추출할 기준 이미지."
+            items={poses}
+            onAddFiles={(files) => appendFiles(setPoses, files)}
+            onRemoveItem={(index) => removeItem(setPoses, index)}
+            onClearAll={() => clearAll(setPoses)}
+          />
+        </div>
+
+        {/* --- 섹션 3: 제어 및 실행부 --- */}
+        <div className="border rounded-2xl p-6 bg-white shadow-sm space-y-5">
+          <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+            <div>
+              <label className="block text-sm font-semibold mb-2">장소 수</label>
+              <input
+                type="number"
+                min={1}
+                max={8}
+                value={count}
+                onChange={(e) => setCount(Number(e.target.value))}
+                className="w-full border rounded-xl px-4 py-3 focus:ring-1 focus:ring-black focus:outline-none"
+              />
+            </div>
+
+            <div>
+              <label className="block text-sm font-semibold mb-2">핏 보정</label>
+              <input
+                type="text"
+                value={fitSpec}
+                onChange={(e) => setFitSpec(e.target.value)}
+                placeholder="예: 173/71 183/63"
+                className="w-full border rounded-xl px-4 py-3 focus:ring-1 focus:ring-black focus:outline-none"
+              />
+            </div>
+
+            <div>
+              <label className="block text-sm font-semibold mb-2">Shooting Mode</label>
+              <select
+                value={shootingMode}
+                onChange={(e) => setShootingMode(e.target.value)}
+                className="w-full border rounded-xl px-4 py-3 focus:ring-1 focus:ring-black focus:outline-none"
+              >
+                <option value="default">default</option>
+                <option value="fuji">fuji</option>
+                <option value="mono">mono</option>
+                <option value="studio">studio</option>
+                <option value="raw">raw</option>
+                <option value="custom">custom</option>
+              </select>
+            </div>
+
+            <div>
+              <label className="block text-sm font-semibold mb-2">Custom Prompt</label>
+              <input
+                type="text"
+                value={customPrompt}
+                onChange={(e) => setCustomPrompt(e.target.value)}
+                placeholder="shootingMode가 custom일 때만 사용"
+                className="w-full border rounded-xl px-4 py-3 focus:ring-1 focus:ring-black focus:outline-none"
+              />
+            </div>
+          </div>
+
+          <div className="border rounded-xl p-4 bg-[#fafaf8] flex justify-between items-center flex-wrap gap-4">
+            <div className="text-sm text-gray-700 flex gap-4 flex-wrap">
+              <span>얼굴: <b>{faces.length}장</b></span>
+              <span>의상: <b>{outfits.length}장</b></span>
+              <span>BG: <b>{bgs.length}장</b></span>
+              <span>POSE: <b>{poses.length}장</b></span>
+              <span>모드: <b>{outfitMode}</b></span>
+              <span>총 예상: <b className="text-blue-600">{expectedResultCount}장</b></span>
+            </div>
+            <div className="text-lg font-bold">
+              총 필요 비용: <span className="text-red-500">{totalCost}P</span>
+            </div>
+          </div>
+
+          <div className="flex gap-3">
+            <button
+              onClick={handleRunFusion}
+              disabled={loading || modelGenerating}
+              className="flex-1 bg-black text-white py-5 rounded-2xl text-xl font-bold tracking-wide hover:bg-gray-800 disabled:opacity-60 disabled:cursor-not-allowed transition-all shadow-md"
+            >
+              {loading ? "FUSION 라인 가동중..." : `FUSION 실행하기 (${totalCost}P)`}
+            </button>
+
+            <button
+              type="button"
+              onClick={handleClearVibe}
+              className="px-6 py-5 border rounded-2xl text-sm font-semibold hover:bg-gray-50 transition-colors"
+            >
+              Vibe 해제
+            </button>
+          </div>
+        </div>
+
+        {/* --- 상태 및 Vibe 표시 --- */}
+        <div className="mt-6 border rounded-2xl p-5 bg-white shadow-sm flex items-center justify-between">
+          <div className="font-semibold">현재 상태 Log</div>
+          <div className="text-sm font-mono text-gray-700 bg-gray-100 px-4 py-2 rounded-lg truncate max-w-2xl">
+            {statusMessage || "대기중 (Ready)"}
+          </div>
+        </div>
+
+        {lockedVibe ? (
+          <div className="mt-6 border-2 border-gray-900 rounded-2xl p-5 bg-white shadow-sm">
+            <div className="font-bold mb-3 flex items-center gap-2">
+              🔒 현재 Vibe Lock 적용됨
+            </div>
+            <div className="flex flex-wrap gap-2">
+              <ShortTag label="배경" value={shorten(lockedVibe.background)} />
+              <ShortTag label="포즈" value={shorten(lockedVibe.pose)} />
+              <ShortTag label="표정" value={shorten(lockedVibe.expression)} />
+              <ShortTag label="무드" value={shorten(lockedVibe.overall_mood)} />
+              <ShortTag label="카메라" value={shorten(lockedVibe.camera_angle_and_crop)} />
+            </div>
+          </div>
+        ) : null}
+
+        {/* --- 결과 화면 --- */}
+        {resultSlots.length > 0 ? (
+          <div className="mt-12 space-y-6">
+            <div className="flex items-center gap-3 mb-6 border-b pb-4">
+              <h2 className="text-3xl font-bold tracking-tight">FUSION 결과물</h2>
+              <span className="bg-black text-white px-3 py-1 rounded-full text-sm font-medium">VAULT</span>
+            </div>
+
+            <div className="grid grid-cols-1 xl:grid-cols-2 gap-8">
+              {resultSlots.map((slot, index) => (
+                <div key={index} className="border-2 border-gray-100 rounded-3xl p-6 bg-white shadow-sm hover:shadow-md transition-shadow">
+                  <div className="font-bold text-gray-800 mb-4 flex justify-between items-center">
+                    <span>Pose {slot.poseIndex + 1} / Location {slot.locationIndex + 1}</span>
+                    <span className="text-xs px-2 py-1 bg-gray-100 rounded text-gray-500 font-mono">Slot #{index}</span>
+                  </div>
+
+                  {slot.status === "waiting" && (
+                    <div className="border-2 border-dashed rounded-2xl h-[500px] flex flex-col items-center justify-center text-gray-400 bg-gray-50">
+                      <div className="animate-pulse w-12 h-12 bg-gray-200 rounded-full mb-3"></div>
+                      대기열 진입...
+                    </div>
+                  )}
+
+                  {slot.status === "generating" && (
+                    <div className="border-2 border-dashed border-blue-200 rounded-2xl h-[500px] flex flex-col items-center justify-center text-blue-500 bg-blue-50/30">
+                      <svg className="animate-spin h-8 w-8 text-blue-500 mb-3" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                        <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                        <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                      </svg>
+                      DNA 융합 및 생성중...
+                    </div>
+                  )}
+
+                  {slot.status === "error" && (
+                    <div className="border border-red-200 rounded-2xl h-[500px] flex flex-col items-center justify-center text-red-500 bg-red-50 px-6 text-center">
+                      <span className="text-4xl mb-2">⚠️</span>
+                      <span className="font-bold mb-2">생성 실패</span>
+                      <span className="text-sm opacity-80">{slot.error}</span>
+                    </div>
+                  )}
+
+                  {slot.status === "done" && slot.result && (
+                    <div className="flex flex-col h-full">
+                      <img
+                        src={`data:image/png;base64,${slot.result.image}`}
+                        alt={`fusion-result-${index}`}
+                        className="w-full rounded-2xl border object-cover mb-5 shadow-sm"
+                      />
+
+                      <div className="flex flex-wrap gap-2 mb-5">
+                        <ShortTag label="무드" value={shorten(slot.result.bgDNA?.spatial_mood)} />
+                        <ShortTag label="장소" value={shorten(slot.result.locationPrompt)} />
+                        <ShortTag
+                          label="카메라"
+                          value={shorten(
+                            slot.result.bgDNA?.camera_feel ||
+                              slot.result.poseBlueprint?.camera_angle_and_crop
+                          )}
+                        />
+                        <ShortTag label="조명" value={shorten(slot.result.bgDNA?.lighting_and_exposure)} />
+                        <ShortTag label="포즈" value={shorten(slot.result.poseBlueprint?.pose)} />
+                        <ShortTag label="표정" value={shorten(slot.result.poseBlueprint?.expression)} />
+                      </div>
+
+                      <div className="text-sm text-gray-700 mb-6 bg-gray-50 p-4 rounded-xl border leading-relaxed">
+                        <b className="text-black block mb-1">DNA 요약:</b> 
+                        {slot.result.summary}
+                      </div>
+
+                      <div className="mt-auto">
+                        <button
+                          type="button"
+                          onClick={() => {
+                            if (!slot.result) return;
+                            handleSetVibe(slot.result);
+                            window.scrollTo({ top: 0, behavior: 'smooth' });
+                          }}
+                          className="w-full bg-black text-white font-bold tracking-wide py-4 rounded-xl hover:bg-gray-800 transition-colors flex items-center justify-center gap-2"
+                        >
+                          🔒 이 컷의 DNA로 Vibe Lock 설정
+                        </button>
+                      </div>
+                    </div>
+                  )}
+                </div>
+              ))}
+            </div>
+          </div>
+        ) : null}
+      </div>
+    </main>
+  );
+}
+</file>
+
+<file path="app/refrun/page.tsx">
+"use client";
+
+import { useState } from "react";
+import Link from "next/link";
+import { spendPoints } from "@/lib/points";
+import FaceInputSection, {
+  ModelGenerateOptions,
+} from "@/components/face-input-section";
+
+type UploadItem = {
+  file: File;
+  preview: string;
+};
+
+type RefRunDirection = {
+  background: string;
+  pose: string;
+  expression: string;
+  camera_angle_and_crop: string;
+  lighting_and_exposure: string;
+  color_grading_and_texture: string;
+  overall_mood: string;
+};
+
+type RefRunResult = {
+  image: string;
+  summary: string;
+  direction: RefRunDirection;
+};
+
+type ResultSlot = {
+  status: "waiting" | "generating" | "done" | "error";
+  result: RefRunResult | null;
+  error?: string;
+  referenceIndex: number;
+  cutIndex: number;
+};
+
+type UploadSectionProps = {
+  title: string;
+  required?: boolean;
+  description: string;
+  items: UploadItem[];
+  onAddFiles: (files: FileList | null) => void;
+  onRemoveItem: (index: number) => void;
+  onClearAll: () => void;
+};
+
+function UploadSection({
+  title,
+  required = false,
+  description,
+  items,
+  onAddFiles,
+  onRemoveItem,
+  onClearAll,
+}: UploadSectionProps) {
+  return (
+    <div className="border rounded-2xl p-6 bg-white">
+      <div className="flex items-center gap-2 mb-2">
+        <h2 className="text-xl font-bold">{title}</h2>
+        {required ? (
+          <span className="text-xs px-2 py-1 rounded-full bg-black text-white">
+            필수
+          </span>
+        ) : (
+          <span className="text-xs px-2 py-1 rounded-full border text-gray-600">
+            선택
+          </span>
+        )}
+      </div>
+
+      <p className="text-sm text-gray-700 mb-4 leading-6">{description}</p>
+
+      <div className="flex gap-3 mb-4">
+        <label className="block cursor-pointer">
+          <div className="px-4 py-3 border-2 border-dashed rounded-xl text-sm text-gray-500">
+            여러 장 추가 업로드
+          </div>
+          <input
+            type="file"
+            accept="image/*"
+            multiple
+            className="hidden"
+            onChange={(e) => onAddFiles(e.target.files)}
+          />
+        </label>
+
+        <button
+          type="button"
+          onClick={onClearAll}
+          className="px-4 py-3 border rounded-xl text-sm text-gray-700"
+        >
+          전체 삭제
+        </button>
+      </div>
+
+      <div className="mt-2 text-sm text-gray-600">
+        현재 업로드 수: <b>{items.length}장</b>
+      </div>
+
+      {items.length > 0 ? (
+        <div className="grid grid-cols-2 md:grid-cols-3 gap-3 mt-4">
+          {items.map((item, index) => (
+            <div
+              key={`${item.file.name}-${index}`}
+              className="border rounded-xl p-2"
+            >
+              <img
+                src={item.preview}
+                alt={item.file.name}
+                className="w-full h-32 object-cover rounded-lg"
+              />
+              <div className="mt-2 text-xs text-gray-600 truncate">
+                {item.file.name}
+              </div>
+              <button
+                type="button"
+                onClick={() => onRemoveItem(index)}
+                className="mt-2 w-full bg-red-500 text-white text-xs py-2 rounded-lg"
+              >
+                이 사진 삭제
+              </button>
+            </div>
+          ))}
+        </div>
+      ) : (
+        <div className="mt-4 text-sm text-gray-400">아직 업로드 안 됨</div>
+      )}
+    </div>
+  );
+}
+
+function ShortTag({
+  label,
+  value,
+}: {
+  label: string;
+  value: string;
+}) {
+  return (
+    <div className="inline-flex items-center gap-2 rounded-full border px-3 py-2 text-xs bg-[#fafaf8]">
+      <span className="font-semibold text-gray-800">{label}</span>
+      <span className="text-gray-600 truncate max-w-[180px]">{value}</span>
+    </div>
+  );
+}
+
+function shorten(text?: string, max = 42) {
+  if (!text) return "-";
+  return text.length > max ? `${text.slice(0, max)}...` : text;
+}
+
+export default function RefRunPage() {
+  const [faces, setFaces] = useState<UploadItem[]>([]);
+  const [outfits, setOutfits] = useState<UploadItem[]>([]);
+  const [references, setReferences] = useState<UploadItem[]>([]);
+
+  const [fitSpec, setFitSpec] = useState("");
+  const [shootingMode, setShootingMode] = useState("default");
+  const [customPrompt, setCustomPrompt] = useState("");
+  const [perReferenceCount, setPerReferenceCount] = useState(2);
+
+  const [loading, setLoading] = useState(false);
+  const [modelGenerating, setModelGenerating] = useState(false);
+  const [statusMessage, setStatusMessage] = useState("");
+  const [resultSlots, setResultSlots] = useState<ResultSlot[]>([]);
+
+  const safeCount = Math.max(1, Math.min(20, Number(perReferenceCount) || 1));
+  const totalResults = references.length * safeCount;
+  const totalCost = totalResults * 50;
+
+  const appendFiles = (
+    setter: React.Dispatch<React.SetStateAction<UploadItem[]>>,
+    files: FileList | null
+  ) => {
+    if (!files || files.length === 0) return;
+
+    const newItems: UploadItem[] = Array.from(files).map((file) => ({
+      file,
+      preview: URL.createObjectURL(file),
+    }));
+
+    setter((prev) => [...prev, ...newItems]);
+  };
+
+  const removeItem = (
+    setter: React.Dispatch<React.SetStateAction<UploadItem[]>>,
+    index: number
+  ) => {
+    setter((prev) => prev.filter((_, i) => i !== index));
+  };
+
+  const clearAll = (
+    setter: React.Dispatch<React.SetStateAction<UploadItem[]>>
+  ) => {
+    setter([]);
+  };
+
+  const updateSlot = (index: number, patch: Partial<ResultSlot>) => {
+    setResultSlots((prev) =>
+      prev.map((slot, i) => (i === index ? { ...slot, ...patch } : slot))
+    );
+  };
+
+  const handleGenerateModel = async (options: ModelGenerateOptions) => {
+    try {
+      setModelGenerating(true);
+      setStatusMessage("모델 생성 준비중...");
+
+      await spendPoints(30, "MODEL GENERATE");
+
+      const res = await fetch("/api/model-anchor", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify(options),
+      });
+
+      const data = await res.json();
+
+      if (!res.ok) {
+        throw new Error(data?.error || "모델 생성 실패");
+      }
+
+      const blob = await fetch(data.image).then((r) => r.blob());
+      const file = new File([blob], `model-anchor-${Date.now()}.png`, {
+        type: "image/png",
+      });
+
+      const newItem: UploadItem = {
+        file,
+        preview: URL.createObjectURL(file),
+      };
+
+      setFaces((prev) => [...prev, newItem]);
+      setStatusMessage("모델 생성 완료 (30P 차감)");
+    } catch (error) {
+      const message =
+        error instanceof Error ? error.message : "모델 생성 중 오류";
+      setStatusMessage(`오류: ${message}`);
+      alert(message);
+    } finally {
+      setModelGenerating(false);
+    }
+  };
+
+  const handleRunRefRun = async () => {
+    if (faces.length === 0 || outfits.length === 0 || references.length === 0) {
+      alert("얼굴 / 의상 / 레퍼런스는 최소 1장씩 필요하다.");
+      return;
+    }
+
+    try {
+      setLoading(true);
+      setStatusMessage(`포인트 차감중... (${totalCost}P)`);
+
+      await spendPoints(
+        totalCost,
+        `REFRUN 실행 (${references.length}개 레퍼런스 × ${safeCount}장)`
+      );
+
+      setStatusMessage("REFRUN 시작...");
+
+      const initialSlots: ResultSlot[] = [];
+      references.forEach((_, refIndex) => {
+        for (let cutIndex = 0; cutIndex < safeCount; cutIndex++) {
+          initialSlots.push({
+            status: "waiting",
+            result: null,
+            referenceIndex: refIndex,
+            cutIndex,
+          });
+        }
+      });
+
+      setResultSlots(initialSlots);
+
+      references.forEach(async (referenceItem, refIndex) => {
+        for (let cutIndex = 0; cutIndex < safeCount; cutIndex++) {
+          const slotIndex = refIndex * safeCount + cutIndex;
+
+          updateSlot(slotIndex, { status: "generating" });
+
+          try {
+            const formData = new FormData();
+            formData.append("fitSpec", fitSpec);
+            formData.append("shootingMode", shootingMode);
+            formData.append("customPrompt", customPrompt);
+
+            faces.forEach((item) => {
+              formData.append("faces", item.file);
+            });
+
+            outfits.forEach((item) => {
+              formData.append("outfits", item.file);
+            });
+
+            formData.append("reference", referenceItem.file);
+
+            const res = await fetch("/api/refrun/run-one", {
+              method: "POST",
+              body: formData,
+            });
+
+            const data = await res.json();
+
+            if (!res.ok) {
+              throw new Error(data?.error || "REFRUN 한 장 생성 실패");
+            }
+
+            updateSlot(slotIndex, {
+              status: "done",
+              result: data.result as RefRunResult,
+            });
+
+            setStatusMessage(
+              `Ref ${refIndex + 1} / Cut ${cutIndex + 1} 생성 완료`
+            );
+          } catch (error) {
+            const message =
+              error instanceof Error ? error.message : "알 수 없는 REFRUN 오류";
+
+            updateSlot(slotIndex, {
+              status: "error",
+              error: message,
+            });
+
+            setStatusMessage(
+              `Ref ${refIndex + 1} / Cut ${cutIndex + 1} 오류`
+            );
+          }
+        }
+      });
+    } catch (error) {
+      const message =
+        error instanceof Error ? error.message : "알 수 없는 REFRUN 오류";
+      setStatusMessage(`오류: ${message}`);
+      alert(message);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  return (
+    <main className="min-h-screen bg-[#f7f7f5] px-6 py-10">
+      <div className="max-w-7xl mx-auto">
+        <div className="mb-8">
+          <Link
+            href="/"
+            className="inline-flex items-center text-sm text-gray-600 mb-4"
+          >
+            ← 홈으로
+          </Link>
+
+          <h1 className="text-4xl font-bold mb-3">REFRUN</h1>
+          <p className="text-gray-700 text-lg leading-8 max-w-4xl">
+            레퍼런스 이미지의 구도, 무드, 사진 문법을 분석해서 그대로 따라가는
+            생산 라인.
+          </p>
+        </div>
+
+        <div className="grid grid-cols-1 xl:grid-cols-3 gap-6 mb-6">
+          <FaceInputSection
+            items={faces}
+            onAddFiles={(files) => appendFiles(setFaces, files)}
+            onRemoveItem={(index) => removeItem(setFaces, index)}
+            onClearAll={() => clearAll(setFaces)}
+            onGenerate={handleGenerateModel}
+            generating={modelGenerating}
+            disabled={loading}
+          />
+
+          <UploadSection
+            title="의상 착샷 업로드"
+            required
+            description="의상 재구성 기준 이미지. 정면/측면/디테일 등 여러 장 넣을 수 있다."
+            items={outfits}
+            onAddFiles={(files) => appendFiles(setOutfits, files)}
+            onRemoveItem={(index) => removeItem(setOutfits, index)}
+            onClearAll={() => clearAll(setOutfits)}
+          />
+
+          <UploadSection
+            title="레퍼런스 업로드"
+            required
+            description="구도, 무드, 사진 문법을 따라갈 기준 이미지."
+            items={references}
+            onAddFiles={(files) => appendFiles(setReferences, files)}
+            onRemoveItem={(index) => removeItem(setReferences, index)}
+            onClearAll={() => clearAll(setReferences)}
+          />
+        </div>
+
+        <div className="border rounded-2xl p-6 bg-white space-y-5">
+          <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+            <div>
+              <label className="block text-sm font-semibold mb-2">
+                레퍼런스당 생성 수
+              </label>
+              <input
+                type="number"
+                min={1}
+                max={20}
+                value={perReferenceCount}
+                onChange={(e) => setPerReferenceCount(Number(e.target.value))}
+                className="w-full border rounded-xl px-4 py-3"
+              />
+            </div>
+
+            <div>
+              <label className="block text-sm font-semibold mb-2">
+                핏 보정
+              </label>
+              <input
+                type="text"
+                value={fitSpec}
+                onChange={(e) => setFitSpec(e.target.value)}
+                placeholder="예: 173/71 183/63"
+                className="w-full border rounded-xl px-4 py-3"
+              />
+            </div>
+
+            <div>
+              <label className="block text-sm font-semibold mb-2">
+                Shooting Mode
+              </label>
+              <select
+                value={shootingMode}
+                onChange={(e) => setShootingMode(e.target.value)}
+                className="w-full border rounded-xl px-4 py-3"
+              >
+                <option value="default">default</option>
+                <option value="fuji">fuji</option>
+                <option value="mono">mono</option>
+                <option value="studio">studio</option>
+                <option value="raw">raw</option>
+                <option value="custom">custom</option>
+                <option value="dig_original">dig_original</option>
+              </select>
+            </div>
+
+            <div>
+              <label className="block text-sm font-semibold mb-2">
+                Custom Prompt
+              </label>
+              <input
+                type="text"
+                value={customPrompt}
+                onChange={(e) => setCustomPrompt(e.target.value)}
+                placeholder="shootingMode가 custom일 때만 사용"
+                className="w-full border rounded-xl px-4 py-3"
+              />
+            </div>
+          </div>
+
+          <div className="border rounded-xl p-4 bg-[#fafaf8]">
+            <div className="font-semibold mb-2">현재 설정 요약</div>
+            <div className="text-sm text-gray-700 space-y-1">
+              <div>얼굴: {faces.length}장</div>
+              <div>의상: {outfits.length}장</div>
+              <div>레퍼런스: {references.length}장</div>
+              <div>레퍼런스당 생성 수: {safeCount}</div>
+              <div>총 예상 결과 수: {totalResults}장</div>
+              <div>핏 보정: {fitSpec || "없음"}</div>
+              <div>Shooting Mode: {shootingMode}</div>
+              <div>Custom Prompt: {customPrompt || "없음"}</div>
+              <div>실행 비용: {totalCost}P</div>
+            </div>
+          </div>
+
+          <button
+            onClick={handleRunRefRun}
+            disabled={loading || modelGenerating}
+            className="w-full bg-black text-white py-5 rounded-2xl text-xl disabled:opacity-60"
+          >
+            {loading ? "REFRUN 준비중..." : "REFRUN 실행하기"}
+          </button>
+        </div>
+
+        <div className="mt-6 border rounded-2xl p-5 bg-white">
+          <div className="font-semibold mb-2">상태</div>
+          <div className="text-sm text-gray-700">
+            {statusMessage || "아직 실행 전"}
+          </div>
+        </div>
+
+        {resultSlots.length > 0 ? (
+          <div className="mt-8 space-y-6">
+            <h2 className="text-2xl font-bold">REFRUN 결과</h2>
+
+            <div className="grid grid-cols-1 xl:grid-cols-2 gap-6">
+              {resultSlots.map((slot, index) => (
+                <div key={index} className="border rounded-2xl p-5 bg-white">
+                  <div className="font-semibold mb-3">
+                    Ref #{slot.referenceIndex + 1} · Cut #{slot.cutIndex + 1}
+                  </div>
+
+                  {slot.status === "waiting" && (
+                    <div className="border rounded-xl h-96 flex items-center justify-center text-gray-400">
+                      대기중...
+                    </div>
+                  )}
+
+                  {slot.status === "generating" && (
+                    <div className="border rounded-xl h-96 flex items-center justify-center text-gray-400">
+                      생성중...
+                    </div>
+                  )}
+
+                  {slot.status === "error" && (
+                    <div className="border rounded-xl h-96 flex items-center justify-center text-red-500 text-sm px-4 text-center">
+                      오류: {slot.error}
+                    </div>
+                  )}
+
+                  {slot.status === "done" && slot.result && (
+                    <>
+                      <img
+                        src={`data:image/png;base64,${slot.result.image}`}
+                        alt={`refrun-result-${index}`}
+                        className="w-full rounded-xl border mb-4"
+                      />
+
+                      <div className="flex flex-wrap gap-2 mb-4">
+                        <ShortTag
+                          label="배경"
+                          value={shorten(slot.result.direction.background)}
+                        />
+                        <ShortTag
+                          label="포즈"
+                          value={shorten(slot.result.direction.pose)}
+                        />
+                        <ShortTag
+                          label="표정"
+                          value={shorten(slot.result.direction.expression)}
+                        />
+                        <ShortTag
+                          label="카메라"
+                          value={shorten(
+                            slot.result.direction.camera_angle_and_crop
+                          )}
+                        />
+                        <ShortTag
+                          label="무드"
+                          value={shorten(slot.result.direction.overall_mood)}
+                        />
+                      </div>
+
+                      <div className="text-sm text-gray-700 mb-4">
+                        <b>요약:</b> {slot.result.summary}
+                      </div>
+                    </>
+                  )}
+                </div>
+              ))}
+            </div>
+          </div>
+        ) : null}
+      </div>
+    </main>
+  );
+}
+</file>
+
+<file path="app/dig/page.tsx">
+"use client";
+
+import { useState } from "react";
+import Link from "next/link";
+import { spendPoints } from "@/lib/points";
+import FaceInputSection, {
+  ModelGenerateOptions,
+} from "@/components/face-input-section";
+
+type UploadItem = {
+  file: File;
+  preview: string;
+  caption?: string;
+};
+
+type DigDirection = {
+  background: string;
+  pose: string;
+  expression: string;
+  mood: string;
+  photography_technique: string;
+};
+
+type LockedVibe = {
+  background?: string;
+  pose?: string;
+  expression?: string;
+  overall_mood?: string;
+  camera_angle_and_crop?: string;
+  lighting_and_exposure?: string;
+  color_grading_and_texture?: string;
+};
+
+type DigResult = {
+  image: string;
+  summary: string;
+  direction: DigDirection;
+};
+
+type ResultSlot = {
+  status: "waiting" | "generating" | "done" | "error";
+  result: DigResult | null;
+  error?: string;
+};
+
+type UploadSectionProps = {
+  title: string;
+  required?: boolean;
+  description: string;
+  items: UploadItem[];
+  onAddFiles: (files: FileList | null) => void;
+  onRemoveItem: (index: number) => void;
+  onClearAll: () => void;
+  showCaptionInput?: boolean;
+  onCaptionChange?: (index: number, value: string) => void;
+};
+
+function UploadSection({
+  title,
+  required = false,
+  description,
+  items,
+  onAddFiles,
+  onRemoveItem,
+  onClearAll,
+  showCaptionInput = false,
+  onCaptionChange,
+}: UploadSectionProps) {
+  return (
+    <div className="border rounded-2xl p-6 bg-white">
+      <div className="flex items-center gap-2 mb-2">
+        <h2 className="text-xl font-bold">{title}</h2>
+        {required ? (
+          <span className="text-xs px-2 py-1 rounded-full bg-black text-white">
+            필수
+          </span>
+        ) : (
+          <span className="text-xs px-2 py-1 rounded-full border text-gray-600">
+            선택
+          </span>
+        )}
+      </div>
+
+      <p className="text-sm text-gray-700 mb-4 leading-6">{description}</p>
+
+      <div className="flex gap-3 mb-4">
+        <label className="block cursor-pointer">
+          <div className="px-4 py-3 border-2 border-dashed rounded-xl text-sm text-gray-500">
+            여러 장 추가 업로드
+          </div>
+          <input
+            type="file"
+            accept="image/*"
+            multiple
+            className="hidden"
+            onChange={(e) => onAddFiles(e.target.files)}
+          />
+        </label>
+
+        <button
+          type="button"
+          onClick={onClearAll}
+          className="px-4 py-3 border rounded-xl text-sm text-gray-700"
+        >
+          전체 삭제
+        </button>
+      </div>
+
+      <div className="mt-2 text-sm text-gray-600">
+        현재 업로드 수: <b>{items.length}장</b>
+      </div>
+
+      {items.length > 0 ? (
+        <div className="grid grid-cols-2 md:grid-cols-3 gap-3 mt-4">
+          {items.map((item, index) => (
+            <div
+              key={`${item.file.name}-${index}`}
+              className="border rounded-xl p-2"
+            >
+              <img
+                src={item.preview}
+                alt={item.file.name}
+                className="w-full h-32 object-cover rounded-lg"
+              />
+              <div className="mt-2 text-xs text-gray-600 truncate">
+                {item.file.name}
+              </div>
+
+              {showCaptionInput && onCaptionChange ? (
+                <textarea
+                  value={item.caption || ""}
+                  onChange={(e) => onCaptionChange(index, e.target.value)}
+                  placeholder="예: untucked / unbuttoned / layered under jacket"
+                  className="mt-2 w-full border rounded-lg px-2 py-2 text-xs"
+                  rows={3}
+                />
+              ) : null}
+
+              <button
+                type="button"
+                onClick={() => onRemoveItem(index)}
+                className="mt-2 w-full bg-red-500 text-white text-xs py-2 rounded-lg"
+              >
+                이 사진 삭제
+              </button>
+            </div>
+          ))}
+        </div>
+      ) : (
+        <div className="mt-4 text-sm text-gray-400">아직 업로드 안 됨</div>
+      )}
+    </div>
+  );
+}
+
+function ShortTag({
+  label,
+  value,
+}: {
+  label: string;
+  value: string;
+}) {
+  return (
+    <div className="inline-flex items-center gap-2 rounded-full border px-3 py-2 text-xs bg-[#fafaf8]">
+      <span className="font-semibold text-gray-800">{label}</span>
+      <span className="text-gray-600 truncate max-w-[180px]">{value}</span>
+    </div>
+  );
+}
+
+function shorten(text?: string, max = 42) {
+  if (!text) return "-";
+  return text.length > max ? `${text.slice(0, max)}...` : text;
+}
+
+export default function DigPage() {
+  const [faces, setFaces] = useState<UploadItem[]>([]);
+  const [outfits, setOutfits] = useState<UploadItem[]>([]);
+
+  const [outfitMode, setOutfitMode] = useState<"outfit" | "mix">("outfit");
+
+  const [moodQuery, setMoodQuery] = useState("");
+  const [count, setCount] = useState(4);
+  const [fitSpec, setFitSpec] = useState("");
+  const [shootingMode, setShootingMode] = useState("default");
+  const [customPrompt, setCustomPrompt] = useState("");
+
+  const [lockedVibe, setLockedVibe] = useState<LockedVibe | null>(null);
+
+  const [loading, setLoading] = useState(false);
+  const [modelGenerating, setModelGenerating] = useState(false);
+  const [statusMessage, setStatusMessage] = useState("");
+  const [resultSlots, setResultSlots] = useState<ResultSlot[]>([]);
+
+  const safeCount = Math.max(1, Math.min(20, Number(count) || 1));
+  const totalCost = safeCount * 50;
+
+  const appendFiles = (
+    setter: React.Dispatch<React.SetStateAction<UploadItem[]>>,
+    files: FileList | null
+  ) => {
+    if (!files || files.length === 0) return;
+
+    const newItems: UploadItem[] = Array.from(files).map((file) => ({
+      file,
+      preview: URL.createObjectURL(file),
+      caption: "",
+    }));
+
+    setter((prev) => [...prev, ...newItems]);
+  };
+
+  const removeItem = (
+    setter: React.Dispatch<React.SetStateAction<UploadItem[]>>,
+    index: number
+  ) => {
+    setter((prev) => prev.filter((_, i) => i !== index));
+  };
+
+  const clearAll = (
+    setter: React.Dispatch<React.SetStateAction<UploadItem[]>>
+  ) => {
+    setter([]);
+  };
+
+  const updateOutfitCaption = (index: number, value: string) => {
+    setOutfits((prev) =>
+      prev.map((item, i) => (i === index ? { ...item, caption: value } : item))
+    );
+  };
+
+  const handleSetVibe = (result: DigResult) => {
+    setLockedVibe({
+      background: result.direction.background,
+      pose: result.direction.pose,
+      expression: result.direction.expression,
+      overall_mood: result.direction.mood,
+      camera_angle_and_crop: result.direction.photography_technique,
+      lighting_and_exposure: result.direction.photography_technique,
+      color_grading_and_texture: result.direction.photography_technique,
+    });
+
+    setStatusMessage("현재 컷 기준으로 Vibe Lock 설정됨");
+  };
+
+  const handleClearVibe = () => {
+    setLockedVibe(null);
+    setStatusMessage("Vibe Lock 해제됨");
+  };
+
+  const updateSlot = (index: number, patch: Partial<ResultSlot>) => {
+    setResultSlots((prev) =>
+      prev.map((slot, i) => (i === index ? { ...slot, ...patch } : slot))
+    );
+  };
+
+  const handleGenerateModel = async (options: ModelGenerateOptions) => {
+    try {
+      setModelGenerating(true);
+      setStatusMessage("모델 생성 준비중...");
+
+      await spendPoints(30, "MODEL GENERATE");
+
+      const res = await fetch("/api/model-anchor", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify(options),
+      });
+
+      const data = await res.json();
+
+      if (!res.ok) {
+        throw new Error(data?.error || "모델 생성 실패");
+      }
+
+      const blob = await fetch(data.image).then((r) => r.blob());
+      const file = new File([blob], `model-anchor-${Date.now()}.png`, {
+        type: "image/png",
+      });
+
+      const newItem: UploadItem = {
+        file,
+        preview: URL.createObjectURL(file),
+      };
+
+      setFaces((prev) => [...prev, newItem]);
+      setStatusMessage("모델 생성 완료 (30P 차감)");
+    } catch (error) {
+      const message =
+        error instanceof Error ? error.message : "모델 생성 중 오류";
+      setStatusMessage(`오류: ${message}`);
+      alert(message);
+    } finally {
+      setModelGenerating(false);
+    }
+  };
+
+  const handleRunDig = async () => {
+    if (faces.length === 0 || outfits.length === 0) {
+      alert("얼굴과 의상은 최소 1장씩 필요하다.");
+      return;
+    }
+
+    if (!moodQuery.trim()) {
+      alert("무드 키워드를 입력해야 한다.");
+      return;
+    }
+
+    if (outfitMode === "mix") {
+      const hasEmptyCaption = outfits.some(
+        (item) => !(item.caption || "").trim()
+      );
+      if (hasEmptyCaption) {
+        alert("MIX 모드에서는 모든 아이템에 설명을 입력해야 한다.");
+        return;
+      }
+    }
+
+    try {
+      setLoading(true);
+      setStatusMessage(`포인트 차감중... (${totalCost}P)`);
+
+      await spendPoints(totalCost, `DIG 실행 (${safeCount}장)`);
+
+      setStatusMessage("DIG directions 생성중...");
+      setResultSlots([]);
+
+      const directionForm = new FormData();
+      directionForm.append("moodQuery", moodQuery);
+      directionForm.append("count", String(safeCount));
+
+      const directionsRes = await fetch("/api/dig/directions", {
+        method: "POST",
+        body: directionForm,
+      });
+
+      const directionsData = await directionsRes.json();
+
+      if (!directionsRes.ok) {
+        throw new Error(directionsData?.error || "DIG directions 생성 실패");
+      }
+
+      const directions: DigDirection[] = directionsData.directions || [];
+
+      if (!directions.length) {
+        throw new Error("direction이 비어 있다.");
+      }
+
+      setResultSlots(
+        directions.map(() => ({
+          status: "waiting",
+          result: null,
+        }))
+      );
+
+      setStatusMessage(`Directions 생성 완료. ${directions.length}개 컷 생성 시작...`);
+
+      directions.forEach(async (direction, index) => {
+        updateSlot(index, { status: "generating" });
+
+        try {
+          const formData = new FormData();
+          formData.append("fitSpec", fitSpec);
+          formData.append("shootingMode", shootingMode);
+          formData.append("customPrompt", customPrompt);
+          formData.append("outfitMode", outfitMode);
+          formData.append(
+            "mixCaptions",
+            JSON.stringify(outfits.map((item) => item.caption || ""))
+          );
+          formData.append(
+            "lockedVibe",
+            lockedVibe ? JSON.stringify(lockedVibe) : ""
+          );
+          formData.append("direction", JSON.stringify(direction));
+
+          faces.forEach((item) => {
+            formData.append("faces", item.file);
+          });
+
+          outfits.forEach((item) => {
+            formData.append("outfits", item.file);
+          });
+
+          const res = await fetch("/api/dig/generate-one", {
+            method: "POST",
+            body: formData,
+          });
+
+          const data = await res.json();
+
+          if (!res.ok) {
+            throw new Error(data?.error || "한 장 생성 실패");
+          }
+
+          updateSlot(index, {
+            status: "done",
+            result: data.result as DigResult,
+          });
+
+          setStatusMessage(`컷 ${index + 1} 생성 완료`);
+        } catch (error) {
+          const message =
+            error instanceof Error ? error.message : "알 수 없는 생성 오류";
+
+          updateSlot(index, {
+            status: "error",
+            error: message,
+          });
+
+          setStatusMessage(`컷 ${index + 1} 오류`);
+        }
+      });
+    } catch (error) {
+      const message =
+        error instanceof Error ? error.message : "알 수 없는 DIG 오류";
+      setStatusMessage(`오류: ${message}`);
+      alert(message);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  return (
+    <main className="min-h-screen bg-[#f7f7f5] px-6 py-10">
+      <div className="max-w-7xl mx-auto">
+        <div className="mb-8">
+          <Link
+            href="/"
+            className="inline-flex items-center text-sm text-gray-600 mb-4"
+          >
+            ← 홈으로
+          </Link>
+
+          <h1 className="text-4xl font-bold mb-3">DIG</h1>
+          <p className="text-gray-700 text-lg leading-8 max-w-4xl">
+            무드 키워드를 리서치해서 여러 크리에이티브 디렉션을 만들고, 각
+            디렉션마다 한 컷씩 생성하는 생산 라인.
+          </p>
+        </div>
+
+        <div className="grid grid-cols-1 xl:grid-cols-2 gap-6 mb-6">
+          <FaceInputSection
+            items={faces}
+            onAddFiles={(files) => appendFiles(setFaces, files)}
+            onRemoveItem={(index) => removeItem(setFaces, index)}
+            onClearAll={() => clearAll(setFaces)}
+            onGenerate={handleGenerateModel}
+            generating={modelGenerating}
+            disabled={loading}
+          />
+
+          <div className="space-y-4">
+            <div className="border rounded-2xl p-4 bg-white">
+              <div className="font-semibold mb-3">의상 입력 방식</div>
+              <div className="flex gap-3">
+                <button
+                  type="button"
+                  onClick={() => setOutfitMode("outfit")}
+                  className={`px-4 py-2 rounded-xl border ${
+                    outfitMode === "outfit"
+                      ? "bg-black text-white"
+                      : "bg-white text-gray-700"
+                  }`}
+                >
+                  OUTFIT
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setOutfitMode("mix")}
+                  className={`px-4 py-2 rounded-xl border ${
+                    outfitMode === "mix"
+                      ? "bg-black text-white"
+                      : "bg-white text-gray-700"
+                  }`}
+                >
+                  MIX
+                </button>
+              </div>
+            </div>
+
+            <UploadSection
+              title={outfitMode === "mix" ? "MIX 아이템 업로드" : "의상 착샷 업로드"}
+              required
+              description={
+                outfitMode === "mix"
+                  ? "아이템 여러 장을 조립하는 모드. 각 이미지마다 설명을 꼭 입력해야 한다."
+                  : "의상 재구성 기준 이미지. 정면/측면/디테일 등 여러 장 넣을 수 있다."
+              }
+              items={outfits}
+              onAddFiles={(files) => appendFiles(setOutfits, files)}
+              onRemoveItem={(index) => removeItem(setOutfits, index)}
+              onClearAll={() => clearAll(setOutfits)}
+              showCaptionInput={outfitMode === "mix"}
+              onCaptionChange={updateOutfitCaption}
+            />
+          </div>
+        </div>
+
+        <div className="border rounded-2xl p-6 bg-white space-y-5">
+          <div>
+            <label className="block text-sm font-semibold mb-2">
+              무드 키워드
+            </label>
+            <input
+              type="text"
+              value={moodQuery}
+              onChange={(e) => setMoodQuery(e.target.value)}
+              placeholder="예: 도쿄에서 찍는 스냅샷 건물 별로없음"
+              className="w-full border rounded-xl px-4 py-3"
+            />
+          </div>
+
+          <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+            <div>
+              <label className="block text-sm font-semibold mb-2">Count</label>
+              <input
+                type="number"
+                min={1}
+                max={20}
+                value={count}
+                onChange={(e) => setCount(Number(e.target.value))}
+                className="w-full border rounded-xl px-4 py-3"
+              />
+            </div>
+
+            <div>
+              <label className="block text-sm font-semibold mb-2">
+                핏 보정
+              </label>
+              <input
+                type="text"
+                value={fitSpec}
+                onChange={(e) => setFitSpec(e.target.value)}
+                placeholder="예: 173/71 183/63"
+                className="w-full border rounded-xl px-4 py-3"
+              />
+            </div>
+
+            <div>
+              <label className="block text-sm font-semibold mb-2">
+                Shooting Mode
+              </label>
+              <select
+                value={shootingMode}
+                onChange={(e) => setShootingMode(e.target.value)}
+                className="w-full border rounded-xl px-4 py-3"
+              >
+                <option value="default">default</option>
+                <option value="fuji">fuji</option>
+                <option value="mono">mono</option>
+                <option value="studio">studio</option>
+                <option value="raw">raw</option>
+                <option value="custom">custom</option>
+                <option value="dig_original">dig_original</option>
+              </select>
+            </div>
+
+            <div>
+              <label className="block text-sm font-semibold mb-2">
+                Custom Prompt
+              </label>
+              <input
+                type="text"
+                value={customPrompt}
+                onChange={(e) => setCustomPrompt(e.target.value)}
+                placeholder="shootingMode가 custom일 때만 사용"
+                className="w-full border rounded-xl px-4 py-3"
+              />
+            </div>
+          </div>
+
+          <div className="border rounded-xl p-4 bg-[#fafaf8]">
+            <div className="font-semibold mb-2">현재 설정 요약</div>
+            <div className="text-sm text-gray-700 space-y-1">
+              <div>얼굴: {faces.length}장</div>
+              <div>의상: {outfits.length}장</div>
+              <div>의상 모드: {outfitMode}</div>
+              <div>무드 키워드: {moodQuery || "없음"}</div>
+              <div>Count: {safeCount}</div>
+              <div>총 예상 결과 수: {safeCount}장</div>
+              <div>핏 보정: {fitSpec || "없음"}</div>
+              <div>Shooting Mode: {shootingMode}</div>
+              <div>Vibe Lock: {lockedVibe ? "설정됨" : "없음"}</div>
+              <div>실행 비용: {totalCost}P</div>
+            </div>
+          </div>
+
+          <div className="flex gap-3">
+            <button
+              onClick={handleRunDig}
+              disabled={loading || modelGenerating}
+              className="flex-1 bg-black text-white py-5 rounded-2xl text-xl disabled:opacity-60"
+            >
+              {loading ? "DIG 준비중..." : "DIG 실행하기"}
+            </button>
+
+            <button
+              type="button"
+              onClick={handleClearVibe}
+              className="px-6 py-5 border rounded-2xl text-sm"
+            >
+              Vibe 해제
+            </button>
+          </div>
+        </div>
+
+        <div className="mt-6 border rounded-2xl p-5 bg-white">
+          <div className="font-semibold mb-2">상태</div>
+          <div className="text-sm text-gray-700">
+            {statusMessage || "아직 실행 전"}
+          </div>
+        </div>
+
+        {lockedVibe ? (
+          <div className="mt-6 border rounded-2xl p-5 bg-white">
+            <div className="font-semibold mb-3">현재 Vibe Lock</div>
+            <div className="flex flex-wrap gap-2">
+              <ShortTag label="배경" value={shorten(lockedVibe.background)} />
+              <ShortTag label="포즈" value={shorten(lockedVibe.pose)} />
+              <ShortTag label="표정" value={shorten(lockedVibe.expression)} />
+              <ShortTag label="무드" value={shorten(lockedVibe.overall_mood)} />
+              <ShortTag
+                label="카메라"
+                value={shorten(lockedVibe.camera_angle_and_crop)}
+              />
+            </div>
+          </div>
+        ) : null}
+
+        {resultSlots.length > 0 ? (
+          <div className="mt-8 space-y-6">
+            <h2 className="text-2xl font-bold">DIG 결과</h2>
+
+            <div className="grid grid-cols-1 xl:grid-cols-2 gap-6">
+              {resultSlots.map((slot, index) => (
+                <div key={index} className="border rounded-2xl p-5 bg-white">
+                  <div className="font-semibold mb-3">컷 #{index + 1}</div>
+
+                  {slot.status === "waiting" && (
+                    <div className="border rounded-xl h-96 flex items-center justify-center text-gray-400">
+                      대기중...
+                    </div>
+                  )}
+
+                  {slot.status === "generating" && (
+                    <div className="border rounded-xl h-96 flex items-center justify-center text-gray-400">
+                      생성중...
+                    </div>
+                  )}
+
+                  {slot.status === "error" && (
+                    <div className="border rounded-xl h-96 flex items-center justify-center text-red-500 text-sm px-4 text-center">
+                      오류: {slot.error}
+                    </div>
+                  )}
+
+                  {slot.status === "done" && slot.result && (
+                    <>
+                      <img
+                        src={`data:image/png;base64,${slot.result.image}`}
+                        alt={`dig-result-${index}`}
+                        className="w-full rounded-xl border mb-4"
+                      />
+
+                      <div className="flex flex-wrap gap-2 mb-4">
+                        <ShortTag
+                          label="배경"
+                          value={shorten(slot.result.direction.background)}
+                        />
+                        <ShortTag
+                          label="포즈"
+                          value={shorten(slot.result.direction.pose)}
+                        />
+                        <ShortTag
+                          label="표정"
+                          value={shorten(slot.result.direction.expression)}
+                        />
+                        <ShortTag
+                          label="무드"
+                          value={shorten(slot.result.direction.mood)}
+                        />
+                        <ShortTag
+                          label="촬영"
+                          value={shorten(
+                            slot.result.direction.photography_technique
+                          )}
+                        />
+                      </div>
+
+                      <div className="text-sm text-gray-700 mb-4">
+                        <b>요약:</b> {slot.result.summary}
+                      </div>
+
+                      <button
+                        type="button"
+                        onClick={() => {
+                          if (!slot.result) return;
+                          handleSetVibe(slot.result);
+                        }}
+                        className="w-full bg-black text-white py-3 rounded-xl"
+                      >
+                        이 컷으로 Set Vibe
+                      </button>
+                    </>
+                  )}
+                </div>
+              ))}
+            </div>
+          </div>
+        ) : null}
+      </div>
+    </main>
+  );
+}
+</file>
+
+<file path="app/page.tsx">
+"use client";
+
+import Image from "next/image";
+import Link from "next/link";
+import { useEffect, useState } from "react";
+import { useRouter } from "next/navigation";
+import { supabase } from "@/lib/supabase";
+
+const lines = [
+  {
+    title: "DIG",
+    href: "/dig",
+    image: "/home-dig.jpg",
+    guideImage: "/dic설명.jpg",
+    tagline: "Creative direction based image generation",
+    inputs: ["face", "outfit", "direction"],
+  },
+  {
+    title: "REFRUN",
+    href: "/refrun",
+    image: "/home-refrun.jpg",
+    guideImage: "/refrun설명.jpg",
+    tagline: "Reference-led image generation",
+    inputs: ["face", "outfit", "reference photo"],
+  },
+  {
+    title: "FUSION",
+    href: "/fusion",
+    image: "/home-fusion.jpg",
+    guideImage: "/fusion설명.jpg",
+    tagline: "Background and pose driven generation",
+    inputs: ["face", "outfit", "background", "pose"],
+  },
+];
+
+type Viewer = {
+  id: string;
+  email: string | null;
+  pointBalance: number;
+} | null;
+
+export default function HomePage() {
+  const router = useRouter();
+
+  const [viewer, setViewer] = useState<Viewer>(null);
+  const [loading, setLoading] = useState(true);
+  const [logoutLoading, setLogoutLoading] = useState(false);
+
+  const loadViewer = async () => {
+    try {
+      const {
+        data: { user },
+      } = await supabase.auth.getUser();
+
+      if (!user) {
+        setViewer(null);
+        return;
+      }
+
+      const { data: profile } = await supabase
+        .from("users")
+        .select("point_balance")
+        .eq("id", user.id)
+        .maybeSingle();
+
+      setViewer({
+        id: user.id,
+        email: user.email ?? null,
+        pointBalance: profile?.point_balance ?? 0,
+      });
+    } catch (error) {
+      console.error("홈 viewer 로드 오류:", error);
+      setViewer(null);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    let mounted = true;
+
+    const init = async () => {
+      if (!mounted) return;
+      await loadViewer();
+    };
+
+    init();
+
+    const {
+      data: { subscription },
+    } = supabase.auth.onAuthStateChange((event) => {
+      if (!mounted) return;
+
+      if (event === "SIGNED_OUT") {
+        setViewer(null);
+        setLoading(false);
+        setLogoutLoading(false);
+        return;
+      }
+
+      setTimeout(() => {
+        if (mounted) {
+          loadViewer();
+        }
+      }, 0);
+    });
+
+    return () => {
+      mounted = false;
+      subscription.unsubscribe();
+    };
+  }, []);
+
+  const handleLogout = async () => {
+    try {
+      setLogoutLoading(true);
+
+      const { error } = await supabase.auth.signOut({
+        scope: "local",
+      });
+
+      if (error) {
+        alert(`로그아웃 오류: ${error.message}`);
+        setLogoutLoading(false);
+        return;
+      }
+
+      setViewer(null);
+      router.replace("/");
+      router.refresh();
+
+      setTimeout(() => {
+        window.location.href = "/";
+      }, 150);
+    } catch (error) {
+      console.error("로그아웃 예외:", error);
+      alert("로그아웃 중 오류가 발생했습니다.");
+      setLogoutLoading(false);
+    }
+  };
+
+  return (
+    <main className="min-h-screen bg-[#f7f7f5] text-[#73727c]">
+      <div className="mx-auto max-w-[1440px] px-5 pb-16 pt-6 sm:px-6 lg:px-10">
+        <header className="mb-12 border-b border-[#d9d7d2] pb-6">
+          <div className="flex flex-col gap-6 lg:flex-row lg:items-end lg:justify-between">
+            <div className="max-w-[920px]">
+              <h1 className="text-[34px] font-bold leading-[0.9] tracking-[-0.055em] text-[#6f6d78] sm:text-[52px] lg:text-[68px]">
+                SIGNATURE
+                <br />
+                AI STUDIO
+              </h1>
+
+              <div className="mt-5 max-w-[980px] space-y-3 text-[13px] leading-[1.7] text-[#7c7a84] sm:mt-6 sm:space-y-4 sm:text-[15px] sm:leading-[1.85] lg:text-[17px]">
+                <p>생성이 아닌, 조립.</p>
+
+                <p>
+                  빛, 질감, 공간의 레이어를 쌓아 하나의 씬(Scene)을 구성합니다.
+                </p>
+
+                <p>
+                  설계된 무드 안에서 최적의 컷을 추출하고, 선택된 비주얼은 다음
+                  작업의 기준이 됩니다.
+                </p>
+
+                <p>통제 가능한 브랜드 아이덴티티.</p>
+              </div>
+            </div>
+
+            <div className="flex flex-col gap-3 sm:min-w-[320px] sm:max-w-[420px]">
+              <div className="flex flex-wrap gap-2">
+                {loading ? (
+                  <div className="rounded-full border border-[#cfcbd2] px-4 py-2 text-[13px]">
+                    checking...
+                  </div>
+                ) : viewer ? (
+                  <>
+                    <div className="rounded-full border border-[#cfcbd2] px-4 py-2 text-[13px]">
+                      {viewer.email}
+                    </div>
+
+                    <div className="rounded-full border border-[#cfcbd2] px-4 py-2 text-[13px]">
+                      {viewer.pointBalance}P
+                    </div>
+
+                    <Link
+                      href="/mypage"
+                      className="rounded-full border border-[#cfcbd2] px-4 py-2 text-[13px] transition hover:bg-[#ece8ee]"
+                    >
+                      my page
+                    </Link>
+
+                    <button
+                      type="button"
+                      onClick={handleLogout}
+                      disabled={logoutLoading}
+                      className="rounded-full bg-[#6f6d78] px-4 py-2 text-[13px] text-white transition hover:opacity-90 disabled:opacity-50"
+                    >
+                      {logoutLoading ? "signing out..." : "logout"}
+                    </button>
+                  </>
+                ) : (
+                  <>
+                    <Link
+                      href="/signup"
+                      className="rounded-full border border-[#cfcbd2] px-4 py-2 text-[13px] transition hover:bg-[#ece8ee]"
+                    >
+                      sign up
+                    </Link>
+
+                    <Link
+                      href="/login"
+                      className="rounded-full bg-[#6f6d78] px-4 py-2 text-[13px] text-white transition hover:opacity-90"
+                    >
+                      login
+                    </Link>
+                  </>
+                )}
+              </div>
+
+              <div className="flex flex-wrap gap-4 text-[12px] uppercase tracking-[0.18em] text-[#8b8993]">
+                <a href="#dig" className="hover:text-[#6f6d78]">
+                  DIG
+                </a>
+                <a href="#refrun" className="hover:text-[#6f6d78]">
+                  REFRUN
+                </a>
+                <a href="#fusion" className="hover:text-[#6f6d78]">
+                  FUSION
+                </a>
+              </div>
+            </div>
+          </div>
+        </header>
+
+        <section className="space-y-14">
+          {lines.map((line) => (
+            <section
+              key={line.title}
+              id={line.title.toLowerCase()}
+              className="grid gap-5 border-t border-[#d9d7d2] pt-6 sm:gap-6 lg:grid-cols-[1.02fr_0.98fr] lg:items-start"
+            >
+              <div className="order-2 flex flex-col justify-between lg:order-1 lg:min-h-[560px]">
+                <div>
+                  <div className="mb-3 text-[12px] uppercase tracking-[0.2em] text-[#8b8993]">
+                    production line
+                  </div>
+
+                  <h2 className="text-[42px] font-bold leading-none tracking-[-0.05em] text-[#6f6d78] sm:text-[60px]">
+                    {line.title}
+                  </h2>
+
+                  <div className="mt-5 max-w-[420px]">
+                    <img
+                      src={line.guideImage}
+                      alt={`${line.title} guide`}
+                      className="w-full rounded-[18px] border border-[#d9d7d2]"
+                    />
+                  </div>
+                </div>
+
+                <div className="mt-8">
+                  <Link
+                    href={line.href}
+                    className="inline-flex rounded-full bg-[#6f6d78] px-5 py-3 text-[13px] uppercase tracking-[0.08em] text-white transition hover:opacity-90"
+                  >
+                    enter {line.title.toLowerCase()}
+                  </Link>
+                </div>
+              </div>
+
+              <div className="order-1 lg:order-2">
+                <div className="relative overflow-hidden rounded-[24px] bg-[#ece8ee]">
+                  <div className="relative aspect-[4/5] w-full">
+                    <Image
+                      src={line.image}
+                      alt={line.title}
+                      fill
+                      className="object-cover"
+                    />
+                  </div>
+                </div>
+              </div>
+            </section>
+          ))}
+        </section>
+      </div>
+    </main>
+  );
+}
+</file>
+
+</files>

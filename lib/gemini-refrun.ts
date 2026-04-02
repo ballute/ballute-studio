@@ -43,7 +43,7 @@ const buildFitPromptContext = (
   if (!bodySpecs) {
     return {
       fitPromptContext:
-        "- AUTO-FIT MODE: Replicate the garment's silhouette, fit, length, and drape EXACTLY.",
+        "- AUTO-FIT MODE: Replicate the garment's silhouette, fit, length, and drape exactly.",
       fitSummarySuffix: "",
     };
   }
@@ -52,7 +52,7 @@ const buildFitPromptContext = (
   if (!specMatch) {
     return {
       fitPromptContext:
-        "- AUTO-FIT MODE: Replicate the garment's silhouette, fit, length, and drape EXACTLY.",
+        "- AUTO-FIT MODE: Replicate the garment's silhouette, fit, length, and drape exactly.",
       fitSummarySuffix: "",
     };
   }
@@ -73,11 +73,11 @@ const buildFitPromptContext = (
   if (hDiff >= 4) {
     hDesc = "taller";
     lengthEffect =
-      "Because the body is taller/longer, the fixed garment sits naturally higher. Sleeves expose more wrist, and pants break higher above the shoes.";
+      "Because the body is taller, sleeves expose more wrist and the garment sits slightly higher on the body.";
   } else if (hDiff <= -4) {
     hDesc = "shorter";
     lengthEffect =
-      "Because the body is shorter, the fixed garment falls lower. Sleeves cover the hands more, and pants stack heavily on the shoes.";
+      "Because the body is shorter, sleeves cover more of the hands and the garment falls lower on the body.";
   }
 
   if (wDiff >= 4) {
@@ -166,6 +166,8 @@ export async function generateRefRunImageWeb(args: {
   bodySpecs?: string;
   shootingMode?: string;
   customPrompt?: string;
+  isMixMode?: boolean;
+  mixCaptions?: string[];
 }): Promise<{ base64: string; summary: string }> {
   const {
     faceBase64s,
@@ -174,6 +176,8 @@ export async function generateRefRunImageWeb(args: {
     bodySpecs,
     shootingMode = "default",
     customPrompt,
+    isMixMode = false,
+    mixCaptions = [],
   } = args;
 
   if (!faceBase64s.length) {
@@ -195,13 +199,21 @@ export async function generateRefRunImageWeb(args: {
     });
   });
 
-  outfitBase64s.forEach((outfitBase64) => {
+  outfitBase64s.forEach((outfitBase64, index) => {
     parts.push({
       inlineData: {
         data: outfitBase64,
         mimeType: "image/jpeg",
       },
     });
+
+    if (isMixMode) {
+      const caption =
+        mixCaptions[index] || "No specific styling instruction provided.";
+      parts.push({
+        text: `[Mix Item ${index + 1} Instruction: ${caption}]`,
+      });
+    }
   });
 
   const faceContext =
@@ -215,61 +227,64 @@ export async function generateRefRunImageWeb(args: {
   const modeDict: Record<string, string> = {
     fuji: "Texture: Fujifilm 400H (Cool greens, cyan shadows, high contrast cinematic film).",
     mono: "Texture: Ilford HP5 Plus (High-end monochrome, heavy grain, deep noir look). FORCE STRICT BLACK AND WHITE. NO COLOR.",
-    studio: "Texture: Sharp high-key studio lighting. Zero grain, high-end digital clarity.",
+    studio:
+      "Texture: Sharp high-key studio lighting. Zero grain, high-end digital clarity.",
     raw: "Texture: Natural raw light. iPhone-style snapshot clarity, zero film simulation.",
-    default: "Texture: Kodak Portra 400 (Warm skin tones, subtle analog grain, soft cinematic light).",
+    default:
+      "Texture: Kodak Portra 400 (Warm skin tones, subtle analog grain, soft cinematic light).",
   };
 
-  let textureAndColor = "";
+  let textureAndColor = modeDict.default;
   if (shootingMode === "custom" && customPrompt) {
     textureAndColor = `Texture & Photography Style: ${customPrompt}`;
-  } else if (shootingMode === "dig_original") {
-    textureAndColor = `Texture & Photography Style: ${dirSet.camera_angle_and_crop}`;
-  } else if (shootingMode !== "default") {
+  } else if (modeDict[shootingMode]) {
     textureAndColor = modeDict[shootingMode];
-  } else {
-    textureAndColor =
-      dirSet.color_grading_and_texture || modeDict["default"];
   }
 
-  const lightingStyle =
-    dirSet.lighting_and_exposure || "Natural editorial lighting";
-  const finalPhotography =
-    dirSet.camera_angle_and_crop || "Editorial framing";
+  const fitSummary = `${isMixMode ? "🧩 MIX" : "👕 OUTFIT"}${fitSummarySuffix}`;
 
-  let fitSummary = "🖼️ REFRUN";
-  if (shootingMode === "custom") {
-    fitSummary += ` (CUSTOM: ${customPrompt})`;
-  } else if (shootingMode === "dig_original") {
-    fitSummary += ` (REF 원본 기법)`;
-  } else if (shootingMode !== "default") {
-    fitSummary += ` (${shootingMode.toUpperCase()})`;
-  }
-  fitSummary += fitSummarySuffix;
+  const outfitInstruction = isMixMode
+    ? `
+[MIX MODE]
+- Use only the uploaded outfit items.
+- Respect each item instruction exactly.
+- Preserve layer order and item hierarchy.
+- Do not invent extra garments.
+`
+    : `
+[OUTFIT MODE]
+- Reconstruct the exact uploaded outfit references.
+- Preserve pattern, material read, silhouette, drape, and key construction details.
+- Do not invent extra garments.
+`;
 
-  const prompt = `Task: Exact Aesthetic Replication & High-End Fashion Try-On.
-- IDENTITY: ${faceContext}
+  const prompt = `
+Task: Exact Reference-Run Fashion Editorial Generation.
+
+[IDENTITY]
+- ${faceContext}
+
 ${fitPromptContext}
 
-[HOLISTIC GARMENT RECOGNITION]
-- Reconstruct the exact outfit from the provided garment references.
+${outfitInstruction}
 
-[EDITORIAL ART DIRECTION]
-- ENVIRONMENT: ${dirSet.background}
-- POSE & ATTITUDE: ${dirSet.pose}
+[REFERENCE STRUCTURE]
+- BACKGROUND: ${dirSet.background}
+- POSE: ${dirSet.pose}
 - EXPRESSION: ${dirSet.expression}
+- CAMERA / CROP: ${dirSet.camera_angle_and_crop}
+- LIGHTING / EXPOSURE: ${dirSet.lighting_and_exposure}
+- COLOR / TEXTURE: ${dirSet.color_grading_and_texture}
 - OVERALL MOOD: ${dirSet.overall_mood}
 
 [TECHNICAL EXECUTION]
-- TEXTURE & COLOR: ${textureAndColor}
-- CAMERA & CROP: ${finalPhotography}
-- LIGHTING: ${lightingStyle}
-
-CRITICAL:
-- Replicate the photographic language of the reference.
-- Ignore the original reference clothing and accessories.
-- Prioritize atmospheric realism over digital sharpness.
-- Output 2K museum quality.`;
+- ${textureAndColor}
+- Respect the reference image's visual grammar exactly.
+- Render as a real premium fashion photograph.
+- Avoid generic AI 3D / plastic skin look.
+- 3:4 vertical composition.
+- 2K quality.
+`;
 
   const response = await ai.models.generateContent({
     model: "gemini-3.1-flash-image-preview",
@@ -296,6 +311,6 @@ CRITICAL:
 
   return {
     base64: imageBase64,
-    summary: fitSummary,
+    summary: `${fitSummary} + REFRUN`,
   };
 }

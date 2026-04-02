@@ -195,20 +195,33 @@ export default function DigPage() {
   const safeCount = Math.max(1, Math.min(20, Number(count) || 1));
   const totalCost = safeCount * 50;
 
-  const appendFiles = (
-    setter: React.Dispatch<React.SetStateAction<UploadItem[]>>,
-    files: FileList | null
-  ) => {
-    if (!files || files.length === 0) return;
+const appendFiles = (
+  setter: React.Dispatch<React.SetStateAction<UploadItem[]>>,
+  files: FileList | null
+) => {
+  if (!files || files.length === 0) return;
 
-    const newItems: UploadItem[] = Array.from(files).map((file) => ({
+  const MAX_SIZE = 4.5 * 1024 * 1024;
+
+  const newItems: UploadItem[] = [];
+
+  for (const file of Array.from(files)) {
+    if (file.size > MAX_SIZE) {
+      alert(
+        "GUIDE: 현재는 4.5MB 이하의 이미지만 작업 가능합니다.\n\n고해상도 원본 업로드 기능은 현재 설계 단계에 있으며, 준비되는 대로 순차적으로 업데이트될 예정입니다."
+      );
+      return;
+    }
+
+    newItems.push({
       file,
       preview: URL.createObjectURL(file),
       caption: "",
-    }));
+    });
+  }
 
-    setter((prev) => [...prev, ...newItems]);
-  };
+  setter((prev) => [...prev, ...newItems]);
+};
 
   const removeItem = (
     setter: React.Dispatch<React.SetStateAction<UploadItem[]>>,

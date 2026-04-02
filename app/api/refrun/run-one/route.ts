@@ -12,6 +12,8 @@ export async function POST(req: Request) {
     const fitSpec = (formData.get("fitSpec") as string) || "";
     const shootingMode = (formData.get("shootingMode") as string) || "default";
     const customPrompt = (formData.get("customPrompt") as string) || "";
+    const outfitMode = (formData.get("outfitMode") as string) || "outfit";
+    const mixCaptionsRaw = (formData.get("mixCaptions") as string) || "[]";
 
     const faceFiles = formData.getAll("faces") as File[];
     const outfitFiles = formData.getAll("outfits") as File[];
@@ -38,6 +40,15 @@ export async function POST(req: Request) {
       );
     }
 
+    const mixCaptions = JSON.parse(mixCaptionsRaw) as string[];
+
+    if (outfitMode === "mix" && mixCaptions.length !== outfitFiles.length) {
+      return NextResponse.json(
+        { error: "MIX 설명 수와 의상 이미지 수가 맞지 않는다." },
+        { status: 400 }
+      );
+    }
+
     const faceBase64s = await Promise.all(faceFiles.map(fileToBase64));
     const outfitBase64s = await Promise.all(outfitFiles.map(fileToBase64));
     const referenceBase64 = await fileToBase64(referenceFile);
@@ -51,6 +62,8 @@ export async function POST(req: Request) {
       bodySpecs: fitSpec,
       shootingMode,
       customPrompt: shootingMode === "custom" ? customPrompt : undefined,
+      isMixMode: outfitMode === "mix",
+      mixCaptions,
     });
 
     return NextResponse.json({

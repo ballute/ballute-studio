@@ -10,6 +10,7 @@ import FaceInputSection, {
 type UploadItem = {
   file: File;
   preview: string;
+  caption?: string;
 };
 
 type RefRunDirection = {
@@ -44,6 +45,8 @@ type UploadSectionProps = {
   onAddFiles: (files: FileList | null) => void;
   onRemoveItem: (index: number) => void;
   onClearAll: () => void;
+  showCaptionInput?: boolean;
+  onCaptionChange?: (index: number, value: string) => void;
 };
 
 function UploadSection({
@@ -54,6 +57,8 @@ function UploadSection({
   onAddFiles,
   onRemoveItem,
   onClearAll,
+  showCaptionInput = false,
+  onCaptionChange,
 }: UploadSectionProps) {
   return (
     <div className="border rounded-2xl p-6 bg-white">
@@ -114,6 +119,17 @@ function UploadSection({
               <div className="mt-2 text-xs text-gray-600 truncate">
                 {item.file.name}
               </div>
+
+              {showCaptionInput && onCaptionChange ? (
+                <textarea
+                  value={item.caption || ""}
+                  onChange={(e) => onCaptionChange(index, e.target.value)}
+                  placeholder="예: untucked / unbuttoned / layered under jacket"
+                  className="mt-2 w-full border rounded-lg px-2 py-2 text-xs"
+                  rows={3}
+                />
+              ) : null}
+
               <button
                 type="button"
                 onClick={() => onRemoveItem(index)}
@@ -156,6 +172,8 @@ export default function RefRunPage() {
   const [outfits, setOutfits] = useState<UploadItem[]>([]);
   const [references, setReferences] = useState<UploadItem[]>([]);
 
+  const [outfitMode, setOutfitMode] = useState<"outfit" | "mix">("outfit");
+
   const [fitSpec, setFitSpec] = useState("");
   const [shootingMode, setShootingMode] = useState("default");
   const [customPrompt, setCustomPrompt] = useState("");
@@ -171,18 +189,32 @@ export default function RefRunPage() {
   const totalCost = totalResults * 50;
 
   const appendFiles = (
-    setter: React.Dispatch<React.SetStateAction<UploadItem[]>>,
-    files: FileList | null
-  ) => {
-    if (!files || files.length === 0) return;
+  setter: React.Dispatch<React.SetStateAction<UploadItem[]>>,
+  files: FileList | null
+) => {
+  if (!files || files.length === 0) return;
 
-    const newItems: UploadItem[] = Array.from(files).map((file) => ({
+  const MAX_SIZE = 4.5 * 1024 * 1024;
+
+  const newItems: UploadItem[] = [];
+
+  for (const file of Array.from(files)) {
+    if (file.size > MAX_SIZE) {
+      alert(
+        "GUIDE: 현재는 4.5MB 이하의 이미지만 작업 가능합니다.\n\n고해상도 원본 업로드 기능은 현재 설계 단계에 있으며, 준비되는 대로 순차적으로 업데이트될 예정입니다."
+      );
+      return;
+    }
+
+    newItems.push({
       file,
       preview: URL.createObjectURL(file),
-    }));
+      caption: "",
+    });
+  }
 
-    setter((prev) => [...prev, ...newItems]);
-  };
+  setter((prev) => [...prev, ...newItems]);
+};
 
   const removeItem = (
     setter: React.Dispatch<React.SetStateAction<UploadItem[]>>,
@@ -195,6 +227,12 @@ export default function RefRunPage() {
     setter: React.Dispatch<React.SetStateAction<UploadItem[]>>
   ) => {
     setter([]);
+  };
+
+  const updateOutfitCaption = (index: number, value: string) => {
+    setOutfits((prev) =>
+      prev.map((item, i) => (i === index ? { ...item, caption: value } : item))
+    );
   };
 
   const updateSlot = (index: number, patch: Partial<ResultSlot>) => {
@@ -252,6 +290,16 @@ export default function RefRunPage() {
       return;
     }
 
+    if (outfitMode === "mix") {
+      const hasEmptyCaption = outfits.some(
+        (item) => !(item.caption || "").trim()
+      );
+      if (hasEmptyCaption) {
+        alert("MIX 모드에서는 모든 아이템에 설명을 입력해야 한다.");
+        return;
+      }
+    }
+
     try {
       setLoading(true);
       setStatusMessage(`포인트 차감중... (${totalCost}P)`);
@@ -288,6 +336,11 @@ export default function RefRunPage() {
             formData.append("fitSpec", fitSpec);
             formData.append("shootingMode", shootingMode);
             formData.append("customPrompt", customPrompt);
+            formData.append("outfitMode", outfitMode);
+            formData.append(
+              "mixCaptions",
+              JSON.stringify(outfits.map((item) => item.caption || ""))
+            );
 
             faces.forEach((item) => {
               formData.append("faces", item.file);
@@ -372,15 +425,51 @@ export default function RefRunPage() {
             disabled={loading}
           />
 
-          <UploadSection
-            title="의상 착샷 업로드"
-            required
-            description="의상 재구성 기준 이미지. 정면/측면/디테일 등 여러 장 넣을 수 있다."
-            items={outfits}
-            onAddFiles={(files) => appendFiles(setOutfits, files)}
-            onRemoveItem={(index) => removeItem(setOutfits, index)}
-            onClearAll={() => clearAll(setOutfits)}
-          />
+          <div className="space-y-4">
+            <div className="border rounded-2xl p-4 bg-white">
+              <div className="font-semibold mb-3">의상 입력 방식</div>
+              <div className="flex gap-3">
+                <button
+                  type="button"
+                  onClick={() => setOutfitMode("outfit")}
+                  className={`px-4 py-2 rounded-xl border ${
+                    outfitMode === "outfit"
+                      ? "bg-black text-white"
+                      : "bg-white text-gray-700"
+                  }`}
+                >
+                  OUTFIT
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setOutfitMode("mix")}
+                  className={`px-4 py-2 rounded-xl border ${
+                    outfitMode === "mix"
+                      ? "bg-black text-white"
+                      : "bg-white text-gray-700"
+                  }`}
+                >
+                  MIX
+                </button>
+              </div>
+            </div>
+
+            <UploadSection
+              title={outfitMode === "mix" ? "MIX 아이템 업로드" : "의상 착샷 업로드"}
+              required
+              description={
+                outfitMode === "mix"
+                  ? "아이템 여러 장을 조립하는 모드. 각 이미지마다 설명을 꼭 입력해야 한다."
+                  : "의상 재구성 기준 이미지. 정면/측면/디테일 등 여러 장 넣을 수 있다."
+              }
+              items={outfits}
+              onAddFiles={(files) => appendFiles(setOutfits, files)}
+              onRemoveItem={(index) => removeItem(setOutfits, index)}
+              onClearAll={() => clearAll(setOutfits)}
+              showCaptionInput={outfitMode === "mix"}
+              onCaptionChange={updateOutfitCaption}
+            />
+          </div>
 
           <UploadSection
             title="레퍼런스 업로드"
@@ -460,6 +549,7 @@ export default function RefRunPage() {
             <div className="text-sm text-gray-700 space-y-1">
               <div>얼굴: {faces.length}장</div>
               <div>의상: {outfits.length}장</div>
+              <div>의상 모드: {outfitMode}</div>
               <div>레퍼런스: {references.length}장</div>
               <div>레퍼런스당 생성 수: {safeCount}</div>
               <div>총 예상 결과 수: {totalResults}장</div>
