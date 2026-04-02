@@ -27,16 +27,6 @@ const safetySettings = [
   },
 ];
 
-export type LockedVibe = {
-  background?: string;
-  pose?: string;
-  expression?: string;
-  overall_mood?: string;
-  camera_angle_and_crop?: string;
-  lighting_and_exposure?: string;
-  color_grading_and_texture?: string;
-};
-
 export type BackgroundDNA = {
   environment_type?: string;
   architectural_language?: string;
@@ -52,6 +42,16 @@ export type PoseBlueprint = {
   expression?: string;
   camera_angle_and_crop?: string;
   body_attitude?: string;
+};
+
+export type LockedVibe = {
+  background?: string;
+  pose?: string;
+  expression?: string;
+  overall_mood?: string;
+  camera_angle_and_crop?: string;
+  lighting_and_exposure?: string;
+  color_grading_and_texture?: string;
 };
 
 const buildFitPromptContext = (
@@ -162,14 +162,19 @@ Focus on environmental DNA only. No people, no clothes.`,
           },
         ],
       },
+      config: {
+        safetySettings,
+      },
     });
 
     let text = response.candidates?.[0]?.content?.parts?.[0]?.text || "{}";
     const jsonStart = text.indexOf("{");
     const jsonEnd = text.lastIndexOf("}") + 1;
+
     if (jsonStart !== -1 && jsonEnd !== -1) {
       text = text.substring(jsonStart, jsonEnd);
     }
+
     analyses.push(JSON.parse(text));
   }
 
@@ -201,12 +206,16 @@ Goal:
         },
       ],
     },
+    config: {
+      safetySettings,
+    },
   });
 
   let summaryText =
     summaryResp.candidates?.[0]?.content?.parts?.[0]?.text || "{}";
   const sumStart = summaryText.indexOf("{");
   const sumEnd = summaryText.lastIndexOf("}") + 1;
+
   if (sumStart !== -1 && sumEnd !== -1) {
     summaryText = summaryText.substring(sumStart, sumEnd);
   }
@@ -244,11 +253,15 @@ Return ONLY raw JSON:
         },
       ],
     },
+    config: {
+      safetySettings,
+    },
   });
 
   let text = response.candidates?.[0]?.content?.parts?.[0]?.text || "{}";
   const jsonStart = text.indexOf("{");
   const jsonEnd = text.lastIndexOf("}") + 1;
+
   if (jsonStart !== -1 && jsonEnd !== -1) {
     text = text.substring(jsonStart, jsonEnd);
   }
@@ -275,6 +288,9 @@ Format: ["location description 1", "location description 2", ...]`;
   const response = await ai.models.generateContent({
     model: "gemini-3-flash-preview",
     contents: { parts: [{ text: systemPrompt }] },
+    config: {
+      safetySettings,
+    },
   });
 
   const rawText = response.candidates?.[0]?.content?.parts?.[0]?.text || "[]";
@@ -390,6 +406,7 @@ export async function generateFusionImageWeb(args: {
 
   const cameraFeel =
     lockedVibe?.camera_angle_and_crop ||
+    poseBlueprint?.camera_angle_and_crop ||
     bgDNA?.camera_feel ||
     "Editorial framing with natural negative space.";
 
@@ -397,6 +414,7 @@ export async function generateFusionImageWeb(args: {
   const finalExpression =
     lockedVibe?.expression || poseBlueprint?.expression || "";
   const finalBackground = lockedVibe?.background || targetLocationText;
+  const finalBodyAttitude = poseBlueprint?.body_attitude || "";
 
   const prompt = `
 Task: Create a premium FUSION fashion editorial image.
@@ -406,38 +424,57 @@ Task: Create a premium FUSION fashion editorial image.
 
 [OUTFIT]
 - Reconstruct the exact outfit from the uploaded outfit images.
-- ${isMixMode ? "This is MIX mode. Respect each item detail text exactly." : "This is standard outfit mode."}
+- ${
+    isMixMode
+      ? "This is MIX mode. Respect each item detail text exactly."
+      : "This is standard outfit mode."
+  }
 
 ${fitPromptContext}
 
-[WORLD]
-- BACKGROUND / LOCATION: ${finalBackground}
-- ENVIRONMENT DNA: ${bgDNA.environment_type || ""}
-- ARCHITECTURAL LANGUAGE: ${bgDNA.architectural_language || ""}
-- DO NOT COPY LITERALLY: ${(bgDNA.do_not_copy || []).join(", ")}
+[BACKGROUND WORLD]
+- Environment type: ${bgDNA?.environment_type || ""}
+- Architectural language: ${bgDNA?.architectural_language || ""}
+- Lighting DNA: ${lightingStyle}
+- Color / texture DNA: ${textureAndColor}
+- Mood DNA: ${moodStyle}
+- Target location: ${finalBackground}
 
 [POSE / ATTITUDE]
-- POSE: ${finalPose}
-- EXPRESSION: ${finalExpression}
-- BODY ATTITUDE: ${poseBlueprint.body_attitude || ""}
+- Pose: ${finalPose}
+- Expression: ${finalExpression}
+- Body attitude: ${finalBodyAttitude}
 
 [PHOTO GRAMMAR]
-- MOOD: ${moodStyle}
-- CAMERA: ${cameraFeel}
-- LIGHTING: ${lightingStyle}
-- TEXTURE / COLOR: ${textureAndColor}
+- Camera framing / crop: ${cameraFeel}
 
-CRITICAL:
-- The image must feel like a high-end fashion editorial.
-- Use the background DNA and pose blueprint together.
-- Do not output a generic AI portrait.
+[CRITICAL CAMERA PRIORITY]
+- The camera framing MUST follow the pose reference first.
+- Maintain the same crop level and framing feel from the pose reference.
+- Do NOT widen the frame just to show more background.
+- Background/location is for environmental DNA only, not for deciding crop width.
+- If pose reference suggests upper-body, chest-up, waist-up, or medium framing, preserve that exact framing logic.
+- If pose reference suggests full-body, preserve full-body.
+- Pose reference has higher priority than background camera feel.
+
+[BACKGROUND CONTROL]
+- The location should inherit the background DNA, but literal geometry must not be copied.
+- Build a different place within the same neighborhood/world.
+- Avoid repeating one-off windows, doors, corners, or exact facade layout from the background references.
+
+[OUTPUT RULE]
+- Render as a premium fashion editorial photograph.
+- Keep the image realistic and luxury-brand ready.
+- Avoid generic AI mannequin feel.
 - 3:4 vertical composition.
 - 2K quality.
 `;
 
   const response = await ai.models.generateContent({
     model: "gemini-3.1-flash-image-preview",
-    contents: { parts: [...parts, { text: prompt }] },
+    contents: {
+      parts: [...parts, { text: prompt }],
+    },
     config: {
       imageConfig: {
         aspectRatio: "3:4",
@@ -458,6 +495,6 @@ CRITICAL:
 
   return {
     base64: imageBase64,
-    summary: fitSummary,
+    summary: `${fitSummary} + FUSION`,
   };
 }

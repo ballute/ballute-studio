@@ -96,13 +96,23 @@ function UploadCard({
   );
 }
 
+function getImageMime(base64?: string) {
+  if (!base64) return "image/jpeg";
+  if (base64.startsWith("/9j/")) return "image/jpeg";
+  if (base64.startsWith("iVBOR")) return "image/png";
+  return "image/jpeg";
+}
+
 export default function EditorPage() {
   const searchParams = useSearchParams();
   const projectName = searchParams.get("name") ?? "이름 없음";
   const projectType = searchParams.get("type") ?? "타입 없음";
 
   const [face, setFace] = useState<UploadItem>({ file: null, preview: null });
-  const [outfit, setOutfit] = useState<UploadItem>({ file: null, preview: null });
+  const [outfit, setOutfit] = useState<UploadItem>({
+    file: null,
+    preview: null,
+  });
   const [bg, setBg] = useState<UploadItem>({ file: null, preview: null });
   const [pose, setPose] = useState<UploadItem>({ file: null, preview: null });
 
@@ -155,7 +165,7 @@ export default function EditorPage() {
       }
 
       if (data.image) {
-        setResultImage(`data:image/png;base64,${data.image}`);
+        setResultImage(`data:${getImageMime(data.image)};base64,${data.image}`);
         setResultMessage("생성 완료");
       } else {
         setResultMessage(data?.message || "응답은 왔지만 이미지가 없음");

@@ -5,6 +5,13 @@ const ai = new GoogleGenAI({
   apiKey: process.env.GEMINI_API_KEY!,
 });
 
+function detectMimeType(base64?: string) {
+  if (!base64) return "image/jpeg";
+  if (base64.startsWith("/9j/")) return "image/jpeg";
+  if (base64.startsWith("iVBOR")) return "image/png";
+  return "image/jpeg";
+}
+
 export async function POST(req: NextRequest) {
   try {
     const body = await req.json();
@@ -78,8 +85,13 @@ OUTPUT RULE:
 
     for (const part of response.candidates?.[0]?.content?.parts || []) {
       if (part.inlineData?.data) {
+        const imageBase64 = part.inlineData.data;
+        const mimeType =
+          part.inlineData.mimeType || detectMimeType(imageBase64);
+
         return NextResponse.json({
-          image: `data:image/png;base64,${part.inlineData.data}`,
+          imageBase64,
+          mimeType,
         });
       }
     }
@@ -87,9 +99,6 @@ OUTPUT RULE:
     throw new Error("No image was generated.");
   } catch (error) {
     console.error("model-anchor route error:", error);
-    return NextResponse.json(
-      { error: "모델 생성 실패" },
-      { status: 500 }
-    );
+    return NextResponse.json({ error: "모델 생성 실패" }, { status: 500 });
   }
 }

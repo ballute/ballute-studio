@@ -59,7 +59,7 @@ export default function LoginPage() {
       const { error } = await supabase.auth.signInWithOAuth({
         provider: "google",
         options: {
-          redirectTo: "https://studio.ballute.co.kr/",
+          redirectTo: `${window.location.origin}/`,
         },
       });
 

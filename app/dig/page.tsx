@@ -173,6 +173,13 @@ function shorten(text?: string, max = 42) {
   return text.length > max ? `${text.slice(0, max)}...` : text;
 }
 
+function getImageMime(base64?: string) {
+  if (!base64) return "image/jpeg";
+  if (base64.startsWith("/9j/")) return "image/jpeg";
+  if (base64.startsWith("iVBOR")) return "image/png";
+  return "image/jpeg";
+}
+
 export default function DigPage() {
   const [faces, setFaces] = useState<UploadItem[]>([]);
   const [outfits, setOutfits] = useState<UploadItem[]>([]);
@@ -195,33 +202,33 @@ export default function DigPage() {
   const safeCount = Math.max(1, Math.min(20, Number(count) || 1));
   const totalCost = safeCount * 50;
 
-const appendFiles = (
-  setter: React.Dispatch<React.SetStateAction<UploadItem[]>>,
-  files: FileList | null
-) => {
-  if (!files || files.length === 0) return;
+  const appendFiles = (
+    setter: React.Dispatch<React.SetStateAction<UploadItem[]>>,
+    files: FileList | null
+  ) => {
+    if (!files || files.length === 0) return;
 
-  const MAX_SIZE = 4.5 * 1024 * 1024;
+    const MAX_SIZE = 4.5 * 1024 * 1024;
 
-  const newItems: UploadItem[] = [];
+    const newItems: UploadItem[] = [];
 
-  for (const file of Array.from(files)) {
-    if (file.size > MAX_SIZE) {
-      alert(
-        "GUIDE: 현재는 4.5MB 이하의 이미지만 작업 가능합니다.\n\n고해상도 원본 업로드 기능은 현재 설계 단계에 있으며, 준비되는 대로 순차적으로 업데이트될 예정입니다."
-      );
-      return;
+    for (const file of Array.from(files)) {
+      if (file.size > MAX_SIZE) {
+        alert(
+          "GUIDE: 현재는 4.5MB 이하의 이미지만 작업 가능합니다.\n\n고해상도 원본 업로드 기능은 현재 설계 단계에 있으며, 준비되는 대로 순차적으로 업데이트될 예정입니다."
+        );
+        return;
+      }
+
+      newItems.push({
+        file,
+        preview: URL.createObjectURL(file),
+        caption: "",
+      });
     }
 
-    newItems.push({
-      file,
-      preview: URL.createObjectURL(file),
-      caption: "",
-    });
-  }
-
-  setter((prev) => [...prev, ...newItems]);
-};
+    setter((prev) => [...prev, ...newItems]);
+  };
 
   const removeItem = (
     setter: React.Dispatch<React.SetStateAction<UploadItem[]>>,
@@ -288,9 +295,15 @@ const appendFiles = (
         throw new Error(data?.error || "모델 생성 실패");
       }
 
-      const blob = await fetch(data.image).then((r) => r.blob());
-      const file = new File([blob], `model-anchor-${Date.now()}.png`, {
-        type: "image/png",
+      const mimeType = data.mimeType || getImageMime(data.imageBase64);
+      const extension = mimeType === "image/png" ? "png" : "jpg";
+
+      const blob = await fetch(
+        `data:${mimeType};base64,${data.imageBase64}`
+      ).then((r) => r.blob());
+
+      const file = new File([blob], `model-anchor-${Date.now()}.${extension}`, {
+        type: mimeType,
       });
 
       const newItem: UploadItem = {
@@ -368,7 +381,9 @@ const appendFiles = (
         }))
       );
 
-      setStatusMessage(`Directions 생성 완료. ${directions.length}개 컷 생성 시작...`);
+      setStatusMessage(
+        `Directions 생성 완료. ${directions.length}개 컷 생성 시작...`
+      );
 
       directions.forEach(async (direction, index) => {
         updateSlot(index, { status: "generating" });
@@ -673,7 +688,7 @@ const appendFiles = (
                   {slot.status === "done" && slot.result && (
                     <>
                       <img
-                        src={`data:image/png;base64,${slot.result.image}`}
+                        src={`data:${getImageMime(slot.result.image)};base64,${slot.result.image}`}
                         alt={`dig-result-${index}`}
                         className="w-full rounded-xl border mb-4"
                       />

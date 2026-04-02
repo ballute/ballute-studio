@@ -169,6 +169,13 @@ function shorten(text?: string, max = 42) {
   return text.length > max ? `${text.slice(0, max)}...` : text;
 }
 
+function getImageMime(base64?: string) {
+  if (!base64) return "image/jpeg";
+  if (base64.startsWith("/9j/")) return "image/jpeg";
+  if (base64.startsWith("iVBOR")) return "image/png";
+  return "image/jpeg";
+}
+
 export default function FusionPage() {
   const [faces, setFaces] = useState<UploadItem[]>([]);
   const [outfits, setOutfits] = useState<UploadItem[]>([]);
@@ -288,9 +295,15 @@ export default function FusionPage() {
         throw new Error(data?.error || "모델 생성 실패");
       }
 
-      const blob = await fetch(data.image).then((r) => r.blob());
-      const file = new File([blob], `model-anchor-${Date.now()}.png`, {
-        type: "image/png",
+      const mimeType = data.mimeType || getImageMime(data.imageBase64);
+      const extension = mimeType === "image/png" ? "png" : "jpg";
+
+      const blob = await fetch(
+        `data:${mimeType};base64,${data.imageBase64}`
+      ).then((r) => r.blob());
+
+      const file = new File([blob], `model-anchor-${Date.now()}.${extension}`, {
+        type: mimeType,
       });
 
       const newItem: UploadItem = {
@@ -677,7 +690,7 @@ export default function FusionPage() {
                   {slot.status === "done" && slot.result && (
                     <>
                       <img
-                        src={`data:image/png;base64,${slot.result.image}`}
+                        src={`data:${getImageMime(slot.result.image)};base64,${slot.result.image}`}
                         alt={`fusion-result-${index}`}
                         className="w-full rounded-xl border mb-4"
                       />
