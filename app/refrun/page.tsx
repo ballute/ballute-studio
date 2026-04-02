@@ -202,7 +202,6 @@ export default function RefRunPage() {
     if (!files || files.length === 0) return;
 
     const MAX_SIZE = 4.5 * 1024 * 1024;
-
     const newItems: UploadItem[] = [];
 
     for (const file of Array.from(files)) {
@@ -513,15 +512,18 @@ export default function RefRunPage() {
 
             <div>
               <label className="block text-sm font-semibold mb-2">
-                핏 보정
+                핏 보정 (기존 모델 스펙 → AI 모델 스펙)
               </label>
               <input
                 type="text"
                 value={fitSpec}
                 onChange={(e) => setFitSpec(e.target.value)}
-                placeholder="예: 173/71 183/63"
+                placeholder="예: 173/71 → 183/63"
                 className="w-full border rounded-xl px-4 py-3"
               />
+              <div className="mt-2 text-xs text-gray-500 leading-5">
+                베타 서비스 단계 · 미입력 시 기존 핏과 유사하게 맞춰드립니다.
+              </div>
             </div>
 
             <div>
@@ -566,7 +568,9 @@ export default function RefRunPage() {
               <div>레퍼런스: {references.length}장</div>
               <div>레퍼런스당 생성 수: {safeCount}</div>
               <div>총 예상 결과 수: {totalResults}장</div>
-              <div>핏 보정: {fitSpec || "없음"}</div>
+              <div>
+                핏 보정 (기존 모델 스펙 → AI 모델 스펙): {fitSpec || "없음"}
+              </div>
               <div>Shooting Mode: {shootingMode}</div>
               <div>Custom Prompt: {customPrompt || "없음"}</div>
               <div>실행 비용: {totalCost}P</div>

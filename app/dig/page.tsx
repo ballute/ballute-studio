@@ -556,15 +556,18 @@ export default function DigPage() {
 
             <div>
               <label className="block text-sm font-semibold mb-2">
-                핏 보정
+                핏 보정 (기존 모델 스펙 → AI 모델 스펙)
               </label>
               <input
                 type="text"
                 value={fitSpec}
                 onChange={(e) => setFitSpec(e.target.value)}
-                placeholder="예: 173/71 183/63"
+                placeholder="예: 173/71 → 183/63"
                 className="w-full border rounded-xl px-4 py-3"
               />
+              <div className="mt-2 text-xs text-gray-500 leading-5">
+                베타 서비스 단계 · 미입력 시 기존 핏과 유사하게 맞춰드립니다.
+              </div>
             </div>
 
             <div>

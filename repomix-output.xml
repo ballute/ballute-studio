@@ -579,81 +579,6 @@ Type: ${projectType}
 }
 </file>
 
-<file path="app/api/refrun/run-one/route.ts">
-import { NextResponse } from "next/server";
-import { fileToBase64 } from "@/lib/utils";
-import {
-  analyzeReferenceWeb,
-  generateRefRunImageWeb,
-} from "@/lib/gemini-refrun";
-
-export async function POST(req: Request) {
-  try {
-    const formData = await req.formData();
-
-    const fitSpec = (formData.get("fitSpec") as string) || "";
-    const shootingMode = (formData.get("shootingMode") as string) || "default";
-    const customPrompt = (formData.get("customPrompt") as string) || "";
-
-    const faceFiles = formData.getAll("faces") as File[];
-    const outfitFiles = formData.getAll("outfits") as File[];
-    const referenceFile = formData.get("reference") as File | null;
-
-    if (!faceFiles.length) {
-      return NextResponse.json(
-        { error: "얼굴 이미지는 최소 1장 필요하다." },
-        { status: 400 }
-      );
-    }
-
-    if (!outfitFiles.length) {
-      return NextResponse.json(
-        { error: "의상 이미지는 최소 1장 필요하다." },
-        { status: 400 }
-      );
-    }
-
-    if (!referenceFile) {
-      return NextResponse.json(
-        { error: "레퍼런스 이미지는 최소 1장 필요하다." },
-        { status: 400 }
-      );
-    }
-
-    const faceBase64s = await Promise.all(faceFiles.map(fileToBase64));
-    const outfitBase64s = await Promise.all(outfitFiles.map(fileToBase64));
-    const referenceBase64 = await fileToBase64(referenceFile);
-
-    const analyzed = await analyzeReferenceWeb(referenceBase64);
-
-    const generated = await generateRefRunImageWeb({
-      faceBase64s,
-      outfitBase64s,
-      dirSet: analyzed,
-      bodySpecs: fitSpec,
-      shootingMode,
-      customPrompt: shootingMode === "custom" ? customPrompt : undefined,
-    });
-
-    return NextResponse.json({
-      success: true,
-      result: {
-        image: generated.base64,
-        summary: generated.summary,
-        direction: analyzed,
-      },
-    });
-  } catch (error) {
-    console.error("REFRUN_RUN_ONE_ERROR:", error);
-
-    const message =
-      error instanceof Error ? error.message : "알 수 없는 REFRUN 오류";
-
-    return NextResponse.json({ error: message }, { status: 500 });
-  }
-}
-</file>
-
 <file path="app/api/toss/confirm/route.ts">
 import { NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
@@ -1163,776 +1088,6 @@ ${outfitInstruction}
 }
 </file>
 
-<file path="lib/gemini-fusion.ts">
-import {
-  GoogleGenAI,
-  HarmCategory,
-  HarmBlockThreshold,
-} from "@google/genai";
-
-const ai = new GoogleGenAI({
-  apiKey: process.env.GEMINI_API_KEY!,
-});
-
-const safetySettings = [
-  {
-    category: HarmCategory.HARM_CATEGORY_HARASSMENT,
-    threshold: HarmBlockThreshold.BLOCK_ONLY_HIGH,
-  },
-  {
-    category: HarmCategory.HARM_CATEGORY_HATE_SPEECH,
-    threshold: HarmBlockThreshold.BLOCK_ONLY_HIGH,
-  },
-  {
-    category: HarmCategory.HARM_CATEGORY_SEXUALLY_EXPLICIT,
-    threshold: HarmBlockThreshold.BLOCK_ONLY_HIGH,
-  },
-  {
-    category: HarmCategory.HARM_CATEGORY_DANGEROUS_CONTENT,
-    threshold: HarmBlockThreshold.BLOCK_ONLY_HIGH,
-  },
-];
-
-export type LockedVibe = {
-  background?: string;
-  pose?: string;
-  expression?: string;
-  overall_mood?: string;
-  camera_angle_and_crop?: string;
-  lighting_and_exposure?: string;
-  color_grading_and_texture?: string;
-};
-
-export type BackgroundDNA = {
-  environment_type?: string;
-  architectural_language?: string;
-  lighting_and_exposure?: string;
-  color_grading_and_texture?: string;
-  spatial_mood?: string;
-  camera_feel?: string;
-  do_not_copy?: string[];
-};
-
-export type PoseBlueprint = {
-  pose?: string;
-  expression?: string;
-  camera_angle_and_crop?: string;
-  body_attitude?: string;
-};
-
-const buildFitPromptContext = (
-  bodySpecs?: string
-): { fitPromptContext: string; fitSummarySuffix: string } => {
-  if (!bodySpecs) {
-    return {
-      fitPromptContext:
-        "- AUTO-FIT MODE: Replicate the garment's silhouette, fit, length, and drape EXACTLY.",
-      fitSummarySuffix: "",
-    };
-  }
-
-  const specMatch = bodySpecs.match(/(\d+)\/(\d+)\s+(\d+)\/(\d+)/);
-  if (!specMatch) {
-    return {
-      fitPromptContext:
-        "- AUTO-FIT MODE: Replicate the garment's silhouette, fit, length, and drape EXACTLY.",
-      fitSummarySuffix: "",
-    };
-  }
-
-  const h1 = parseInt(specMatch[1], 10);
-  const w1 = parseInt(specMatch[2], 10);
-  const h2 = parseInt(specMatch[3], 10);
-  const w2 = parseInt(specMatch[4], 10);
-
-  const hDiff = h2 - h1;
-  const wDiff = w2 - w1;
-
-  let hDesc = "";
-  let wDesc = "";
-  let lengthEffect = "";
-  let widthEffect = "";
-
-  if (hDiff >= 4) {
-    hDesc = "taller";
-    lengthEffect =
-      "Because the body is taller/longer, the fixed garment sits naturally higher. Sleeves expose more wrist and pants break higher.";
-  } else if (hDiff <= -4) {
-    hDesc = "shorter";
-    lengthEffect =
-      "Because the body is shorter, the fixed garment falls lower. Sleeves cover more hands and pants stack more.";
-  }
-
-  if (wDiff >= 4) {
-    wDesc = "broader/heavier";
-    widthEffect =
-      "Because the body is thicker, the fixed garment fits tighter with reduced drape.";
-  } else if (wDiff <= -4) {
-    wDesc = "slimmer/lighter";
-    widthEffect =
-      "Because the body is thinner, the fixed garment fits looser with more drape.";
-  }
-
-  let bodyChange = [hDesc, wDesc].filter(Boolean).join(" and ");
-  if (!bodyChange) {
-    bodyChange = "similar proportions";
-    lengthEffect = "Maintain original vertical fit.";
-    widthEffect = "Maintain original width and drape.";
-  }
-
-  return {
-    fitPromptContext: `
-- FIT CALIBRATION (FIXED GARMENT PARADIGM):
-  * The garment size and design are fixed.
-  * Do NOT redesign or resize the garment itself.
-  * The target body is visually ${bodyChange}.
-  * Visual effect:
-    1. ${lengthEffect}
-    2. ${widthEffect}
-`,
-    fitSummarySuffix: ` + 📏 핏 보정: Body ${bodyChange}`,
-  };
-};
-
-export async function analyzeBackgroundDNAFromBase64s(
-  bgBase64s: string[]
-): Promise<BackgroundDNA> {
-  const analyses: any[] = [];
-
-  for (const base64 of bgBase64s) {
-    const response = await ai.models.generateContent({
-      model: "gemini-3-flash-preview",
-      contents: {
-        parts: [
-          {
-            inlineData: {
-              data: base64,
-              mimeType: "image/jpeg",
-            },
-          },
-          {
-            text: `Analyze this location/environment image for fashion lookbook worldbuilding.
-
-Return ONLY raw JSON with:
-{
-  "environment_type": "what kind of place this is",
-  "architectural_language": "materials, shapes, structural language",
-  "lighting_and_exposure": "light quality and exposure character",
-  "color_grading_and_texture": "color cast, grain, texture, surface feeling",
-  "spatial_mood": "psychological feel of the place",
-  "camera_feel": "what kind of framing / distance this world suggests",
-  "key_non_repeatable_elements": ["specific one-off details that should NOT be copied literally"]
-}
-
-Focus on environmental DNA only. No people, no clothes.`,
-          },
-        ],
-      },
-    });
-
-    let text = response.candidates?.[0]?.content?.parts?.[0]?.text || "{}";
-    const jsonStart = text.indexOf("{");
-    const jsonEnd = text.lastIndexOf("}") + 1;
-    if (jsonStart !== -1 && jsonEnd !== -1) {
-      text = text.substring(jsonStart, jsonEnd);
-    }
-    analyses.push(JSON.parse(text));
-  }
-
-  const summaryResp = await ai.models.generateContent({
-    model: "gemini-3-flash-preview",
-    contents: {
-      parts: [
-        {
-          text: `You are merging multiple environment analyses into one unified background DNA for a fashion lookbook engine.
-
-Input analyses:
-${JSON.stringify(analyses, null, 2)}
-
-Return ONLY raw JSON:
-{
-  "environment_type": "...",
-  "architectural_language": "...",
-  "lighting_and_exposure": "...",
-  "color_grading_and_texture": "...",
-  "spatial_mood": "...",
-  "camera_feel": "...",
-  "do_not_copy": ["specific literal geometry/details to avoid repeating"]
-}
-
-Goal:
-- keep shared DNA
-- remove one-off literal geometry
-- produce a reusable neighborhood/world description`,
-        },
-      ],
-    },
-  });
-
-  let summaryText =
-    summaryResp.candidates?.[0]?.content?.parts?.[0]?.text || "{}";
-  const sumStart = summaryText.indexOf("{");
-  const sumEnd = summaryText.lastIndexOf("}") + 1;
-  if (sumStart !== -1 && sumEnd !== -1) {
-    summaryText = summaryText.substring(sumStart, sumEnd);
-  }
-
-  return JSON.parse(summaryText);
-}
-
-export async function analyzePoseBlueprintFromBase64(
-  poseBase64: string
-): Promise<PoseBlueprint> {
-  const response = await ai.models.generateContent({
-    model: "gemini-3-flash-preview",
-    contents: {
-      parts: [
-        {
-          inlineData: {
-            data: poseBase64,
-            mimeType: "image/jpeg",
-          },
-        },
-        {
-          text: `Analyze this pose reference image as a HIGH-END FASHION EDITORIAL POSE.
-
-IMPORTANT:
-Do NOT reduce the pose into only dry skeletal coordinates.
-Read it like a fashion photographer for a luxury brand.
-
-Return ONLY raw JSON:
-{
-  "pose": "body posture, weight balance, arm/leg attitude",
-  "expression": "facial expression and gaze direction",
-  "camera_angle_and_crop": "camera angle / crop feeling",
-  "body_attitude": "editorial attitude / emotion carried by the body"
-}`,
-        },
-      ],
-    },
-  });
-
-  let text = response.candidates?.[0]?.content?.parts?.[0]?.text || "{}";
-  const jsonStart = text.indexOf("{");
-  const jsonEnd = text.lastIndexOf("}") + 1;
-  if (jsonStart !== -1 && jsonEnd !== -1) {
-    text = text.substring(jsonStart, jsonEnd);
-  }
-
-  return JSON.parse(text);
-}
-
-export async function searchLocationPrompts(
-  bgDNA: BackgroundDNA,
-  count: number
-): Promise<string[]> {
-  const systemPrompt = `Background DNA (Material & Lighting World):
-${JSON.stringify(bgDNA, null, 2)}
-
-TASK:
-Generate EXACTLY ${count} spatially distinct location prompts based strictly on the provided Background DNA.
-
-CRITICAL DIVERSITY RULE:
-If generating multiple locations, each prompt must focus on a DIFFERENT structural element or camera perspective while keeping the core DNA identical.
-
-Return ONLY a valid JSON array of strings containing EXACTLY ${count} elements.
-Format: ["location description 1", "location description 2", ...]`;
-
-  const response = await ai.models.generateContent({
-    model: "gemini-3-flash-preview",
-    contents: { parts: [{ text: systemPrompt }] },
-  });
-
-  const rawText = response.candidates?.[0]?.content?.parts?.[0]?.text || "[]";
-  const jsonStart = rawText.indexOf("[");
-  const jsonEnd = rawText.lastIndexOf("]") + 1;
-
-  if (jsonStart === -1 || jsonEnd === 0) {
-    throw new Error("로케이션 프롬프트 JSON 파싱 실패");
-  }
-
-  const result = JSON.parse(rawText.substring(jsonStart, jsonEnd));
-  return Array.isArray(result) ? result.slice(0, count) : [];
-}
-
-export async function generateFusionImageWeb(args: {
-  faceBase64s: string[];
-  outfitBase64s: string[];
-  poseBlueprint: PoseBlueprint;
-  targetLocationText: string;
-  bgDNA: BackgroundDNA;
-  bodySpecs?: string;
-  isMixMode?: boolean;
-  mixCaptions?: string[];
-  lockedVibe?: LockedVibe | null;
-  shootingMode?: string;
-  customPrompt?: string;
-}): Promise<{ base64: string; summary: string }> {
-  const {
-    faceBase64s,
-    outfitBase64s,
-    poseBlueprint,
-    targetLocationText,
-    bgDNA,
-    bodySpecs,
-    isMixMode = false,
-    mixCaptions = [],
-    lockedVibe,
-    shootingMode = "default",
-    customPrompt,
-  } = args;
-
-  const parts: any[] = [];
-
-  faceBase64s.forEach((faceBase64) => {
-    parts.push({
-      inlineData: {
-        data: faceBase64,
-        mimeType: "image/jpeg",
-      },
-    });
-  });
-
-  outfitBase64s.forEach((outfitBase64, index) => {
-    parts.push({
-      inlineData: {
-        data: outfitBase64,
-        mimeType: "image/jpeg",
-      },
-    });
-
-    if (isMixMode) {
-      const itemCaption =
-        mixCaptions[index] || "No specific styling instruction provided.";
-      parts.push({
-        text: `[Outfit Detail ${index + 1}: Extracted based on "${itemCaption}"]`,
-      });
-    }
-  });
-
-  let fitSummary = lockedVibe
-    ? `🧬 FUSION [VIBE LOCK]`
-    : `🧬 FUSION [${shootingMode.toUpperCase()}]`;
-
-  if (shootingMode === "custom") {
-    fitSummary += ` (CUSTOM: ${customPrompt})`;
-  }
-
-  const { fitPromptContext, fitSummarySuffix } =
-    buildFitPromptContext(bodySpecs);
-  fitSummary += fitSummarySuffix;
-
-  const modeDict: Record<string, string> = {
-    fuji: "Texture: Fujifilm 400H characteristic (cool greens, cyan shadows, high contrast cinematic feel).",
-    mono: "Texture: Ilford HP5 Plus (high-end monochrome, rich blacks, heavy grain). FORCE STRICT BLACK AND WHITE. NO COLOR.",
-    studio:
-      "Texture: clean commercial high-key studio lighting. Sharp focus, zero grain, high-end digital clarity.",
-    raw: "Texture: unprocessed natural raw light. realistic exposure, zero film simulation.",
-    default:
-      "Texture: Kodak Portra 400 (warm skin tones, subtle analog grain, soft cinematic light).",
-  };
-
-  let textureAndColor = "";
-  if (lockedVibe?.color_grading_and_texture) {
-    textureAndColor = lockedVibe.color_grading_and_texture;
-  } else if (shootingMode === "custom" && customPrompt) {
-    textureAndColor = `Texture & Photography Style: ${customPrompt}`;
-  } else if (shootingMode !== "default") {
-    textureAndColor = modeDict[shootingMode];
-  } else {
-    textureAndColor =
-      bgDNA?.color_grading_and_texture || modeDict["default"];
-  }
-
-  const lightingStyle =
-    lockedVibe?.lighting_and_exposure ||
-    bgDNA?.lighting_and_exposure ||
-    "Soft editorial natural lighting.";
-
-  const moodStyle =
-    lockedVibe?.overall_mood ||
-    bgDNA?.spatial_mood ||
-    "High-end restrained editorial mood.";
-
-  const cameraFeel =
-    lockedVibe?.camera_angle_and_crop ||
-    bgDNA?.camera_feel ||
-    "Editorial framing with natural negative space.";
-
-  const finalPose = lockedVibe?.pose || poseBlueprint?.pose || "";
-  const finalExpression =
-    lockedVibe?.expression || poseBlueprint?.expression || "";
-  const finalBackground = lockedVibe?.background || targetLocationText;
-
-  const prompt = `
-Task: Create a premium FUSION fashion editorial image.
-
-[IDENTITY]
-- Maintain exact identity from face references.
-
-[OUTFIT]
-- Reconstruct the exact outfit from the uploaded outfit images.
-- ${isMixMode ? "This is MIX mode. Respect each item detail text exactly." : "This is standard outfit mode."}
-
-${fitPromptContext}
-
-[WORLD]
-- BACKGROUND / LOCATION: ${finalBackground}
-- ENVIRONMENT DNA: ${bgDNA.environment_type || ""}
-- ARCHITECTURAL LANGUAGE: ${bgDNA.architectural_language || ""}
-- DO NOT COPY LITERALLY: ${(bgDNA.do_not_copy || []).join(", ")}
-
-[POSE / ATTITUDE]
-- POSE: ${finalPose}
-- EXPRESSION: ${finalExpression}
-- BODY ATTITUDE: ${poseBlueprint.body_attitude || ""}
-
-[PHOTO GRAMMAR]
-- MOOD: ${moodStyle}
-- CAMERA: ${cameraFeel}
-- LIGHTING: ${lightingStyle}
-- TEXTURE / COLOR: ${textureAndColor}
-
-CRITICAL:
-- The image must feel like a high-end fashion editorial.
-- Use the background DNA and pose blueprint together.
-- Do not output a generic AI portrait.
-- 3:4 vertical composition.
-- 2K quality.
-`;
-
-  const response = await ai.models.generateContent({
-    model: "gemini-3.1-flash-image-preview",
-    contents: { parts: [...parts, { text: prompt }] },
-    config: {
-      imageConfig: {
-        aspectRatio: "3:4",
-        imageSize: "2K",
-      },
-      safetySettings,
-    },
-  });
-
-  const imageBase64 =
-    response.candidates?.[0]?.content?.parts?.find(
-      (part: any) => part.inlineData
-    )?.inlineData?.data || null;
-
-  if (!imageBase64) {
-    throw new Error("FUSION 이미지 생성 결과가 비어 있다.");
-  }
-
-  return {
-    base64: imageBase64,
-    summary: fitSummary,
-  };
-}
-</file>
-
-<file path="lib/gemini-refrun.ts">
-import {
-  GoogleGenAI,
-  HarmCategory,
-  HarmBlockThreshold,
-} from "@google/genai";
-
-const ai = new GoogleGenAI({
-  apiKey: process.env.GEMINI_API_KEY!,
-});
-
-const safetySettings = [
-  {
-    category: HarmCategory.HARM_CATEGORY_HARASSMENT,
-    threshold: HarmBlockThreshold.BLOCK_ONLY_HIGH,
-  },
-  {
-    category: HarmCategory.HARM_CATEGORY_HATE_SPEECH,
-    threshold: HarmBlockThreshold.BLOCK_ONLY_HIGH,
-  },
-  {
-    category: HarmCategory.HARM_CATEGORY_SEXUALLY_EXPLICIT,
-    threshold: HarmBlockThreshold.BLOCK_ONLY_HIGH,
-  },
-  {
-    category: HarmCategory.HARM_CATEGORY_DANGEROUS_CONTENT,
-    threshold: HarmBlockThreshold.BLOCK_ONLY_HIGH,
-  },
-];
-
-export type RefRunDirection = {
-  background: string;
-  pose: string;
-  expression: string;
-  camera_angle_and_crop: string;
-  lighting_and_exposure: string;
-  color_grading_and_texture: string;
-  overall_mood: string;
-};
-
-const buildFitPromptContext = (
-  bodySpecs?: string
-): { fitPromptContext: string; fitSummarySuffix: string } => {
-  if (!bodySpecs) {
-    return {
-      fitPromptContext:
-        "- AUTO-FIT MODE: Replicate the garment's silhouette, fit, length, and drape EXACTLY.",
-      fitSummarySuffix: "",
-    };
-  }
-
-  const specMatch = bodySpecs.match(/(\d+)\/(\d+)\s+(\d+)\/(\d+)/);
-  if (!specMatch) {
-    return {
-      fitPromptContext:
-        "- AUTO-FIT MODE: Replicate the garment's silhouette, fit, length, and drape EXACTLY.",
-      fitSummarySuffix: "",
-    };
-  }
-
-  const h1 = parseInt(specMatch[1], 10);
-  const w1 = parseInt(specMatch[2], 10);
-  const h2 = parseInt(specMatch[3], 10);
-  const w2 = parseInt(specMatch[4], 10);
-
-  const hDiff = h2 - h1;
-  const wDiff = w2 - w1;
-
-  let hDesc = "";
-  let wDesc = "";
-  let lengthEffect = "";
-  let widthEffect = "";
-
-  if (hDiff >= 4) {
-    hDesc = "taller";
-    lengthEffect =
-      "Because the body is taller/longer, the fixed garment sits naturally higher. Sleeves expose more wrist, and pants break higher above the shoes.";
-  } else if (hDiff <= -4) {
-    hDesc = "shorter";
-    lengthEffect =
-      "Because the body is shorter, the fixed garment falls lower. Sleeves cover the hands more, and pants stack heavily on the shoes.";
-  }
-
-  if (wDiff >= 4) {
-    wDesc = "broader/heavier";
-    widthEffect =
-      "Because the body is thicker, the fixed garment fits tighter. Fabric stretches closer to the body, reducing drape.";
-  } else if (wDiff <= -4) {
-    wDesc = "slimmer/lighter";
-    widthEffect =
-      "Because the body is thinner, the fixed garment fits much looser. More drape, excess fabric, resulting in a baggier silhouette.";
-  }
-
-  let bodyChange = [hDesc, wDesc].filter(Boolean).join(" and ");
-  if (!bodyChange) {
-    bodyChange = "similar proportions";
-    lengthEffect = "Maintain exact original vertical fit.";
-    widthEffect = "Maintain exact original drape and width.";
-  }
-
-  return {
-    fitPromptContext: `
-- FIT CALIBRATION (FIXED GARMENT PARADIGM):
-  * CRITICAL RULE: The physical size, pattern, and design of the garment are 100% FIXED.
-  * DO NOT alter, redesign, shrink, or enlarge the clothing item itself.
-  * THE BODY CHANGE: The target model inside the clothes is visually ${bodyChange} than the original model.
-  * THE VISUAL EFFECT:
-    1. ${lengthEffect}
-    2. ${widthEffect}
-  * DIRECTIVE: Render the natural, physical result of this specific new body wearing the exact same fixed-size garment. Maintain believable human anatomy.
-`,
-    fitSummarySuffix: ` + 📏 핏 보정: Body ${bodyChange || "유사"}`,
-  };
-};
-
-export async function analyzeReferenceWeb(
-  referenceBase64: string
-): Promise<RefRunDirection> {
-  const parts = [
-    {
-      inlineData: {
-        data: referenceBase64,
-        mimeType: "image/jpeg",
-      },
-    },
-  ];
-
-  const systemPrompt = `Analyze the provided reference fashion photograph meticulously.
-Extract the exact visual structure, aesthetic, and mood.
-
-CRITICAL RULE (NEGATIVE CONSTRAINT):
-Ignore all details regarding clothing or accessories worn by the model.
-
-Return ONLY raw JSON with:
-{
-  "background": "describe the environment and set design",
-  "pose": "describe the subject's posture, limb positioning, and attitude",
-  "expression": "describe the facial expression and gaze direction",
-  "camera_angle_and_crop": "camera angle and crop",
-  "lighting_and_exposure": "lighting setup and exposure character",
-  "color_grading_and_texture": "color grading and texture",
-  "overall_mood": "overall mood"
-}`;
-
-  const response = await ai.models.generateContent({
-    model: "gemini-3-flash-preview",
-    contents: {
-      parts: [...parts, { text: systemPrompt }],
-    },
-  });
-
-  let text = response.candidates?.[0]?.content?.parts?.[0]?.text || "{}";
-  const jsonStart = text.indexOf("{");
-  const jsonEnd = text.lastIndexOf("}") + 1;
-
-  if (jsonStart !== -1 && jsonEnd !== -1) {
-    text = text.substring(jsonStart, jsonEnd);
-  }
-
-  return JSON.parse(text);
-}
-
-export async function generateRefRunImageWeb(args: {
-  faceBase64s: string[];
-  outfitBase64s: string[];
-  dirSet: RefRunDirection;
-  bodySpecs?: string;
-  shootingMode?: string;
-  customPrompt?: string;
-}): Promise<{ base64: string; summary: string }> {
-  const {
-    faceBase64s,
-    outfitBase64s,
-    dirSet,
-    bodySpecs,
-    shootingMode = "default",
-    customPrompt,
-  } = args;
-
-  if (!faceBase64s.length) {
-    throw new Error("얼굴 이미지가 없다.");
-  }
-
-  if (!outfitBase64s.length) {
-    throw new Error("의상 이미지가 없다.");
-  }
-
-  const parts: any[] = [];
-
-  faceBase64s.forEach((faceBase64) => {
-    parts.push({
-      inlineData: {
-        data: faceBase64,
-        mimeType: "image/jpeg",
-      },
-    });
-  });
-
-  outfitBase64s.forEach((outfitBase64) => {
-    parts.push({
-      inlineData: {
-        data: outfitBase64,
-        mimeType: "image/jpeg",
-      },
-    });
-  });
-
-  const faceContext =
-    faceBase64s.length === 1
-      ? "Use face reference."
-      : "3D FACE ID ENGINE ACTIVE to maintain identity.";
-
-  const { fitPromptContext, fitSummarySuffix } =
-    buildFitPromptContext(bodySpecs);
-
-  const modeDict: Record<string, string> = {
-    fuji: "Texture: Fujifilm 400H (Cool greens, cyan shadows, high contrast cinematic film).",
-    mono: "Texture: Ilford HP5 Plus (High-end monochrome, heavy grain, deep noir look). FORCE STRICT BLACK AND WHITE. NO COLOR.",
-    studio: "Texture: Sharp high-key studio lighting. Zero grain, high-end digital clarity.",
-    raw: "Texture: Natural raw light. iPhone-style snapshot clarity, zero film simulation.",
-    default: "Texture: Kodak Portra 400 (Warm skin tones, subtle analog grain, soft cinematic light).",
-  };
-
-  let textureAndColor = "";
-  if (shootingMode === "custom" && customPrompt) {
-    textureAndColor = `Texture & Photography Style: ${customPrompt}`;
-  } else if (shootingMode === "dig_original") {
-    textureAndColor = `Texture & Photography Style: ${dirSet.camera_angle_and_crop}`;
-  } else if (shootingMode !== "default") {
-    textureAndColor = modeDict[shootingMode];
-  } else {
-    textureAndColor =
-      dirSet.color_grading_and_texture || modeDict["default"];
-  }
-
-  const lightingStyle =
-    dirSet.lighting_and_exposure || "Natural editorial lighting";
-  const finalPhotography =
-    dirSet.camera_angle_and_crop || "Editorial framing";
-
-  let fitSummary = "🖼️ REFRUN";
-  if (shootingMode === "custom") {
-    fitSummary += ` (CUSTOM: ${customPrompt})`;
-  } else if (shootingMode === "dig_original") {
-    fitSummary += ` (REF 원본 기법)`;
-  } else if (shootingMode !== "default") {
-    fitSummary += ` (${shootingMode.toUpperCase()})`;
-  }
-  fitSummary += fitSummarySuffix;
-
-  const prompt = `Task: Exact Aesthetic Replication & High-End Fashion Try-On.
-- IDENTITY: ${faceContext}
-${fitPromptContext}
-
-[HOLISTIC GARMENT RECOGNITION]
-- Reconstruct the exact outfit from the provided garment references.
-
-[EDITORIAL ART DIRECTION]
-- ENVIRONMENT: ${dirSet.background}
-- POSE & ATTITUDE: ${dirSet.pose}
-- EXPRESSION: ${dirSet.expression}
-- OVERALL MOOD: ${dirSet.overall_mood}
-
-[TECHNICAL EXECUTION]
-- TEXTURE & COLOR: ${textureAndColor}
-- CAMERA & CROP: ${finalPhotography}
-- LIGHTING: ${lightingStyle}
-
-CRITICAL:
-- Replicate the photographic language of the reference.
-- Ignore the original reference clothing and accessories.
-- Prioritize atmospheric realism over digital sharpness.
-- Output 2K museum quality.`;
-
-  const response = await ai.models.generateContent({
-    model: "gemini-3.1-flash-image-preview",
-    contents: {
-      parts: [...parts, { text: prompt }],
-    },
-    config: {
-      imageConfig: {
-        aspectRatio: "3:4",
-        imageSize: "2K",
-      },
-      safetySettings,
-    },
-  });
-
-  const imageBase64 =
-    response.candidates?.[0]?.content?.parts?.find(
-      (part: any) => part.inlineData
-    )?.inlineData?.data || null;
-
-  if (!imageBase64) {
-    throw new Error("REFRUN 이미지 생성 결과가 비어 있다.");
-  }
-
-  return {
-    base64: imageBase64,
-    summary: fitSummary,
-  };
-}
-</file>
-
 <file path="lib/gemini-web.ts">
 import { GoogleGenAI } from "@google/genai";
 
@@ -2067,304 +1222,6 @@ export const fileToBase64 = async (file: File): Promise<string> => {
   const buffer = Buffer.from(arrayBuffer);
   return buffer.toString("base64");
 };
-</file>
-
-<file path="project_backup/editor/page.tsx">
-"use client";
-
-import { useSearchParams } from "next/navigation";
-import { useState } from "react";
-
-type UploadItem = {
-  file: File | null;
-  preview: string | null;
-};
-
-type UploadCardProps = {
-  title: string;
-  required?: boolean;
-  description: string;
-  goodExamples: string[];
-  badExamples: string[];
-  value: UploadItem;
-  onChange: (file: File | null) => void;
-};
-
-function UploadCard({
-  title,
-  required = false,
-  description,
-  goodExamples,
-  badExamples,
-  value,
-  onChange,
-}: UploadCardProps) {
-  return (
-    <div className="border rounded-2xl p-6 bg-white">
-      <div className="flex items-center gap-2 mb-2">
-        <h2 className="text-xl font-bold">{title}</h2>
-        {required ? (
-          <span className="text-xs px-2 py-1 rounded-full bg-black text-white">
-            필수
-          </span>
-        ) : (
-          <span className="text-xs px-2 py-1 rounded-full border text-gray-600">
-            선택
-          </span>
-        )}
-      </div>
-
-      <p className="text-sm text-gray-700 mb-4 leading-6">{description}</p>
-
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-5 text-sm">
-        <div className="border rounded-xl p-4 bg-gray-50">
-          <div className="font-semibold mb-2">좋은 예시</div>
-          <ul className="space-y-1 text-gray-700 list-disc pl-5">
-            {goodExamples.map((item) => (
-              <li key={item}>{item}</li>
-            ))}
-          </ul>
-        </div>
-
-        <div className="border rounded-xl p-4 bg-gray-50">
-          <div className="font-semibold mb-2">피해야 할 예시</div>
-          <ul className="space-y-1 text-gray-700 list-disc pl-5">
-            {badExamples.map((item) => (
-              <li key={item}>{item}</li>
-            ))}
-          </ul>
-        </div>
-      </div>
-
-      <label className="block cursor-pointer">
-        {value.preview ? (
-          <img
-            src={value.preview}
-            alt={title}
-            className="w-full h-64 object-cover rounded-xl border"
-          />
-        ) : (
-          <div className="w-full h-64 border-2 border-dashed rounded-xl flex items-center justify-center text-gray-400 text-sm">
-            클릭해서 이미지 업로드
-          </div>
-        )}
-
-        <input
-          type="file"
-          accept="image/*"
-          className="hidden"
-          onChange={(e) => onChange(e.target.files?.[0] || null)}
-        />
-      </label>
-
-      {value.file ? (
-        <div className="mt-3 text-sm text-gray-600 truncate">
-          선택 파일: {value.file.name}
-        </div>
-      ) : (
-        <div className="mt-3 text-sm text-gray-400">아직 업로드 안 됨</div>
-      )}
-    </div>
-  );
-}
-
-export default function EditorPage() {
-  const searchParams = useSearchParams();
-  const projectName = searchParams.get("name") ?? "이름 없음";
-  const projectType = searchParams.get("type") ?? "타입 없음";
-
-  const [face, setFace] = useState<UploadItem>({ file: null, preview: null });
-  const [outfit, setOutfit] = useState<UploadItem>({ file: null, preview: null });
-  const [bg, setBg] = useState<UploadItem>({ file: null, preview: null });
-  const [pose, setPose] = useState<UploadItem>({ file: null, preview: null });
-
-  const [loading, setLoading] = useState(false);
-  const [resultImage, setResultImage] = useState<string | null>(null);
-  const [resultMessage, setResultMessage] = useState<string>("");
-
-  const updateUpload = (
-    setter: React.Dispatch<React.SetStateAction<UploadItem>>,
-    file: File | null
-  ) => {
-    if (!file) {
-      setter({ file: null, preview: null });
-      return;
-    }
-
-    const preview = URL.createObjectURL(file);
-    setter({ file, preview });
-  };
-
-  const handleGenerate = async () => {
-    if (!face.file || !outfit.file) {
-      alert("얼굴 이미지와 의상 이미지는 필수다.");
-      return;
-    }
-
-    try {
-      setLoading(true);
-      setResultImage(null);
-      setResultMessage("");
-
-      const formData = new FormData();
-      formData.append("projectName", projectName);
-      formData.append("projectType", projectType);
-      formData.append("face", face.file);
-      formData.append("outfit", outfit.file);
-
-      if (bg.file) formData.append("bg", bg.file);
-      if (pose.file) formData.append("pose", pose.file);
-
-      const res = await fetch("/api/generate", {
-        method: "POST",
-        body: formData,
-      });
-
-      const data = await res.json();
-
-      if (!res.ok) {
-        throw new Error(data?.error || "생성 실패");
-      }
-
-      if (data.image) {
-        setResultImage(`data:image/png;base64,${data.image}`);
-        setResultMessage("생성 완료");
-      } else {
-        setResultMessage(data?.message || "응답은 왔지만 이미지가 없음");
-      }
-    } catch (error) {
-      const message =
-        error instanceof Error ? error.message : "알 수 없는 오류";
-      setResultMessage(`오류: ${message}`);
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  return (
-    <main className="min-h-screen bg-[#f7f7f5] px-6 py-10">
-      <div className="max-w-7xl mx-auto">
-        <div className="mb-8">
-          <h1 className="text-4xl font-bold mb-3">프로젝트 편집기</h1>
-          <div className="border rounded-2xl p-5 bg-white space-y-2">
-            <div>
-              <span className="font-semibold">프로젝트 이름:</span> {projectName}
-            </div>
-            <div>
-              <span className="font-semibold">타입:</span> {projectType}
-            </div>
-          </div>
-        </div>
-
-        <div className="grid grid-cols-1 xl:grid-cols-2 gap-6">
-          <UploadCard
-            title="얼굴 업로드"
-            required
-            description="모델 정체성을 고정하는 기준 이미지다. 얼굴 윤곽, 턱선, 눈/코/입 비율이 잘 보이는 사진이 좋다."
-            goodExamples={[
-              "정면 또는 반측면 얼굴",
-              "얼굴이 크게 보이고 선명한 사진",
-              "과하지 않은 표정",
-              "마스크/선글라스 없이 얼굴이 드러난 이미지",
-            ]}
-            badExamples={[
-              "얼굴이 잘린 사진",
-              "셀카 왜곡이 심한 사진",
-              "선글라스/모자/마스크로 가려진 사진",
-              "조명이 너무 강해서 얼굴이 날아간 사진",
-            ]}
-            value={face}
-            onChange={(file) => updateUpload(setFace, file)}
-          />
-
-          <UploadCard
-            title="의상 업로드"
-            required
-            description="AI가 실제로 재구성해야 하는 착장 기준 이미지다. 가능하면 얼굴 없는 착장컷이 가장 좋다."
-            goodExamples={[
-              "얼굴 없이 옷 중심으로 보이는 착장컷",
-              "핏, 길이감, 주름이 확인되는 사진",
-              "상의/하의 실루엣이 명확한 이미지",
-              "배경 방해가 적은 사진",
-            ]}
-            badExamples={[
-              "누끼 제품컷만 있는 이미지",
-              "옷 일부만 보이는 사진",
-              "핏이 보이지 않는 접힌 옷 사진",
-              "여러 옷이 섞여서 기준이 모호한 사진",
-            ]}
-            value={outfit}
-            onChange={(file) => updateUpload(setOutfit, file)}
-          />
-
-          <UploadCard
-            title="배경 업로드"
-            description="장소의 분위기, 재질감, 빛의 방향을 정하는 참고 이미지다. 공간 사진 위주가 좋다."
-            goodExamples={[
-              "사람 없는 공간 사진",
-              "벽, 바닥, 계단, 건물 재질이 잘 보이는 이미지",
-              "빛과 공기감이 느껴지는 장소 사진",
-              "브랜드 무드에 맞는 환경 이미지",
-            ]}
-            badExamples={[
-              "모델이 중심인 화보 사진",
-              "옷 참고까지 섞인 이미지",
-              "배경보다 인물이 주인공인 사진",
-              "너무 복잡해서 핵심 공간이 안 보이는 이미지",
-            ]}
-            value={bg}
-            onChange={(file) => updateUpload(setBg, file)}
-          />
-
-          <UploadCard
-            title="포즈 업로드"
-            description="모델의 자세, 체중 이동, 손 위치, 시선 방향을 정하는 참고 이미지다."
-            goodExamples={[
-              "전신 또는 반신 포즈 사진",
-              "팔, 손, 몸 기울기가 보이는 이미지",
-              "시선 방향과 태도가 읽히는 사진",
-              "포즈 자체가 명확한 컷",
-            ]}
-            badExamples={[
-              "몸이 너무 잘린 사진",
-              "포즈가 모호한 사진",
-              "배경 참고가 더 강한 이미지",
-              "옷 참고와 포즈 참고가 뒤섞인 사진",
-            ]}
-            value={pose}
-            onChange={(file) => updateUpload(setPose, file)}
-          />
-        </div>
-
-        <button
-          onClick={handleGenerate}
-          disabled={loading}
-          className="mt-8 w-full bg-black text-white py-5 rounded-2xl text-xl disabled:opacity-60"
-        >
-          {loading ? "생성중..." : "룩북 생성하기"}
-        </button>
-
-        <div className="mt-6 border rounded-2xl p-5 bg-white">
-          <div className="font-semibold mb-2">상태</div>
-          <div className="text-sm text-gray-700">
-            {resultMessage || "아직 생성 전"}
-          </div>
-        </div>
-
-        {resultImage ? (
-          <div className="mt-8 border rounded-2xl p-6 bg-white">
-            <h2 className="text-2xl font-bold mb-4">생성 결과</h2>
-            <img
-              src={resultImage}
-              alt="생성 결과"
-              className="w-full max-w-md rounded-xl border"
-            />
-          </div>
-        ) : null}
-      </div>
-    </main>
-  );
-}
 </file>
 
 <file path="project_backup/new/page.tsx">
@@ -2629,239 +1486,91 @@ Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/bui
 }
 </file>
 
-<file path="app/api/model-anchor/route.ts">
-import { NextRequest, NextResponse } from "next/server";
-import { GoogleGenAI } from "@google/genai";
+<file path="app/api/refrun/run-one/route.ts">
+import { NextResponse } from "next/server";
+import { fileToBase64 } from "@/lib/utils";
+import {
+  analyzeReferenceWeb,
+  generateRefRunImageWeb,
+} from "@/lib/gemini-refrun";
 
-const ai = new GoogleGenAI({
-  apiKey: process.env.GEMINI_API_KEY!,
-});
-
-export async function POST(req: NextRequest) {
+export async function POST(req: Request) {
   try {
-    const body = await req.json();
+    const formData = await req.formData();
 
-    const ethnicity = body.ethnicity || "East Asian";
-    const gender = body.gender || "Male";
-    const age = body.age || "Early 20s";
-    const hairStyle = body.hairStyle || "Short black hair";
-    const skinTone = body.skinTone || "Light neutral skin tone";
-    const eyeColor = body.eyeColor || "Dark brown";
-    const mood = body.mood || "Calm and confident";
-    const extraDetails = body.extraDetails || "";
+    const fitSpec = (formData.get("fitSpec") as string) || "";
+    const shootingMode = (formData.get("shootingMode") as string) || "default";
+    const customPrompt = (formData.get("customPrompt") as string) || "";
+    const outfitMode = (formData.get("outfitMode") as string) || "outfit";
+    const mixCaptionsRaw = (formData.get("mixCaptions") as string) || "[]";
 
-    const prompt = `
-Create a single high-resolution "Fixed Face Anchor" collage for a virtual fashion model.
+    const faceFiles = formData.getAll("faces") as File[];
+    const outfitFiles = formData.getAll("outfits") as File[];
+    const referenceFile = formData.get("reference") as File | null;
 
-MODEL PROFILE:
-- ethnicity: ${ethnicity}
-- gender: ${gender}
-- age: ${age}
-- hair style: ${hairStyle}
-- skin tone: ${skinTone}
-- eye color: ${eyeColor}
-- mood: ${mood}
-- extra details: ${extraDetails}
+    if (!faceFiles.length) {
+      return NextResponse.json(
+        { error: "얼굴 이미지는 최소 1장 필요하다." },
+        { status: 400 }
+      );
+    }
 
-STRICT COMPOSITION RULES:
-- output must be a 3-panel collage in one single image
-- panel 1: FRONT VIEW
-- panel 2: 45-DEGREE VIEW
-- panel 3: SIDE PROFILE
+    if (!outfitFiles.length) {
+      return NextResponse.json(
+        { error: "의상 이미지는 최소 1장 필요하다." },
+        { status: 400 }
+      );
+    }
 
-STRICT CROP RULES:
-- head-only portrait
-- crop from top of head to base of neck
-- no shoulders below clavicle
-- no torso
-- no chest
-- no hands
-- face occupies about 80% of each panel
-- keep all three panels tightly framed around the face and neck only
+    if (!referenceFile) {
+      return NextResponse.json(
+        { error: "레퍼런스 이미지는 최소 1장 필요하다." },
+        { status: 400 }
+      );
+    }
 
-AESTHETIC:
-- photorealistic
-- beauty editorial headshot
-- neutral studio lighting
-- white seamless background
-- ultra clean skin detail
-- premium fashion casting reference
-- consistent identity across all three views
+    const mixCaptions = JSON.parse(mixCaptionsRaw) as string[];
 
-OUTPUT RULE:
-- return only the face anchor collage image
-- no text
-- no labels
-- no graphic decorations
-`;
+    if (outfitMode === "mix" && mixCaptions.length !== outfitFiles.length) {
+      return NextResponse.json(
+        { error: "MIX 설명 수와 의상 이미지 수가 맞지 않는다." },
+        { status: 400 }
+      );
+    }
 
-    const response = await ai.models.generateContent({
-      model: "gemini-3.1-flash-image-preview",
-      contents: {
-        parts: [{ text: prompt }],
-      },
-      config: {
-        imageConfig: {
-          aspectRatio: "1:1",
-          imageSize: "1K",
-        },
-      },
+    const faceBase64s = await Promise.all(faceFiles.map(fileToBase64));
+    const outfitBase64s = await Promise.all(outfitFiles.map(fileToBase64));
+    const referenceBase64 = await fileToBase64(referenceFile);
+
+    const analyzed = await analyzeReferenceWeb(referenceBase64);
+
+    const generated = await generateRefRunImageWeb({
+      faceBase64s,
+      outfitBase64s,
+      dirSet: analyzed,
+      bodySpecs: fitSpec,
+      shootingMode,
+      customPrompt: shootingMode === "custom" ? customPrompt : undefined,
+      isMixMode: outfitMode === "mix",
+      mixCaptions,
     });
 
-    for (const part of response.candidates?.[0]?.content?.parts || []) {
-      if (part.inlineData?.data) {
-        return NextResponse.json({
-          image: `data:image/png;base64,${part.inlineData.data}`,
-        });
-      }
-    }
-
-    throw new Error("No image was generated.");
+    return NextResponse.json({
+      success: true,
+      result: {
+        image: generated.base64,
+        summary: generated.summary,
+        direction: analyzed,
+      },
+    });
   } catch (error) {
-    console.error("model-anchor route error:", error);
-    return NextResponse.json(
-      { error: "모델 생성 실패" },
-      { status: 500 }
-    );
+    console.error("REFRUN_RUN_ONE_ERROR:", error);
+
+    const message =
+      error instanceof Error ? error.message : "알 수 없는 REFRUN 오류";
+
+    return NextResponse.json({ error: message }, { status: 500 });
   }
-}
-</file>
-
-<file path="app/login/page.tsx">
-"use client";
-
-import { useState } from "react";
-import Link from "next/link";
-import { useRouter } from "next/navigation";
-import { supabase } from "@/lib/supabase";
-
-export default function LoginPage() {
-  const router = useRouter();
-
-  const [email, setEmail] = useState("");
-  const [password, setPassword] = useState("");
-  const [message, setMessage] = useState("");
-  const [loading, setLoading] = useState(false);
-
-  const handleLogin = async () => {
-    const trimmedEmail = email.trim();
-
-    if (!trimmedEmail) {
-      setMessage("이메일을 입력해주세요.");
-      return;
-    }
-
-    if (!password) {
-      setMessage("비밀번호를 입력해주세요.");
-      return;
-    }
-
-    setLoading(true);
-    setMessage("");
-
-    try {
-      const { error } = await supabase.auth.signInWithPassword({
-        email: trimmedEmail,
-        password,
-      });
-
-      if (error) {
-        setMessage(`오류: ${error.message}`);
-        return;
-      }
-
-      setMessage("로그인 완료");
-      router.push("/");
-      router.refresh();
-    } catch (error) {
-      console.error("로그인 예외:", error);
-      setMessage("로그인 중 예상치 못한 오류가 발생했습니다.");
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const handleGoogleLogin = async () => {
-    setLoading(true);
-    setMessage("");
-
-    try {
-      const { error } = await supabase.auth.signInWithOAuth({
-        provider: "google",
-        options: {
-          redirectTo: "https://studio.ballute.co.kr/",
-        },
-      });
-
-      if (error) {
-        setMessage(`오류: ${error.message}`);
-        setLoading(false);
-      }
-    } catch (error) {
-      console.error("Google 로그인 예외:", error);
-      setMessage("Google 로그인 중 예상치 못한 오류가 발생했습니다.");
-      setLoading(false);
-    }
-  };
-
-  return (
-    <main className="min-h-screen bg-white px-6 py-16">
-      <div className="mx-auto max-w-md">
-        <h1 className="mb-8 text-3xl font-bold">로그인</h1>
-
-        <div className="space-y-4">
-          <button
-            type="button"
-            onClick={handleGoogleLogin}
-            disabled={loading}
-            className="w-full rounded-xl border px-4 py-3 text-left disabled:opacity-50"
-          >
-            Google로 시작하기
-          </button>
-
-          <div className="text-center text-sm text-gray-500">또는</div>
-
-          <input
-            type="email"
-            placeholder="이메일"
-            value={email}
-            onChange={(e) => setEmail(e.target.value)}
-            className="w-full rounded-xl border px-4 py-3"
-          />
-
-          <input
-            type="password"
-            placeholder="비밀번호"
-            value={password}
-            onChange={(e) => setPassword(e.target.value)}
-            className="w-full rounded-xl border px-4 py-3"
-          />
-
-          <button
-            type="button"
-            onClick={handleLogin}
-            disabled={loading}
-            className="w-full rounded-xl bg-black py-3 text-white disabled:opacity-50"
-          >
-            {loading ? "처리 중..." : "로그인"}
-          </button>
-
-          <div className="text-sm text-gray-600">
-            계정이 없으면{" "}
-            <Link href="/signup" className="underline">
-              회원가입
-            </Link>
-          </div>
-
-          {message && (
-            <div className="rounded-xl border p-4 text-sm text-gray-700">
-              {message}
-            </div>
-          )}
-        </div>
-      </div>
-    </main>
-  );
 }
 </file>
 
@@ -3562,6 +2271,1381 @@ export default function FaceInputSection({
 }
 </file>
 
+<file path="lib/gemini-fusion.ts">
+import {
+  GoogleGenAI,
+  HarmCategory,
+  HarmBlockThreshold,
+} from "@google/genai";
+
+const ai = new GoogleGenAI({
+  apiKey: process.env.GEMINI_API_KEY!,
+});
+
+const safetySettings = [
+  {
+    category: HarmCategory.HARM_CATEGORY_HARASSMENT,
+    threshold: HarmBlockThreshold.BLOCK_ONLY_HIGH,
+  },
+  {
+    category: HarmCategory.HARM_CATEGORY_HATE_SPEECH,
+    threshold: HarmBlockThreshold.BLOCK_ONLY_HIGH,
+  },
+  {
+    category: HarmCategory.HARM_CATEGORY_SEXUALLY_EXPLICIT,
+    threshold: HarmBlockThreshold.BLOCK_ONLY_HIGH,
+  },
+  {
+    category: HarmCategory.HARM_CATEGORY_DANGEROUS_CONTENT,
+    threshold: HarmBlockThreshold.BLOCK_ONLY_HIGH,
+  },
+];
+
+export type BackgroundDNA = {
+  environment_type?: string;
+  architectural_language?: string;
+  lighting_and_exposure?: string;
+  color_grading_and_texture?: string;
+  spatial_mood?: string;
+  camera_feel?: string;
+  do_not_copy?: string[];
+};
+
+export type PoseBlueprint = {
+  pose?: string;
+  expression?: string;
+  camera_angle_and_crop?: string;
+  body_attitude?: string;
+};
+
+export type LockedVibe = {
+  background?: string;
+  pose?: string;
+  expression?: string;
+  overall_mood?: string;
+  camera_angle_and_crop?: string;
+  lighting_and_exposure?: string;
+  color_grading_and_texture?: string;
+};
+
+const buildFitPromptContext = (
+  bodySpecs?: string
+): { fitPromptContext: string; fitSummarySuffix: string } => {
+  if (!bodySpecs) {
+    return {
+      fitPromptContext:
+        "- AUTO-FIT MODE: Replicate the garment's silhouette, fit, length, and drape EXACTLY.",
+      fitSummarySuffix: "",
+    };
+  }
+
+  const specMatch = bodySpecs.match(/(\d+)\/(\d+)\s+(\d+)\/(\d+)/);
+  if (!specMatch) {
+    return {
+      fitPromptContext:
+        "- AUTO-FIT MODE: Replicate the garment's silhouette, fit, length, and drape EXACTLY.",
+      fitSummarySuffix: "",
+    };
+  }
+
+  const h1 = parseInt(specMatch[1], 10);
+  const w1 = parseInt(specMatch[2], 10);
+  const h2 = parseInt(specMatch[3], 10);
+  const w2 = parseInt(specMatch[4], 10);
+
+  const hDiff = h2 - h1;
+  const wDiff = w2 - w1;
+
+  let hDesc = "";
+  let wDesc = "";
+  let lengthEffect = "";
+  let widthEffect = "";
+
+  if (hDiff >= 4) {
+    hDesc = "taller";
+    lengthEffect =
+      "Because the body is taller/longer, the fixed garment sits naturally higher. Sleeves expose more wrist and pants break higher.";
+  } else if (hDiff <= -4) {
+    hDesc = "shorter";
+    lengthEffect =
+      "Because the body is shorter, the fixed garment falls lower. Sleeves cover more hands and pants stack more.";
+  }
+
+  if (wDiff >= 4) {
+    wDesc = "broader/heavier";
+    widthEffect =
+      "Because the body is thicker, the fixed garment fits tighter with reduced drape.";
+  } else if (wDiff <= -4) {
+    wDesc = "slimmer/lighter";
+    widthEffect =
+      "Because the body is thinner, the fixed garment fits looser with more drape.";
+  }
+
+  let bodyChange = [hDesc, wDesc].filter(Boolean).join(" and ");
+  if (!bodyChange) {
+    bodyChange = "similar proportions";
+    lengthEffect = "Maintain original vertical fit.";
+    widthEffect = "Maintain original width and drape.";
+  }
+
+  return {
+    fitPromptContext: `
+- FIT CALIBRATION (FIXED GARMENT PARADIGM):
+  * The garment size and design are fixed.
+  * Do NOT redesign or resize the garment itself.
+  * The target body is visually ${bodyChange}.
+  * Visual effect:
+    1. ${lengthEffect}
+    2. ${widthEffect}
+`,
+    fitSummarySuffix: ` + 📏 핏 보정: Body ${bodyChange}`,
+  };
+};
+
+export async function analyzeBackgroundDNAFromBase64s(
+  bgBase64s: string[]
+): Promise<BackgroundDNA> {
+  const analyses: any[] = [];
+
+  for (const base64 of bgBase64s) {
+    const response = await ai.models.generateContent({
+      model: "gemini-3-flash-preview",
+      contents: {
+        parts: [
+          {
+            inlineData: {
+              data: base64,
+              mimeType: "image/jpeg",
+            },
+          },
+          {
+            text: `Analyze this location/environment image for fashion lookbook worldbuilding.
+
+Return ONLY raw JSON with:
+{
+  "environment_type": "what kind of place this is",
+  "architectural_language": "materials, shapes, structural language",
+  "lighting_and_exposure": "light quality and exposure character",
+  "color_grading_and_texture": "color cast, grain, texture, surface feeling",
+  "spatial_mood": "psychological feel of the place",
+  "camera_feel": "what kind of framing / distance this world suggests",
+  "key_non_repeatable_elements": ["specific one-off details that should NOT be copied literally"]
+}
+
+Focus on environmental DNA only. No people, no clothes.`,
+          },
+        ],
+      },
+      config: {
+        safetySettings,
+      },
+    });
+
+    let text = response.candidates?.[0]?.content?.parts?.[0]?.text || "{}";
+    const jsonStart = text.indexOf("{");
+    const jsonEnd = text.lastIndexOf("}") + 1;
+
+    if (jsonStart !== -1 && jsonEnd !== -1) {
+      text = text.substring(jsonStart, jsonEnd);
+    }
+
+    analyses.push(JSON.parse(text));
+  }
+
+  const summaryResp = await ai.models.generateContent({
+    model: "gemini-3-flash-preview",
+    contents: {
+      parts: [
+        {
+          text: `You are merging multiple environment analyses into one unified background DNA for a fashion lookbook engine.
+
+Input analyses:
+${JSON.stringify(analyses, null, 2)}
+
+Return ONLY raw JSON:
+{
+  "environment_type": "...",
+  "architectural_language": "...",
+  "lighting_and_exposure": "...",
+  "color_grading_and_texture": "...",
+  "spatial_mood": "...",
+  "camera_feel": "...",
+  "do_not_copy": ["specific literal geometry/details to avoid repeating"]
+}
+
+Goal:
+- keep shared DNA
+- remove one-off literal geometry
+- produce a reusable neighborhood/world description`,
+        },
+      ],
+    },
+    config: {
+      safetySettings,
+    },
+  });
+
+  let summaryText =
+    summaryResp.candidates?.[0]?.content?.parts?.[0]?.text || "{}";
+  const sumStart = summaryText.indexOf("{");
+  const sumEnd = summaryText.lastIndexOf("}") + 1;
+
+  if (sumStart !== -1 && sumEnd !== -1) {
+    summaryText = summaryText.substring(sumStart, sumEnd);
+  }
+
+  return JSON.parse(summaryText);
+}
+
+export async function analyzePoseBlueprintFromBase64(
+  poseBase64: string
+): Promise<PoseBlueprint> {
+  const response = await ai.models.generateContent({
+    model: "gemini-3-flash-preview",
+    contents: {
+      parts: [
+        {
+          inlineData: {
+            data: poseBase64,
+            mimeType: "image/jpeg",
+          },
+        },
+        {
+          text: `Analyze this pose reference image as a HIGH-END FASHION EDITORIAL POSE.
+
+IMPORTANT:
+Do NOT reduce the pose into only dry skeletal coordinates.
+Read it like a fashion photographer for a luxury brand.
+
+Return ONLY raw JSON:
+{
+  "pose": "body posture, weight balance, arm/leg attitude",
+  "expression": "facial expression and gaze direction",
+  "camera_angle_and_crop": "camera angle / crop feeling",
+  "body_attitude": "editorial attitude / emotion carried by the body"
+}`,
+        },
+      ],
+    },
+    config: {
+      safetySettings,
+    },
+  });
+
+  let text = response.candidates?.[0]?.content?.parts?.[0]?.text || "{}";
+  const jsonStart = text.indexOf("{");
+  const jsonEnd = text.lastIndexOf("}") + 1;
+
+  if (jsonStart !== -1 && jsonEnd !== -1) {
+    text = text.substring(jsonStart, jsonEnd);
+  }
+
+  return JSON.parse(text);
+}
+
+export async function searchLocationPrompts(
+  bgDNA: BackgroundDNA,
+  count: number
+): Promise<string[]> {
+  const systemPrompt = `Background DNA (Material & Lighting World):
+${JSON.stringify(bgDNA, null, 2)}
+
+TASK:
+Generate EXACTLY ${count} spatially distinct location prompts based strictly on the provided Background DNA.
+
+CRITICAL DIVERSITY RULE:
+If generating multiple locations, each prompt must focus on a DIFFERENT structural element or camera perspective while keeping the core DNA identical.
+
+Return ONLY a valid JSON array of strings containing EXACTLY ${count} elements.
+Format: ["location description 1", "location description 2", ...]`;
+
+  const response = await ai.models.generateContent({
+    model: "gemini-3-flash-preview",
+    contents: { parts: [{ text: systemPrompt }] },
+    config: {
+      safetySettings,
+    },
+  });
+
+  const rawText = response.candidates?.[0]?.content?.parts?.[0]?.text || "[]";
+  const jsonStart = rawText.indexOf("[");
+  const jsonEnd = rawText.lastIndexOf("]") + 1;
+
+  if (jsonStart === -1 || jsonEnd === 0) {
+    throw new Error("로케이션 프롬프트 JSON 파싱 실패");
+  }
+
+  const result = JSON.parse(rawText.substring(jsonStart, jsonEnd));
+  return Array.isArray(result) ? result.slice(0, count) : [];
+}
+
+export async function generateFusionImageWeb(args: {
+  faceBase64s: string[];
+  outfitBase64s: string[];
+  poseBlueprint: PoseBlueprint;
+  targetLocationText: string;
+  bgDNA: BackgroundDNA;
+  bodySpecs?: string;
+  isMixMode?: boolean;
+  mixCaptions?: string[];
+  lockedVibe?: LockedVibe | null;
+  shootingMode?: string;
+  customPrompt?: string;
+}): Promise<{ base64: string; summary: string }> {
+  const {
+    faceBase64s,
+    outfitBase64s,
+    poseBlueprint,
+    targetLocationText,
+    bgDNA,
+    bodySpecs,
+    isMixMode = false,
+    mixCaptions = [],
+    lockedVibe,
+    shootingMode = "default",
+    customPrompt,
+  } = args;
+
+  const parts: any[] = [];
+
+  faceBase64s.forEach((faceBase64) => {
+    parts.push({
+      inlineData: {
+        data: faceBase64,
+        mimeType: "image/jpeg",
+      },
+    });
+  });
+
+  outfitBase64s.forEach((outfitBase64, index) => {
+    parts.push({
+      inlineData: {
+        data: outfitBase64,
+        mimeType: "image/jpeg",
+      },
+    });
+
+    if (isMixMode) {
+      const itemCaption =
+        mixCaptions[index] || "No specific styling instruction provided.";
+      parts.push({
+        text: `[Outfit Detail ${index + 1}: Extracted based on "${itemCaption}"]`,
+      });
+    }
+  });
+
+  let fitSummary = lockedVibe
+    ? `🧬 FUSION [VIBE LOCK]`
+    : `🧬 FUSION [${shootingMode.toUpperCase()}]`;
+
+  if (shootingMode === "custom") {
+    fitSummary += ` (CUSTOM: ${customPrompt})`;
+  }
+
+  const { fitPromptContext, fitSummarySuffix } =
+    buildFitPromptContext(bodySpecs);
+  fitSummary += fitSummarySuffix;
+
+  const modeDict: Record<string, string> = {
+    fuji: "Texture: Fujifilm 400H characteristic (cool greens, cyan shadows, high contrast cinematic feel).",
+    mono: "Texture: Ilford HP5 Plus (high-end monochrome, rich blacks, heavy grain). FORCE STRICT BLACK AND WHITE. NO COLOR.",
+    studio:
+      "Texture: clean commercial high-key studio lighting. Sharp focus, zero grain, high-end digital clarity.",
+    raw: "Texture: unprocessed natural raw light. realistic exposure, zero film simulation.",
+    default:
+      "Texture: Kodak Portra 400 (warm skin tones, subtle analog grain, soft cinematic light).",
+  };
+
+  let textureAndColor = "";
+  if (lockedVibe?.color_grading_and_texture) {
+    textureAndColor = lockedVibe.color_grading_and_texture;
+  } else if (shootingMode === "custom" && customPrompt) {
+    textureAndColor = `Texture & Photography Style: ${customPrompt}`;
+  } else if (shootingMode !== "default") {
+    textureAndColor = modeDict[shootingMode];
+  } else {
+    textureAndColor =
+      bgDNA?.color_grading_and_texture || modeDict["default"];
+  }
+
+  const lightingStyle =
+    lockedVibe?.lighting_and_exposure ||
+    bgDNA?.lighting_and_exposure ||
+    "Soft editorial natural lighting.";
+
+  const moodStyle =
+    lockedVibe?.overall_mood ||
+    bgDNA?.spatial_mood ||
+    "High-end restrained editorial mood.";
+
+  const cameraFeel =
+    lockedVibe?.camera_angle_and_crop ||
+    poseBlueprint?.camera_angle_and_crop ||
+    bgDNA?.camera_feel ||
+    "Editorial framing with natural negative space.";
+
+  const finalPose = lockedVibe?.pose || poseBlueprint?.pose || "";
+  const finalExpression =
+    lockedVibe?.expression || poseBlueprint?.expression || "";
+  const finalBackground = lockedVibe?.background || targetLocationText;
+  const finalBodyAttitude = poseBlueprint?.body_attitude || "";
+
+  const prompt = `
+Task: Create a premium FUSION fashion editorial image.
+
+[IDENTITY]
+- Maintain exact identity from face references.
+
+[OUTFIT]
+- Reconstruct the exact outfit from the uploaded outfit images.
+- ${
+    isMixMode
+      ? "This is MIX mode. Respect each item detail text exactly."
+      : "This is standard outfit mode."
+  }
+
+${fitPromptContext}
+
+[BACKGROUND WORLD]
+- Environment type: ${bgDNA?.environment_type || ""}
+- Architectural language: ${bgDNA?.architectural_language || ""}
+- Lighting DNA: ${lightingStyle}
+- Color / texture DNA: ${textureAndColor}
+- Mood DNA: ${moodStyle}
+- Target location: ${finalBackground}
+
+[POSE / ATTITUDE]
+- Pose: ${finalPose}
+- Expression: ${finalExpression}
+- Body attitude: ${finalBodyAttitude}
+
+[PHOTO GRAMMAR]
+- Camera framing / crop: ${cameraFeel}
+
+[CRITICAL CAMERA PRIORITY]
+- The camera framing MUST follow the pose reference first.
+- Maintain the same crop level and framing feel from the pose reference.
+- Do NOT widen the frame just to show more background.
+- Background/location is for environmental DNA only, not for deciding crop width.
+- If pose reference suggests upper-body, chest-up, waist-up, or medium framing, preserve that exact framing logic.
+- If pose reference suggests full-body, preserve full-body.
+- Pose reference has higher priority than background camera feel.
+
+[BACKGROUND CONTROL]
+- The location should inherit the background DNA, but literal geometry must not be copied.
+- Build a different place within the same neighborhood/world.
+- Avoid repeating one-off windows, doors, corners, or exact facade layout from the background references.
+
+[OUTPUT RULE]
+- Render as a premium fashion editorial photograph.
+- Keep the image realistic and luxury-brand ready.
+- Avoid generic AI mannequin feel.
+- 3:4 vertical composition.
+- 2K quality.
+`;
+
+  const response = await ai.models.generateContent({
+    model: "gemini-3.1-flash-image-preview",
+    contents: {
+      parts: [...parts, { text: prompt }],
+    },
+    config: {
+      imageConfig: {
+        aspectRatio: "3:4",
+        imageSize: "2K",
+      },
+      safetySettings,
+    },
+  });
+
+  const imageBase64 =
+    response.candidates?.[0]?.content?.parts?.find(
+      (part: any) => part.inlineData
+    )?.inlineData?.data || null;
+
+  if (!imageBase64) {
+    throw new Error("FUSION 이미지 생성 결과가 비어 있다.");
+  }
+
+  return {
+    base64: imageBase64,
+    summary: `${fitSummary} + FUSION`,
+  };
+}
+</file>
+
+<file path="lib/gemini-refrun.ts">
+import {
+  GoogleGenAI,
+  HarmCategory,
+  HarmBlockThreshold,
+} from "@google/genai";
+
+const ai = new GoogleGenAI({
+  apiKey: process.env.GEMINI_API_KEY!,
+});
+
+const safetySettings = [
+  {
+    category: HarmCategory.HARM_CATEGORY_HARASSMENT,
+    threshold: HarmBlockThreshold.BLOCK_ONLY_HIGH,
+  },
+  {
+    category: HarmCategory.HARM_CATEGORY_HATE_SPEECH,
+    threshold: HarmBlockThreshold.BLOCK_ONLY_HIGH,
+  },
+  {
+    category: HarmCategory.HARM_CATEGORY_SEXUALLY_EXPLICIT,
+    threshold: HarmBlockThreshold.BLOCK_ONLY_HIGH,
+  },
+  {
+    category: HarmCategory.HARM_CATEGORY_DANGEROUS_CONTENT,
+    threshold: HarmBlockThreshold.BLOCK_ONLY_HIGH,
+  },
+];
+
+export type RefRunDirection = {
+  background: string;
+  pose: string;
+  expression: string;
+  camera_angle_and_crop: string;
+  lighting_and_exposure: string;
+  color_grading_and_texture: string;
+  overall_mood: string;
+};
+
+const buildFitPromptContext = (
+  bodySpecs?: string
+): { fitPromptContext: string; fitSummarySuffix: string } => {
+  if (!bodySpecs) {
+    return {
+      fitPromptContext:
+        "- AUTO-FIT MODE: Replicate the garment's silhouette, fit, length, and drape exactly.",
+      fitSummarySuffix: "",
+    };
+  }
+
+  const specMatch = bodySpecs.match(/(\d+)\/(\d+)\s+(\d+)\/(\d+)/);
+  if (!specMatch) {
+    return {
+      fitPromptContext:
+        "- AUTO-FIT MODE: Replicate the garment's silhouette, fit, length, and drape exactly.",
+      fitSummarySuffix: "",
+    };
+  }
+
+  const h1 = parseInt(specMatch[1], 10);
+  const w1 = parseInt(specMatch[2], 10);
+  const h2 = parseInt(specMatch[3], 10);
+  const w2 = parseInt(specMatch[4], 10);
+
+  const hDiff = h2 - h1;
+  const wDiff = w2 - w1;
+
+  let hDesc = "";
+  let wDesc = "";
+  let lengthEffect = "";
+  let widthEffect = "";
+
+  if (hDiff >= 4) {
+    hDesc = "taller";
+    lengthEffect =
+      "Because the body is taller, sleeves expose more wrist and the garment sits slightly higher on the body.";
+  } else if (hDiff <= -4) {
+    hDesc = "shorter";
+    lengthEffect =
+      "Because the body is shorter, sleeves cover more of the hands and the garment falls lower on the body.";
+  }
+
+  if (wDiff >= 4) {
+    wDesc = "broader/heavier";
+    widthEffect =
+      "Because the body is thicker, the fixed garment fits tighter. Fabric stretches closer to the body, reducing drape.";
+  } else if (wDiff <= -4) {
+    wDesc = "slimmer/lighter";
+    widthEffect =
+      "Because the body is thinner, the fixed garment fits much looser. More drape, excess fabric, resulting in a baggier silhouette.";
+  }
+
+  let bodyChange = [hDesc, wDesc].filter(Boolean).join(" and ");
+  if (!bodyChange) {
+    bodyChange = "similar proportions";
+    lengthEffect = "Maintain exact original vertical fit.";
+    widthEffect = "Maintain exact original drape and width.";
+  }
+
+  return {
+    fitPromptContext: `
+- FIT CALIBRATION (FIXED GARMENT PARADIGM):
+  * CRITICAL RULE: The physical size, pattern, and design of the garment are 100% FIXED.
+  * DO NOT alter, redesign, shrink, or enlarge the clothing item itself.
+  * THE BODY CHANGE: The target model inside the clothes is visually ${bodyChange} than the original model.
+  * THE VISUAL EFFECT:
+    1. ${lengthEffect}
+    2. ${widthEffect}
+  * DIRECTIVE: Render the natural, physical result of this specific new body wearing the exact same fixed-size garment. Maintain believable human anatomy.
+`,
+    fitSummarySuffix: ` + 📏 핏 보정: Body ${bodyChange || "유사"}`,
+  };
+};
+
+export async function analyzeReferenceWeb(
+  referenceBase64: string
+): Promise<RefRunDirection> {
+  const parts = [
+    {
+      inlineData: {
+        data: referenceBase64,
+        mimeType: "image/jpeg",
+      },
+    },
+  ];
+
+  const systemPrompt = `Analyze the provided reference fashion photograph meticulously.
+Extract the exact visual structure, aesthetic, and mood.
+
+CRITICAL RULE (NEGATIVE CONSTRAINT):
+Ignore all details regarding clothing or accessories worn by the model.
+
+Return ONLY raw JSON with:
+{
+  "background": "describe the environment and set design",
+  "pose": "describe the subject's posture, limb positioning, and attitude",
+  "expression": "describe the facial expression and gaze direction",
+  "camera_angle_and_crop": "camera angle and crop",
+  "lighting_and_exposure": "lighting setup and exposure character",
+  "color_grading_and_texture": "color grading and texture",
+  "overall_mood": "overall mood"
+}`;
+
+  const response = await ai.models.generateContent({
+    model: "gemini-3-flash-preview",
+    contents: {
+      parts: [...parts, { text: systemPrompt }],
+    },
+  });
+
+  let text = response.candidates?.[0]?.content?.parts?.[0]?.text || "{}";
+  const jsonStart = text.indexOf("{");
+  const jsonEnd = text.lastIndexOf("}") + 1;
+
+  if (jsonStart !== -1 && jsonEnd !== -1) {
+    text = text.substring(jsonStart, jsonEnd);
+  }
+
+  return JSON.parse(text);
+}
+
+export async function generateRefRunImageWeb(args: {
+  faceBase64s: string[];
+  outfitBase64s: string[];
+  dirSet: RefRunDirection;
+  bodySpecs?: string;
+  shootingMode?: string;
+  customPrompt?: string;
+  isMixMode?: boolean;
+  mixCaptions?: string[];
+}): Promise<{ base64: string; summary: string }> {
+  const {
+    faceBase64s,
+    outfitBase64s,
+    dirSet,
+    bodySpecs,
+    shootingMode = "default",
+    customPrompt,
+    isMixMode = false,
+    mixCaptions = [],
+  } = args;
+
+  if (!faceBase64s.length) {
+    throw new Error("얼굴 이미지가 없다.");
+  }
+
+  if (!outfitBase64s.length) {
+    throw new Error("의상 이미지가 없다.");
+  }
+
+  const parts: any[] = [];
+
+  faceBase64s.forEach((faceBase64) => {
+    parts.push({
+      inlineData: {
+        data: faceBase64,
+        mimeType: "image/jpeg",
+      },
+    });
+  });
+
+  outfitBase64s.forEach((outfitBase64, index) => {
+    parts.push({
+      inlineData: {
+        data: outfitBase64,
+        mimeType: "image/jpeg",
+      },
+    });
+
+    if (isMixMode) {
+      const caption =
+        mixCaptions[index] || "No specific styling instruction provided.";
+      parts.push({
+        text: `[Mix Item ${index + 1} Instruction: ${caption}]`,
+      });
+    }
+  });
+
+  const faceContext =
+    faceBase64s.length === 1
+      ? "Use face reference."
+      : "3D FACE ID ENGINE ACTIVE to maintain identity.";
+
+  const { fitPromptContext, fitSummarySuffix } =
+    buildFitPromptContext(bodySpecs);
+
+  const modeDict: Record<string, string> = {
+    fuji: "Texture: Fujifilm 400H (Cool greens, cyan shadows, high contrast cinematic film).",
+    mono: "Texture: Ilford HP5 Plus (High-end monochrome, heavy grain, deep noir look). FORCE STRICT BLACK AND WHITE. NO COLOR.",
+    studio:
+      "Texture: Sharp high-key studio lighting. Zero grain, high-end digital clarity.",
+    raw: "Texture: Natural raw light. iPhone-style snapshot clarity, zero film simulation.",
+    default:
+      "Texture: Kodak Portra 400 (Warm skin tones, subtle analog grain, soft cinematic light).",
+  };
+
+  let textureAndColor = modeDict.default;
+  if (shootingMode === "custom" && customPrompt) {
+    textureAndColor = `Texture & Photography Style: ${customPrompt}`;
+  } else if (modeDict[shootingMode]) {
+    textureAndColor = modeDict[shootingMode];
+  }
+
+  const fitSummary = `${isMixMode ? "🧩 MIX" : "👕 OUTFIT"}${fitSummarySuffix}`;
+
+  const outfitInstruction = isMixMode
+    ? `
+[MIX MODE]
+- Use only the uploaded outfit items.
+- Respect each item instruction exactly.
+- Preserve layer order and item hierarchy.
+- Do not invent extra garments.
+`
+    : `
+[OUTFIT MODE]
+- Reconstruct the exact uploaded outfit references.
+- Preserve pattern, material read, silhouette, drape, and key construction details.
+- Do not invent extra garments.
+`;
+
+  const prompt = `
+Task: Exact Reference-Run Fashion Editorial Generation.
+
+[IDENTITY]
+- ${faceContext}
+
+${fitPromptContext}
+
+${outfitInstruction}
+
+[REFERENCE STRUCTURE]
+- BACKGROUND: ${dirSet.background}
+- POSE: ${dirSet.pose}
+- EXPRESSION: ${dirSet.expression}
+- CAMERA / CROP: ${dirSet.camera_angle_and_crop}
+- LIGHTING / EXPOSURE: ${dirSet.lighting_and_exposure}
+- COLOR / TEXTURE: ${dirSet.color_grading_and_texture}
+- OVERALL MOOD: ${dirSet.overall_mood}
+
+[TECHNICAL EXECUTION]
+- ${textureAndColor}
+- Respect the reference image's visual grammar exactly.
+- Render as a real premium fashion photograph.
+- Avoid generic AI 3D / plastic skin look.
+- 3:4 vertical composition.
+- 2K quality.
+`;
+
+  const response = await ai.models.generateContent({
+    model: "gemini-3.1-flash-image-preview",
+    contents: {
+      parts: [...parts, { text: prompt }],
+    },
+    config: {
+      imageConfig: {
+        aspectRatio: "3:4",
+        imageSize: "2K",
+      },
+      safetySettings,
+    },
+  });
+
+  const imageBase64 =
+    response.candidates?.[0]?.content?.parts?.find(
+      (part: any) => part.inlineData
+    )?.inlineData?.data || null;
+
+  if (!imageBase64) {
+    throw new Error("REFRUN 이미지 생성 결과가 비어 있다.");
+  }
+
+  return {
+    base64: imageBase64,
+    summary: `${fitSummary} + REFRUN`,
+  };
+}
+</file>
+
+<file path="project_backup/editor/page.tsx">
+"use client";
+
+import { useSearchParams } from "next/navigation";
+import { useState } from "react";
+
+type UploadItem = {
+  file: File | null;
+  preview: string | null;
+};
+
+type UploadCardProps = {
+  title: string;
+  required?: boolean;
+  description: string;
+  goodExamples: string[];
+  badExamples: string[];
+  value: UploadItem;
+  onChange: (file: File | null) => void;
+};
+
+function UploadCard({
+  title,
+  required = false,
+  description,
+  goodExamples,
+  badExamples,
+  value,
+  onChange,
+}: UploadCardProps) {
+  return (
+    <div className="border rounded-2xl p-6 bg-white">
+      <div className="flex items-center gap-2 mb-2">
+        <h2 className="text-xl font-bold">{title}</h2>
+        {required ? (
+          <span className="text-xs px-2 py-1 rounded-full bg-black text-white">
+            필수
+          </span>
+        ) : (
+          <span className="text-xs px-2 py-1 rounded-full border text-gray-600">
+            선택
+          </span>
+        )}
+      </div>
+
+      <p className="text-sm text-gray-700 mb-4 leading-6">{description}</p>
+
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-5 text-sm">
+        <div className="border rounded-xl p-4 bg-gray-50">
+          <div className="font-semibold mb-2">좋은 예시</div>
+          <ul className="space-y-1 text-gray-700 list-disc pl-5">
+            {goodExamples.map((item) => (
+              <li key={item}>{item}</li>
+            ))}
+          </ul>
+        </div>
+
+        <div className="border rounded-xl p-4 bg-gray-50">
+          <div className="font-semibold mb-2">피해야 할 예시</div>
+          <ul className="space-y-1 text-gray-700 list-disc pl-5">
+            {badExamples.map((item) => (
+              <li key={item}>{item}</li>
+            ))}
+          </ul>
+        </div>
+      </div>
+
+      <label className="block cursor-pointer">
+        {value.preview ? (
+          <img
+            src={value.preview}
+            alt={title}
+            className="w-full h-64 object-cover rounded-xl border"
+          />
+        ) : (
+          <div className="w-full h-64 border-2 border-dashed rounded-xl flex items-center justify-center text-gray-400 text-sm">
+            클릭해서 이미지 업로드
+          </div>
+        )}
+
+        <input
+          type="file"
+          accept="image/*"
+          className="hidden"
+          onChange={(e) => onChange(e.target.files?.[0] || null)}
+        />
+      </label>
+
+      {value.file ? (
+        <div className="mt-3 text-sm text-gray-600 truncate">
+          선택 파일: {value.file.name}
+        </div>
+      ) : (
+        <div className="mt-3 text-sm text-gray-400">아직 업로드 안 됨</div>
+      )}
+    </div>
+  );
+}
+
+function getImageMime(base64?: string) {
+  if (!base64) return "image/jpeg";
+  if (base64.startsWith("/9j/")) return "image/jpeg";
+  if (base64.startsWith("iVBOR")) return "image/png";
+  return "image/jpeg";
+}
+
+export default function EditorPage() {
+  const searchParams = useSearchParams();
+  const projectName = searchParams.get("name") ?? "이름 없음";
+  const projectType = searchParams.get("type") ?? "타입 없음";
+
+  const [face, setFace] = useState<UploadItem>({ file: null, preview: null });
+  const [outfit, setOutfit] = useState<UploadItem>({
+    file: null,
+    preview: null,
+  });
+  const [bg, setBg] = useState<UploadItem>({ file: null, preview: null });
+  const [pose, setPose] = useState<UploadItem>({ file: null, preview: null });
+
+  const [loading, setLoading] = useState(false);
+  const [resultImage, setResultImage] = useState<string | null>(null);
+  const [resultMessage, setResultMessage] = useState<string>("");
+
+  const updateUpload = (
+    setter: React.Dispatch<React.SetStateAction<UploadItem>>,
+    file: File | null
+  ) => {
+    if (!file) {
+      setter({ file: null, preview: null });
+      return;
+    }
+
+    const preview = URL.createObjectURL(file);
+    setter({ file, preview });
+  };
+
+  const handleGenerate = async () => {
+    if (!face.file || !outfit.file) {
+      alert("얼굴 이미지와 의상 이미지는 필수다.");
+      return;
+    }
+
+    try {
+      setLoading(true);
+      setResultImage(null);
+      setResultMessage("");
+
+      const formData = new FormData();
+      formData.append("projectName", projectName);
+      formData.append("projectType", projectType);
+      formData.append("face", face.file);
+      formData.append("outfit", outfit.file);
+
+      if (bg.file) formData.append("bg", bg.file);
+      if (pose.file) formData.append("pose", pose.file);
+
+      const res = await fetch("/api/generate", {
+        method: "POST",
+        body: formData,
+      });
+
+      const data = await res.json();
+
+      if (!res.ok) {
+        throw new Error(data?.error || "생성 실패");
+      }
+
+      if (data.image) {
+        setResultImage(`data:${getImageMime(data.image)};base64,${data.image}`);
+        setResultMessage("생성 완료");
+      } else {
+        setResultMessage(data?.message || "응답은 왔지만 이미지가 없음");
+      }
+    } catch (error) {
+      const message =
+        error instanceof Error ? error.message : "알 수 없는 오류";
+      setResultMessage(`오류: ${message}`);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  return (
+    <main className="min-h-screen bg-[#f7f7f5] px-6 py-10">
+      <div className="max-w-7xl mx-auto">
+        <div className="mb-8">
+          <h1 className="text-4xl font-bold mb-3">프로젝트 편집기</h1>
+          <div className="border rounded-2xl p-5 bg-white space-y-2">
+            <div>
+              <span className="font-semibold">프로젝트 이름:</span> {projectName}
+            </div>
+            <div>
+              <span className="font-semibold">타입:</span> {projectType}
+            </div>
+          </div>
+        </div>
+
+        <div className="grid grid-cols-1 xl:grid-cols-2 gap-6">
+          <UploadCard
+            title="얼굴 업로드"
+            required
+            description="모델 정체성을 고정하는 기준 이미지다. 얼굴 윤곽, 턱선, 눈/코/입 비율이 잘 보이는 사진이 좋다."
+            goodExamples={[
+              "정면 또는 반측면 얼굴",
+              "얼굴이 크게 보이고 선명한 사진",
+              "과하지 않은 표정",
+              "마스크/선글라스 없이 얼굴이 드러난 이미지",
+            ]}
+            badExamples={[
+              "얼굴이 잘린 사진",
+              "셀카 왜곡이 심한 사진",
+              "선글라스/모자/마스크로 가려진 사진",
+              "조명이 너무 강해서 얼굴이 날아간 사진",
+            ]}
+            value={face}
+            onChange={(file) => updateUpload(setFace, file)}
+          />
+
+          <UploadCard
+            title="의상 업로드"
+            required
+            description="AI가 실제로 재구성해야 하는 착장 기준 이미지다. 가능하면 얼굴 없는 착장컷이 가장 좋다."
+            goodExamples={[
+              "얼굴 없이 옷 중심으로 보이는 착장컷",
+              "핏, 길이감, 주름이 확인되는 사진",
+              "상의/하의 실루엣이 명확한 이미지",
+              "배경 방해가 적은 사진",
+            ]}
+            badExamples={[
+              "누끼 제품컷만 있는 이미지",
+              "옷 일부만 보이는 사진",
+              "핏이 보이지 않는 접힌 옷 사진",
+              "여러 옷이 섞여서 기준이 모호한 사진",
+            ]}
+            value={outfit}
+            onChange={(file) => updateUpload(setOutfit, file)}
+          />
+
+          <UploadCard
+            title="배경 업로드"
+            description="장소의 분위기, 재질감, 빛의 방향을 정하는 참고 이미지다. 공간 사진 위주가 좋다."
+            goodExamples={[
+              "사람 없는 공간 사진",
+              "벽, 바닥, 계단, 건물 재질이 잘 보이는 이미지",
+              "빛과 공기감이 느껴지는 장소 사진",
+              "브랜드 무드에 맞는 환경 이미지",
+            ]}
+            badExamples={[
+              "모델이 중심인 화보 사진",
+              "옷 참고까지 섞인 이미지",
+              "배경보다 인물이 주인공인 사진",
+              "너무 복잡해서 핵심 공간이 안 보이는 이미지",
+            ]}
+            value={bg}
+            onChange={(file) => updateUpload(setBg, file)}
+          />
+
+          <UploadCard
+            title="포즈 업로드"
+            description="모델의 자세, 체중 이동, 손 위치, 시선 방향을 정하는 참고 이미지다."
+            goodExamples={[
+              "전신 또는 반신 포즈 사진",
+              "팔, 손, 몸 기울기가 보이는 이미지",
+              "시선 방향과 태도가 읽히는 사진",
+              "포즈 자체가 명확한 컷",
+            ]}
+            badExamples={[
+              "몸이 너무 잘린 사진",
+              "포즈가 모호한 사진",
+              "배경 참고가 더 강한 이미지",
+              "옷 참고와 포즈 참고가 뒤섞인 사진",
+            ]}
+            value={pose}
+            onChange={(file) => updateUpload(setPose, file)}
+          />
+        </div>
+
+        <button
+          onClick={handleGenerate}
+          disabled={loading}
+          className="mt-8 w-full bg-black text-white py-5 rounded-2xl text-xl disabled:opacity-60"
+        >
+          {loading ? "생성중..." : "룩북 생성하기"}
+        </button>
+
+        <div className="mt-6 border rounded-2xl p-5 bg-white">
+          <div className="font-semibold mb-2">상태</div>
+          <div className="text-sm text-gray-700">
+            {resultMessage || "아직 생성 전"}
+          </div>
+        </div>
+
+        {resultImage ? (
+          <div className="mt-8 border rounded-2xl p-6 bg-white">
+            <h2 className="text-2xl font-bold mb-4">생성 결과</h2>
+            <img
+              src={resultImage}
+              alt="생성 결과"
+              className="w-full max-w-md rounded-xl border"
+            />
+          </div>
+        ) : null}
+      </div>
+    </main>
+  );
+}
+</file>
+
+<file path="app/api/model-anchor/route.ts">
+import { NextRequest, NextResponse } from "next/server";
+import { GoogleGenAI } from "@google/genai";
+
+const ai = new GoogleGenAI({
+  apiKey: process.env.GEMINI_API_KEY!,
+});
+
+function detectMimeType(base64?: string) {
+  if (!base64) return "image/jpeg";
+  if (base64.startsWith("/9j/")) return "image/jpeg";
+  if (base64.startsWith("iVBOR")) return "image/png";
+  return "image/jpeg";
+}
+
+export async function POST(req: NextRequest) {
+  try {
+    const body = await req.json();
+
+    const ethnicity = body.ethnicity || "East Asian";
+    const gender = body.gender || "Male";
+    const age = body.age || "Early 20s";
+    const hairStyle = body.hairStyle || "Short black hair";
+    const skinTone = body.skinTone || "Light neutral skin tone";
+    const eyeColor = body.eyeColor || "Dark brown";
+    const mood = body.mood || "Calm and confident";
+    const extraDetails = body.extraDetails || "";
+
+    const prompt = `
+Create a single high-resolution "Fixed Face Anchor" collage for a virtual fashion model.
+
+MODEL PROFILE:
+- ethnicity: ${ethnicity}
+- gender: ${gender}
+- age: ${age}
+- hair style: ${hairStyle}
+- skin tone: ${skinTone}
+- eye color: ${eyeColor}
+- mood: ${mood}
+- extra details: ${extraDetails}
+
+STRICT COMPOSITION RULES:
+- output must be a 3-panel collage in one single image
+- panel 1: FRONT VIEW
+- panel 2: 45-DEGREE VIEW
+- panel 3: SIDE PROFILE
+
+STRICT CROP RULES:
+- head-only portrait
+- crop from top of head to base of neck
+- no shoulders below clavicle
+- no torso
+- no chest
+- no hands
+- face occupies about 80% of each panel
+- keep all three panels tightly framed around the face and neck only
+
+AESTHETIC:
+- photorealistic
+- beauty editorial headshot
+- neutral studio lighting
+- white seamless background
+- ultra clean skin detail
+- premium fashion casting reference
+- consistent identity across all three views
+
+OUTPUT RULE:
+- return only the face anchor collage image
+- no text
+- no labels
+- no graphic decorations
+`;
+
+    const response = await ai.models.generateContent({
+      model: "gemini-3.1-flash-image-preview",
+      contents: {
+        parts: [{ text: prompt }],
+      },
+      config: {
+        imageConfig: {
+          aspectRatio: "1:1",
+          imageSize: "1K",
+        },
+      },
+    });
+
+    for (const part of response.candidates?.[0]?.content?.parts || []) {
+      if (part.inlineData?.data) {
+        const imageBase64 = part.inlineData.data;
+        const mimeType =
+          part.inlineData.mimeType || detectMimeType(imageBase64);
+
+        return NextResponse.json({
+          imageBase64,
+          mimeType,
+        });
+      }
+    }
+
+    throw new Error("No image was generated.");
+  } catch (error) {
+    console.error("model-anchor route error:", error);
+    return NextResponse.json({ error: "모델 생성 실패" }, { status: 500 });
+  }
+}
+</file>
+
+<file path="app/login/page.tsx">
+"use client";
+
+import { useState } from "react";
+import Link from "next/link";
+import { useRouter } from "next/navigation";
+import { supabase } from "@/lib/supabase";
+
+export default function LoginPage() {
+  const router = useRouter();
+
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
+  const [message, setMessage] = useState("");
+  const [loading, setLoading] = useState(false);
+
+  const handleLogin = async () => {
+    const trimmedEmail = email.trim();
+
+    if (!trimmedEmail) {
+      setMessage("이메일을 입력해주세요.");
+      return;
+    }
+
+    if (!password) {
+      setMessage("비밀번호를 입력해주세요.");
+      return;
+    }
+
+    setLoading(true);
+    setMessage("");
+
+    try {
+      const { error } = await supabase.auth.signInWithPassword({
+        email: trimmedEmail,
+        password,
+      });
+
+      if (error) {
+        setMessage(`오류: ${error.message}`);
+        return;
+      }
+
+      setMessage("로그인 완료");
+      router.push("/");
+      router.refresh();
+    } catch (error) {
+      console.error("로그인 예외:", error);
+      setMessage("로그인 중 예상치 못한 오류가 발생했습니다.");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleGoogleLogin = async () => {
+    setLoading(true);
+    setMessage("");
+
+    try {
+      const { error } = await supabase.auth.signInWithOAuth({
+        provider: "google",
+        options: {
+          redirectTo: `${window.location.origin}/`,
+        },
+      });
+
+      if (error) {
+        setMessage(`오류: ${error.message}`);
+        setLoading(false);
+      }
+    } catch (error) {
+      console.error("Google 로그인 예외:", error);
+      setMessage("Google 로그인 중 예상치 못한 오류가 발생했습니다.");
+      setLoading(false);
+    }
+  };
+
+  return (
+    <main className="min-h-screen bg-white px-6 py-16">
+      <div className="mx-auto max-w-md">
+        <h1 className="mb-8 text-3xl font-bold">로그인</h1>
+
+        <div className="space-y-4">
+          <button
+            type="button"
+            onClick={handleGoogleLogin}
+            disabled={loading}
+            className="w-full rounded-xl border px-4 py-3 text-left disabled:opacity-50"
+          >
+            Google로 시작하기
+          </button>
+
+          <div className="text-center text-sm text-gray-500">또는</div>
+
+          <input
+            type="email"
+            placeholder="이메일"
+            value={email}
+            onChange={(e) => setEmail(e.target.value)}
+            className="w-full rounded-xl border px-4 py-3"
+          />
+
+          <input
+            type="password"
+            placeholder="비밀번호"
+            value={password}
+            onChange={(e) => setPassword(e.target.value)}
+            className="w-full rounded-xl border px-4 py-3"
+          />
+
+          <button
+            type="button"
+            onClick={handleLogin}
+            disabled={loading}
+            className="w-full rounded-xl bg-black py-3 text-white disabled:opacity-50"
+          >
+            {loading ? "처리 중..." : "로그인"}
+          </button>
+
+          <div className="text-sm text-gray-600">
+            계정이 없으면{" "}
+            <Link href="/signup" className="underline">
+              회원가입
+            </Link>
+          </div>
+
+          {message && (
+            <div className="rounded-xl border p-4 text-sm text-gray-700">
+              {message}
+            </div>
+          )}
+        </div>
+      </div>
+    </main>
+  );
+}
+</file>
+
 <file path="package.json">
 {
   "name": "ballute-studio",
@@ -3668,7 +3752,7 @@ function UploadSection({
   onCaptionChange,
 }: UploadSectionProps) {
   return (
-    <div className="border rounded-2xl p-6 bg-white shadow-sm">
+    <div className="border rounded-2xl p-6 bg-white">
       <div className="flex items-center gap-2 mb-2">
         <h2 className="text-xl font-bold">{title}</h2>
         {required ? (
@@ -3686,7 +3770,7 @@ function UploadSection({
 
       <div className="flex flex-wrap gap-3 mb-4">
         <label className="block cursor-pointer">
-          <div className="px-4 py-3 border-2 border-dashed rounded-xl text-sm text-gray-500 hover:bg-gray-50 transition-colors">
+          <div className="px-4 py-3 border-2 border-dashed rounded-xl text-sm text-gray-500">
             여러 장 추가 업로드
           </div>
           <input
@@ -3701,7 +3785,7 @@ function UploadSection({
         <button
           type="button"
           onClick={onClearAll}
-          className="px-4 py-3 border rounded-xl text-sm text-gray-700 hover:bg-gray-50 transition-colors"
+          className="px-4 py-3 border rounded-xl text-sm text-gray-700"
         >
           전체 삭제
         </button>
@@ -3714,7 +3798,7 @@ function UploadSection({
       {items.length > 0 ? (
         <div className="grid grid-cols-2 md:grid-cols-3 gap-3 mt-4">
           {items.map((item, index) => (
-            <div key={`${item.file.name}-${index}`} className="border rounded-xl p-2 relative group">
+            <div key={`${item.file.name}-${index}`} className="border rounded-xl p-2">
               <img
                 src={item.preview}
                 alt={item.file.name}
@@ -3729,7 +3813,7 @@ function UploadSection({
                   value={item.caption || ""}
                   onChange={(e) => onCaptionChange(index, e.target.value)}
                   placeholder="예: shirt untucked / layered under blazer"
-                  className="mt-2 w-full border rounded-lg px-2 py-2 text-xs focus:outline-none focus:ring-1 focus:ring-black"
+                  className="mt-2 w-full border rounded-lg px-2 py-2 text-xs"
                   rows={3}
                 />
               ) : null}
@@ -3737,7 +3821,7 @@ function UploadSection({
               <button
                 type="button"
                 onClick={() => onRemoveItem(index)}
-                className="mt-2 w-full bg-red-500 text-white text-xs py-2 rounded-lg opacity-90 hover:opacity-100 transition-opacity"
+                className="mt-2 w-full bg-red-500 text-white text-xs py-2 rounded-lg"
               >
                 이 사진 삭제
               </button>
@@ -3763,6 +3847,13 @@ function ShortTag({ label, value }: { label: string; value: string }) {
 function shorten(text?: string, max = 42) {
   if (!text) return "-";
   return text.length > max ? `${text.slice(0, max)}...` : text;
+}
+
+function getImageMime(base64?: string) {
+  if (!base64) return "image/jpeg";
+  if (base64.startsWith("/9j/")) return "image/jpeg";
+  if (base64.startsWith("iVBOR")) return "image/png";
+  return "image/jpeg";
 }
 
 export default function FusionPage() {
@@ -3791,18 +3882,33 @@ export default function FusionPage() {
   const expectedResultCount = poses.length * safeCount;
   const totalCost = expectedResultCount * costPerImage;
 
-  const appendFiles = (
-    setter: React.Dispatch<React.SetStateAction<UploadItem[]>>,
-    files: FileList | null
-  ) => {
-    if (!files || files.length === 0) return;
-    const newItems: UploadItem[] = Array.from(files).map((file) => ({
+ const appendFiles = (
+  setter: React.Dispatch<React.SetStateAction<UploadItem[]>>,
+  files: FileList | null
+) => {
+  if (!files || files.length === 0) return;
+
+  const MAX_SIZE = 4.5 * 1024 * 1024;
+
+  const newItems: UploadItem[] = [];
+
+  for (const file of Array.from(files)) {
+    if (file.size > MAX_SIZE) {
+      alert(
+        "GUIDE: 현재는 4.5MB 이하의 이미지만 작업 가능합니다.\n\n고해상도 원본 업로드 기능은 현재 설계 단계에 있으며, 준비되는 대로 순차적으로 업데이트될 예정입니다."
+      );
+      return;
+    }
+
+    newItems.push({
       file,
       preview: URL.createObjectURL(file),
       caption: "",
-    }));
-    setter((prev) => [...prev, ...newItems]);
-  };
+    });
+  }
+
+  setter((prev) => [...prev, ...newItems]);
+};
 
   const removeItem = (
     setter: React.Dispatch<React.SetStateAction<UploadItem[]>>,
@@ -3869,9 +3975,15 @@ export default function FusionPage() {
         throw new Error(data?.error || "모델 생성 실패");
       }
 
-      const blob = await fetch(data.image).then((r) => r.blob());
-      const file = new File([blob], `model-anchor-${Date.now()}.png`, {
-        type: "image/png",
+      const mimeType = data.mimeType || getImageMime(data.imageBase64);
+      const extension = mimeType === "image/png" ? "png" : "jpg";
+
+      const blob = await fetch(
+        `data:${mimeType};base64,${data.imageBase64}`
+      ).then((r) => r.blob());
+
+      const file = new File([blob], `model-anchor-${Date.now()}.${extension}`, {
+        type: mimeType,
       });
 
       const newItem: UploadItem = {
@@ -3957,7 +4069,6 @@ export default function FusionPage() {
           updateSlot(slotIndex, { status: "generating" });
 
           try {
-            // 완전히 순정 원본 데이터 전송 로직으로 복원
             const formData = new FormData();
             formData.append("fitSpec", fitSpec);
             formData.append("shootingMode", shootingMode);
@@ -4028,19 +4139,18 @@ export default function FusionPage() {
         <div className="mb-8">
           <Link
             href="/"
-            className="inline-flex items-center text-sm text-gray-600 mb-4 hover:text-black transition-colors"
+            className="inline-flex items-center text-sm text-gray-600 mb-4"
           >
             ← 홈으로
           </Link>
 
-          <h1 className="text-4xl font-bold mb-3 tracking-tight">FUSION</h1>
+          <h1 className="text-4xl font-bold mb-3">FUSION</h1>
           <p className="text-gray-700 text-lg leading-8 max-w-4xl">
             배경 DNA와 포즈 블루프린트를 결합해서 고급 editorial 결과를 만드는
             생산 라인.
           </p>
         </div>
 
-        {/* --- 섹션 1: 피사체 (얼굴 및 의상) --- */}
         <div className="grid grid-cols-1 xl:grid-cols-2 gap-6 mb-6">
           <FaceInputSection
             items={faces}
@@ -4053,16 +4163,16 @@ export default function FusionPage() {
           />
 
           <div className="space-y-4">
-            <div className="border rounded-2xl p-4 bg-white shadow-sm">
+            <div className="border rounded-2xl p-4 bg-white">
               <div className="font-semibold mb-3">의상 입력 방식</div>
               <div className="flex gap-3">
                 <button
                   type="button"
                   onClick={() => setOutfitMode("outfit")}
-                  className={`px-4 py-2 rounded-xl border transition-colors ${
+                  className={`px-4 py-2 rounded-xl border ${
                     outfitMode === "outfit"
-                      ? "bg-black text-white border-black"
-                      : "bg-white text-gray-700 hover:bg-gray-50"
+                      ? "bg-black text-white"
+                      : "bg-white text-gray-700"
                   }`}
                 >
                   OUTFIT
@@ -4070,10 +4180,10 @@ export default function FusionPage() {
                 <button
                   type="button"
                   onClick={() => setOutfitMode("mix")}
-                  className={`px-4 py-2 rounded-xl border transition-colors ${
+                  className={`px-4 py-2 rounded-xl border ${
                     outfitMode === "mix"
-                      ? "bg-black text-white border-black"
-                      : "bg-white text-gray-700 hover:bg-gray-50"
+                      ? "bg-black text-white"
+                      : "bg-white text-gray-700"
                   }`}
                 >
                   MIX
@@ -4099,7 +4209,6 @@ export default function FusionPage() {
           </div>
         </div>
 
-        {/* --- 섹션 2: DNA 추출 (배경 및 포즈) --- */}
         <div className="grid grid-cols-1 xl:grid-cols-2 gap-6 mb-6">
           <UploadSection
             title="BG 업로드"
@@ -4122,8 +4231,7 @@ export default function FusionPage() {
           />
         </div>
 
-        {/* --- 섹션 3: 제어 및 실행부 --- */}
-        <div className="border rounded-2xl p-6 bg-white shadow-sm space-y-5">
+        <div className="border rounded-2xl p-6 bg-white space-y-5">
           <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
             <div>
               <label className="block text-sm font-semibold mb-2">장소 수</label>
@@ -4133,7 +4241,7 @@ export default function FusionPage() {
                 max={8}
                 value={count}
                 onChange={(e) => setCount(Number(e.target.value))}
-                className="w-full border rounded-xl px-4 py-3 focus:ring-1 focus:ring-black focus:outline-none"
+                className="w-full border rounded-xl px-4 py-3"
               />
             </div>
 
@@ -4144,7 +4252,7 @@ export default function FusionPage() {
                 value={fitSpec}
                 onChange={(e) => setFitSpec(e.target.value)}
                 placeholder="예: 173/71 183/63"
-                className="w-full border rounded-xl px-4 py-3 focus:ring-1 focus:ring-black focus:outline-none"
+                className="w-full border rounded-xl px-4 py-3"
               />
             </div>
 
@@ -4153,7 +4261,7 @@ export default function FusionPage() {
               <select
                 value={shootingMode}
                 onChange={(e) => setShootingMode(e.target.value)}
-                className="w-full border rounded-xl px-4 py-3 focus:ring-1 focus:ring-black focus:outline-none"
+                className="w-full border rounded-xl px-4 py-3"
               >
                 <option value="default">default</option>
                 <option value="fuji">fuji</option>
@@ -4171,22 +4279,25 @@ export default function FusionPage() {
                 value={customPrompt}
                 onChange={(e) => setCustomPrompt(e.target.value)}
                 placeholder="shootingMode가 custom일 때만 사용"
-                className="w-full border rounded-xl px-4 py-3 focus:ring-1 focus:ring-black focus:outline-none"
+                className="w-full border rounded-xl px-4 py-3"
               />
             </div>
           </div>
 
-          <div className="border rounded-xl p-4 bg-[#fafaf8] flex justify-between items-center flex-wrap gap-4">
-            <div className="text-sm text-gray-700 flex gap-4 flex-wrap">
-              <span>얼굴: <b>{faces.length}장</b></span>
-              <span>의상: <b>{outfits.length}장</b></span>
-              <span>BG: <b>{bgs.length}장</b></span>
-              <span>POSE: <b>{poses.length}장</b></span>
-              <span>모드: <b>{outfitMode}</b></span>
-              <span>총 예상: <b className="text-blue-600">{expectedResultCount}장</b></span>
-            </div>
-            <div className="text-lg font-bold">
-              총 필요 비용: <span className="text-red-500">{totalCost}P</span>
+          <div className="border rounded-xl p-4 bg-[#fafaf8]">
+            <div className="font-semibold mb-2">현재 설정 요약</div>
+            <div className="text-sm text-gray-700 space-y-1">
+              <div>얼굴: {faces.length}장</div>
+              <div>의상: {outfits.length}장</div>
+              <div>BG: {bgs.length}장</div>
+              <div>POSE: {poses.length}장</div>
+              <div>의상 모드: {outfitMode}</div>
+              <div>장소 수: {safeCount}</div>
+              <div>총 예상 결과 수: {expectedResultCount}장</div>
+              <div>핏 보정: {fitSpec || "없음"}</div>
+              <div>Shooting Mode: {shootingMode}</div>
+              <div>Vibe Lock: {lockedVibe ? "설정됨" : "없음"}</div>
+              <div>실행 비용: {totalCost}P</div>
             </div>
           </div>
 
@@ -4194,34 +4305,29 @@ export default function FusionPage() {
             <button
               onClick={handleRunFusion}
               disabled={loading || modelGenerating}
-              className="flex-1 bg-black text-white py-5 rounded-2xl text-xl font-bold tracking-wide hover:bg-gray-800 disabled:opacity-60 disabled:cursor-not-allowed transition-all shadow-md"
+              className="flex-1 bg-black text-white py-5 rounded-2xl text-xl disabled:opacity-60"
             >
-              {loading ? "FUSION 라인 가동중..." : `FUSION 실행하기 (${totalCost}P)`}
+              {loading ? "FUSION 준비중..." : `FUSION 실행하기 (${totalCost}P)`}
             </button>
 
             <button
               type="button"
               onClick={handleClearVibe}
-              className="px-6 py-5 border rounded-2xl text-sm font-semibold hover:bg-gray-50 transition-colors"
+              className="px-6 py-5 border rounded-2xl text-sm"
             >
               Vibe 해제
             </button>
           </div>
         </div>
 
-        {/* --- 상태 및 Vibe 표시 --- */}
-        <div className="mt-6 border rounded-2xl p-5 bg-white shadow-sm flex items-center justify-between">
-          <div className="font-semibold">현재 상태 Log</div>
-          <div className="text-sm font-mono text-gray-700 bg-gray-100 px-4 py-2 rounded-lg truncate max-w-2xl">
-            {statusMessage || "대기중 (Ready)"}
-          </div>
+        <div className="mt-6 border rounded-2xl p-5 bg-white">
+          <div className="font-semibold mb-2">상태</div>
+          <div className="text-sm text-gray-700">{statusMessage || "아직 실행 전"}</div>
         </div>
 
         {lockedVibe ? (
-          <div className="mt-6 border-2 border-gray-900 rounded-2xl p-5 bg-white shadow-sm">
-            <div className="font-bold mb-3 flex items-center gap-2">
-              🔒 현재 Vibe Lock 적용됨
-            </div>
+          <div className="mt-6 border rounded-2xl p-5 bg-white">
+            <div className="font-semibold mb-3">현재 Vibe Lock</div>
             <div className="flex flex-wrap gap-2">
               <ShortTag label="배경" value={shorten(lockedVibe.background)} />
               <ShortTag label="포즈" value={shorten(lockedVibe.pose)} />
@@ -4232,56 +4338,44 @@ export default function FusionPage() {
           </div>
         ) : null}
 
-        {/* --- 결과 화면 --- */}
         {resultSlots.length > 0 ? (
-          <div className="mt-12 space-y-6">
-            <div className="flex items-center gap-3 mb-6 border-b pb-4">
-              <h2 className="text-3xl font-bold tracking-tight">FUSION 결과물</h2>
-              <span className="bg-black text-white px-3 py-1 rounded-full text-sm font-medium">VAULT</span>
-            </div>
+          <div className="mt-8 space-y-6">
+            <h2 className="text-2xl font-bold">FUSION 결과</h2>
 
-            <div className="grid grid-cols-1 xl:grid-cols-2 gap-8">
+            <div className="grid grid-cols-1 xl:grid-cols-2 gap-6">
               {resultSlots.map((slot, index) => (
-                <div key={index} className="border-2 border-gray-100 rounded-3xl p-6 bg-white shadow-sm hover:shadow-md transition-shadow">
-                  <div className="font-bold text-gray-800 mb-4 flex justify-between items-center">
-                    <span>Pose {slot.poseIndex + 1} / Location {slot.locationIndex + 1}</span>
-                    <span className="text-xs px-2 py-1 bg-gray-100 rounded text-gray-500 font-mono">Slot #{index}</span>
+                <div key={index} className="border rounded-2xl p-5 bg-white">
+                  <div className="font-semibold mb-3">
+                    Pose {slot.poseIndex + 1} / Location {slot.locationIndex + 1}
                   </div>
 
                   {slot.status === "waiting" && (
-                    <div className="border-2 border-dashed rounded-2xl h-[500px] flex flex-col items-center justify-center text-gray-400 bg-gray-50">
-                      <div className="animate-pulse w-12 h-12 bg-gray-200 rounded-full mb-3"></div>
-                      대기열 진입...
+                    <div className="border rounded-xl h-96 flex items-center justify-center text-gray-400">
+                      대기중...
                     </div>
                   )}
 
                   {slot.status === "generating" && (
-                    <div className="border-2 border-dashed border-blue-200 rounded-2xl h-[500px] flex flex-col items-center justify-center text-blue-500 bg-blue-50/30">
-                      <svg className="animate-spin h-8 w-8 text-blue-500 mb-3" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
-                        <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
-                        <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
-                      </svg>
-                      DNA 융합 및 생성중...
+                    <div className="border rounded-xl h-96 flex items-center justify-center text-gray-400">
+                      생성중...
                     </div>
                   )}
 
                   {slot.status === "error" && (
-                    <div className="border border-red-200 rounded-2xl h-[500px] flex flex-col items-center justify-center text-red-500 bg-red-50 px-6 text-center">
-                      <span className="text-4xl mb-2">⚠️</span>
-                      <span className="font-bold mb-2">생성 실패</span>
-                      <span className="text-sm opacity-80">{slot.error}</span>
+                    <div className="border rounded-xl h-96 flex items-center justify-center text-red-500 text-sm px-4 text-center">
+                      오류: {slot.error}
                     </div>
                   )}
 
                   {slot.status === "done" && slot.result && (
-                    <div className="flex flex-col h-full">
+                    <>
                       <img
-                        src={`data:image/png;base64,${slot.result.image}`}
+                        src={`data:${getImageMime(slot.result.image)};base64,${slot.result.image}`}
                         alt={`fusion-result-${index}`}
-                        className="w-full rounded-2xl border object-cover mb-5 shadow-sm"
+                        className="w-full rounded-xl border mb-4"
                       />
 
-                      <div className="flex flex-wrap gap-2 mb-5">
+                      <div className="flex flex-wrap gap-2 mb-4">
                         <ShortTag label="무드" value={shorten(slot.result.bgDNA?.spatial_mood)} />
                         <ShortTag label="장소" value={shorten(slot.result.locationPrompt)} />
                         <ShortTag
@@ -4296,25 +4390,21 @@ export default function FusionPage() {
                         <ShortTag label="표정" value={shorten(slot.result.poseBlueprint?.expression)} />
                       </div>
 
-                      <div className="text-sm text-gray-700 mb-6 bg-gray-50 p-4 rounded-xl border leading-relaxed">
-                        <b className="text-black block mb-1">DNA 요약:</b> 
-                        {slot.result.summary}
+                      <div className="text-sm text-gray-700 mb-4">
+                        <b>요약:</b> {slot.result.summary}
                       </div>
 
-                      <div className="mt-auto">
-                        <button
-                          type="button"
-                          onClick={() => {
-                            if (!slot.result) return;
-                            handleSetVibe(slot.result);
-                            window.scrollTo({ top: 0, behavior: 'smooth' });
-                          }}
-                          className="w-full bg-black text-white font-bold tracking-wide py-4 rounded-xl hover:bg-gray-800 transition-colors flex items-center justify-center gap-2"
-                        >
-                          🔒 이 컷의 DNA로 Vibe Lock 설정
-                        </button>
-                      </div>
-                    </div>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          if (!slot.result) return;
+                          handleSetVibe(slot.result);
+                        }}
+                        className="w-full bg-black text-white py-3 rounded-xl"
+                      >
+                        이 컷으로 Set Vibe
+                      </button>
+                    </>
                   )}
                 </div>
               ))}
@@ -4340,6 +4430,7 @@ import FaceInputSection, {
 type UploadItem = {
   file: File;
   preview: string;
+  caption?: string;
 };
 
 type RefRunDirection = {
@@ -4374,6 +4465,8 @@ type UploadSectionProps = {
   onAddFiles: (files: FileList | null) => void;
   onRemoveItem: (index: number) => void;
   onClearAll: () => void;
+  showCaptionInput?: boolean;
+  onCaptionChange?: (index: number, value: string) => void;
 };
 
 function UploadSection({
@@ -4384,6 +4477,8 @@ function UploadSection({
   onAddFiles,
   onRemoveItem,
   onClearAll,
+  showCaptionInput = false,
+  onCaptionChange,
 }: UploadSectionProps) {
   return (
     <div className="border rounded-2xl p-6 bg-white">
@@ -4444,6 +4539,17 @@ function UploadSection({
               <div className="mt-2 text-xs text-gray-600 truncate">
                 {item.file.name}
               </div>
+
+              {showCaptionInput && onCaptionChange ? (
+                <textarea
+                  value={item.caption || ""}
+                  onChange={(e) => onCaptionChange(index, e.target.value)}
+                  placeholder="예: untucked / unbuttoned / layered under jacket"
+                  className="mt-2 w-full border rounded-lg px-2 py-2 text-xs"
+                  rows={3}
+                />
+              ) : null}
+
               <button
                 type="button"
                 onClick={() => onRemoveItem(index)}
@@ -4481,10 +4587,19 @@ function shorten(text?: string, max = 42) {
   return text.length > max ? `${text.slice(0, max)}...` : text;
 }
 
+function getImageMime(base64?: string) {
+  if (!base64) return "image/jpeg";
+  if (base64.startsWith("/9j/")) return "image/jpeg";
+  if (base64.startsWith("iVBOR")) return "image/png";
+  return "image/jpeg";
+}
+
 export default function RefRunPage() {
   const [faces, setFaces] = useState<UploadItem[]>([]);
   const [outfits, setOutfits] = useState<UploadItem[]>([]);
   const [references, setReferences] = useState<UploadItem[]>([]);
+
+  const [outfitMode, setOutfitMode] = useState<"outfit" | "mix">("outfit");
 
   const [fitSpec, setFitSpec] = useState("");
   const [shootingMode, setShootingMode] = useState("default");
@@ -4506,10 +4621,24 @@ export default function RefRunPage() {
   ) => {
     if (!files || files.length === 0) return;
 
-    const newItems: UploadItem[] = Array.from(files).map((file) => ({
-      file,
-      preview: URL.createObjectURL(file),
-    }));
+    const MAX_SIZE = 4.5 * 1024 * 1024;
+
+    const newItems: UploadItem[] = [];
+
+    for (const file of Array.from(files)) {
+      if (file.size > MAX_SIZE) {
+        alert(
+          "GUIDE: 현재는 4.5MB 이하의 이미지만 작업 가능합니다.\n\n고해상도 원본 업로드 기능은 현재 설계 단계에 있으며, 준비되는 대로 순차적으로 업데이트될 예정입니다."
+        );
+        return;
+      }
+
+      newItems.push({
+        file,
+        preview: URL.createObjectURL(file),
+        caption: "",
+      });
+    }
 
     setter((prev) => [...prev, ...newItems]);
   };
@@ -4525,6 +4654,12 @@ export default function RefRunPage() {
     setter: React.Dispatch<React.SetStateAction<UploadItem[]>>
   ) => {
     setter([]);
+  };
+
+  const updateOutfitCaption = (index: number, value: string) => {
+    setOutfits((prev) =>
+      prev.map((item, i) => (i === index ? { ...item, caption: value } : item))
+    );
   };
 
   const updateSlot = (index: number, patch: Partial<ResultSlot>) => {
@@ -4554,9 +4689,15 @@ export default function RefRunPage() {
         throw new Error(data?.error || "모델 생성 실패");
       }
 
-      const blob = await fetch(data.image).then((r) => r.blob());
-      const file = new File([blob], `model-anchor-${Date.now()}.png`, {
-        type: "image/png",
+      const mimeType = data.mimeType || getImageMime(data.imageBase64);
+      const extension = mimeType === "image/png" ? "png" : "jpg";
+
+      const blob = await fetch(
+        `data:${mimeType};base64,${data.imageBase64}`
+      ).then((r) => r.blob());
+
+      const file = new File([blob], `model-anchor-${Date.now()}.${extension}`, {
+        type: mimeType,
       });
 
       const newItem: UploadItem = {
@@ -4580,6 +4721,16 @@ export default function RefRunPage() {
     if (faces.length === 0 || outfits.length === 0 || references.length === 0) {
       alert("얼굴 / 의상 / 레퍼런스는 최소 1장씩 필요하다.");
       return;
+    }
+
+    if (outfitMode === "mix") {
+      const hasEmptyCaption = outfits.some(
+        (item) => !(item.caption || "").trim()
+      );
+      if (hasEmptyCaption) {
+        alert("MIX 모드에서는 모든 아이템에 설명을 입력해야 한다.");
+        return;
+      }
     }
 
     try {
@@ -4618,6 +4769,11 @@ export default function RefRunPage() {
             formData.append("fitSpec", fitSpec);
             formData.append("shootingMode", shootingMode);
             formData.append("customPrompt", customPrompt);
+            formData.append("outfitMode", outfitMode);
+            formData.append(
+              "mixCaptions",
+              JSON.stringify(outfits.map((item) => item.caption || ""))
+            );
 
             faces.forEach((item) => {
               formData.append("faces", item.file);
@@ -4702,15 +4858,51 @@ export default function RefRunPage() {
             disabled={loading}
           />
 
-          <UploadSection
-            title="의상 착샷 업로드"
-            required
-            description="의상 재구성 기준 이미지. 정면/측면/디테일 등 여러 장 넣을 수 있다."
-            items={outfits}
-            onAddFiles={(files) => appendFiles(setOutfits, files)}
-            onRemoveItem={(index) => removeItem(setOutfits, index)}
-            onClearAll={() => clearAll(setOutfits)}
-          />
+          <div className="space-y-4">
+            <div className="border rounded-2xl p-4 bg-white">
+              <div className="font-semibold mb-3">의상 입력 방식</div>
+              <div className="flex gap-3">
+                <button
+                  type="button"
+                  onClick={() => setOutfitMode("outfit")}
+                  className={`px-4 py-2 rounded-xl border ${
+                    outfitMode === "outfit"
+                      ? "bg-black text-white"
+                      : "bg-white text-gray-700"
+                  }`}
+                >
+                  OUTFIT
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setOutfitMode("mix")}
+                  className={`px-4 py-2 rounded-xl border ${
+                    outfitMode === "mix"
+                      ? "bg-black text-white"
+                      : "bg-white text-gray-700"
+                  }`}
+                >
+                  MIX
+                </button>
+              </div>
+            </div>
+
+            <UploadSection
+              title={outfitMode === "mix" ? "MIX 아이템 업로드" : "의상 착샷 업로드"}
+              required
+              description={
+                outfitMode === "mix"
+                  ? "아이템 여러 장을 조립하는 모드. 각 이미지마다 설명을 꼭 입력해야 한다."
+                  : "의상 재구성 기준 이미지. 정면/측면/디테일 등 여러 장 넣을 수 있다."
+              }
+              items={outfits}
+              onAddFiles={(files) => appendFiles(setOutfits, files)}
+              onRemoveItem={(index) => removeItem(setOutfits, index)}
+              onClearAll={() => clearAll(setOutfits)}
+              showCaptionInput={outfitMode === "mix"}
+              onCaptionChange={updateOutfitCaption}
+            />
+          </div>
 
           <UploadSection
             title="레퍼런스 업로드"
@@ -4790,6 +4982,7 @@ export default function RefRunPage() {
             <div className="text-sm text-gray-700 space-y-1">
               <div>얼굴: {faces.length}장</div>
               <div>의상: {outfits.length}장</div>
+              <div>의상 모드: {outfitMode}</div>
               <div>레퍼런스: {references.length}장</div>
               <div>레퍼런스당 생성 수: {safeCount}</div>
               <div>총 예상 결과 수: {totalResults}장</div>
@@ -4848,7 +5041,7 @@ export default function RefRunPage() {
                   {slot.status === "done" && slot.result && (
                     <>
                       <img
-                        src={`data:image/png;base64,${slot.result.image}`}
+                        src={`data:${getImageMime(slot.result.image)};base64,${slot.result.image}`}
                         alt={`refrun-result-${index}`}
                         className="w-full rounded-xl border mb-4"
                       />
@@ -5070,6 +5263,13 @@ function shorten(text?: string, max = 42) {
   return text.length > max ? `${text.slice(0, max)}...` : text;
 }
 
+function getImageMime(base64?: string) {
+  if (!base64) return "image/jpeg";
+  if (base64.startsWith("/9j/")) return "image/jpeg";
+  if (base64.startsWith("iVBOR")) return "image/png";
+  return "image/jpeg";
+}
+
 export default function DigPage() {
   const [faces, setFaces] = useState<UploadItem[]>([]);
   const [outfits, setOutfits] = useState<UploadItem[]>([]);
@@ -5098,11 +5298,24 @@ export default function DigPage() {
   ) => {
     if (!files || files.length === 0) return;
 
-    const newItems: UploadItem[] = Array.from(files).map((file) => ({
-      file,
-      preview: URL.createObjectURL(file),
-      caption: "",
-    }));
+    const MAX_SIZE = 4.5 * 1024 * 1024;
+
+    const newItems: UploadItem[] = [];
+
+    for (const file of Array.from(files)) {
+      if (file.size > MAX_SIZE) {
+        alert(
+          "GUIDE: 현재는 4.5MB 이하의 이미지만 작업 가능합니다.\n\n고해상도 원본 업로드 기능은 현재 설계 단계에 있으며, 준비되는 대로 순차적으로 업데이트될 예정입니다."
+        );
+        return;
+      }
+
+      newItems.push({
+        file,
+        preview: URL.createObjectURL(file),
+        caption: "",
+      });
+    }
 
     setter((prev) => [...prev, ...newItems]);
   };
@@ -5172,9 +5385,15 @@ export default function DigPage() {
         throw new Error(data?.error || "모델 생성 실패");
       }
 
-      const blob = await fetch(data.image).then((r) => r.blob());
-      const file = new File([blob], `model-anchor-${Date.now()}.png`, {
-        type: "image/png",
+      const mimeType = data.mimeType || getImageMime(data.imageBase64);
+      const extension = mimeType === "image/png" ? "png" : "jpg";
+
+      const blob = await fetch(
+        `data:${mimeType};base64,${data.imageBase64}`
+      ).then((r) => r.blob());
+
+      const file = new File([blob], `model-anchor-${Date.now()}.${extension}`, {
+        type: mimeType,
       });
 
       const newItem: UploadItem = {
@@ -5252,7 +5471,9 @@ export default function DigPage() {
         }))
       );
 
-      setStatusMessage(`Directions 생성 완료. ${directions.length}개 컷 생성 시작...`);
+      setStatusMessage(
+        `Directions 생성 완료. ${directions.length}개 컷 생성 시작...`
+      );
 
       directions.forEach(async (direction, index) => {
         updateSlot(index, { status: "generating" });
@@ -5557,7 +5778,7 @@ export default function DigPage() {
                   {slot.status === "done" && slot.result && (
                     <>
                       <img
-                        src={`data:image/png;base64,${slot.result.image}`}
+                        src={`data:${getImageMime(slot.result.image)};base64,${slot.result.image}`}
                         alt={`dig-result-${index}`}
                         className="w-full rounded-xl border mb-4"
                       />

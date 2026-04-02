@@ -118,7 +118,10 @@ function UploadSection({
       {items.length > 0 ? (
         <div className="grid grid-cols-2 md:grid-cols-3 gap-3 mt-4">
           {items.map((item, index) => (
-            <div key={`${item.file.name}-${index}`} className="border rounded-xl p-2">
+            <div
+              key={`${item.file.name}-${index}`}
+              className="border rounded-xl p-2"
+            >
               <img
                 src={item.preview}
                 alt={item.file.name}
@@ -202,33 +205,32 @@ export default function FusionPage() {
   const expectedResultCount = poses.length * safeCount;
   const totalCost = expectedResultCount * costPerImage;
 
- const appendFiles = (
-  setter: React.Dispatch<React.SetStateAction<UploadItem[]>>,
-  files: FileList | null
-) => {
-  if (!files || files.length === 0) return;
+  const appendFiles = (
+    setter: React.Dispatch<React.SetStateAction<UploadItem[]>>,
+    files: FileList | null
+  ) => {
+    if (!files || files.length === 0) return;
 
-  const MAX_SIZE = 4.5 * 1024 * 1024;
+    const MAX_SIZE = 4.5 * 1024 * 1024;
+    const newItems: UploadItem[] = [];
 
-  const newItems: UploadItem[] = [];
+    for (const file of Array.from(files)) {
+      if (file.size > MAX_SIZE) {
+        alert(
+          "GUIDE: 현재는 4.5MB 이하의 이미지만 작업 가능합니다.\n\n고해상도 원본 업로드 기능은 현재 설계 단계에 있으며, 준비되는 대로 순차적으로 업데이트될 예정입니다."
+        );
+        return;
+      }
 
-  for (const file of Array.from(files)) {
-    if (file.size > MAX_SIZE) {
-      alert(
-        "GUIDE: 현재는 4.5MB 이하의 이미지만 작업 가능합니다.\n\n고해상도 원본 업로드 기능은 현재 설계 단계에 있으며, 준비되는 대로 순차적으로 업데이트될 예정입니다."
-      );
-      return;
+      newItems.push({
+        file,
+        preview: URL.createObjectURL(file),
+        caption: "",
+      });
     }
 
-    newItems.push({
-      file,
-      preview: URL.createObjectURL(file),
-      caption: "",
-    });
-  }
-
-  setter((prev) => [...prev, ...newItems]);
-};
+    setter((prev) => [...prev, ...newItems]);
+  };
 
   const removeItem = (
     setter: React.Dispatch<React.SetStateAction<UploadItem[]>>,
@@ -262,7 +264,8 @@ export default function FusionPage() {
       expression: result.poseBlueprint?.expression,
       overall_mood: result.bgDNA?.spatial_mood,
       camera_angle_and_crop:
-        result.poseBlueprint?.camera_angle_and_crop || result.bgDNA?.camera_feel,
+        result.poseBlueprint?.camera_angle_and_crop ||
+        result.bgDNA?.camera_feel,
       lighting_and_exposure: result.bgDNA?.lighting_and_exposure,
       color_grading_and_texture: result.bgDNA?.color_grading_and_texture,
     });
@@ -330,7 +333,9 @@ export default function FusionPage() {
     }
 
     if (outfitMode === "mix") {
-      const hasEmptyCaption = outfits.some((item) => !(item.caption || "").trim());
+      const hasEmptyCaption = outfits.some(
+        (item) => !(item.caption || "").trim()
+      );
       if (hasEmptyCaption) {
         alert("MIX 모드에서는 모든 아이템 설명이 필요하다.");
         return;
@@ -383,66 +388,72 @@ export default function FusionPage() {
 
       setResultSlots(initialSlots);
 
-      poseBlueprints.forEach(async (poseBlueprint: unknown, poseIndex: number) => {
-        for (let locationIndex = 0; locationIndex < locationPrompts.length; locationIndex++) {
-          const slotIndex = poseIndex * locationPrompts.length + locationIndex;
-          updateSlot(slotIndex, { status: "generating" });
+      poseBlueprints.forEach(
+        async (poseBlueprint: unknown, poseIndex: number) => {
+          for (
+            let locationIndex = 0;
+            locationIndex < locationPrompts.length;
+            locationIndex++
+          ) {
+            const slotIndex = poseIndex * locationPrompts.length + locationIndex;
+            updateSlot(slotIndex, { status: "generating" });
 
-          try {
-            const formData = new FormData();
-            formData.append("fitSpec", fitSpec);
-            formData.append("shootingMode", shootingMode);
-            formData.append("customPrompt", customPrompt);
-            formData.append("outfitMode", outfitMode);
-            formData.append(
-              "mixCaptions",
-              JSON.stringify(outfits.map((item) => item.caption || ""))
-            );
-            formData.append("bgDNA", JSON.stringify(bgDNA));
-            formData.append("poseBlueprint", JSON.stringify(poseBlueprint));
-            formData.append("locationPrompt", locationPrompts[locationIndex]);
-            formData.append(
-              "lockedVibe",
-              lockedVibe ? JSON.stringify(lockedVibe) : ""
-            );
+            try {
+              const formData = new FormData();
+              formData.append("fitSpec", fitSpec);
+              formData.append("shootingMode", shootingMode);
+              formData.append("customPrompt", customPrompt);
+              formData.append("outfitMode", outfitMode);
+              formData.append(
+                "mixCaptions",
+                JSON.stringify(outfits.map((item) => item.caption || ""))
+              );
+              formData.append("bgDNA", JSON.stringify(bgDNA));
+              formData.append("poseBlueprint", JSON.stringify(poseBlueprint));
+              formData.append("locationPrompt", locationPrompts[locationIndex]);
+              formData.append(
+                "lockedVibe",
+                lockedVibe ? JSON.stringify(lockedVibe) : ""
+              );
 
-            faces.forEach((item) => formData.append("faces", item.file));
-            outfits.forEach((item) => formData.append("outfits", item.file));
+              faces.forEach((item) => formData.append("faces", item.file));
+              outfits.forEach((item) => formData.append("outfits", item.file));
 
-            const res = await fetch("/api/fusion/generate-one", {
-              method: "POST",
-              body: formData,
-            });
+              const res = await fetch("/api/fusion/generate-one", {
+                method: "POST",
+                body: formData,
+              });
 
-            const data = await res.json();
+              const data = await res.json();
 
-            if (!res.ok) {
-              throw new Error(data?.error || "FUSION 한 장 생성 실패");
+              if (!res.ok) {
+                throw new Error(data?.error || "FUSION 한 장 생성 실패");
+              }
+
+              updateSlot(slotIndex, {
+                status: "done",
+                result: data.result as FusionResult,
+              });
+
+              setStatusMessage(
+                `Pose ${poseIndex + 1} / Location ${locationIndex + 1} 생성 완료`
+              );
+            } catch (error) {
+              const message =
+                error instanceof Error ? error.message : "알 수 없는 FUSION 오류";
+
+              updateSlot(slotIndex, {
+                status: "error",
+                error: message,
+              });
+
+              setStatusMessage(
+                `Pose ${poseIndex + 1} / Location ${locationIndex + 1} 오류`
+              );
             }
-
-            updateSlot(slotIndex, {
-              status: "done",
-              result: data.result as FusionResult,
-            });
-
-            setStatusMessage(
-              `Pose ${poseIndex + 1} / Location ${locationIndex + 1} 생성 완료`
-            );
-          } catch (error) {
-            const message =
-              error instanceof Error ? error.message : "알 수 없는 FUSION 오류";
-
-            updateSlot(slotIndex, {
-              status: "error",
-              error: message,
-            });
-
-            setStatusMessage(
-              `Pose ${poseIndex + 1} / Location ${locationIndex + 1} 오류`
-            );
           }
         }
-      });
+      );
     } catch (error) {
       const message =
         error instanceof Error ? error.message : "알 수 없는 FUSION 오류";
@@ -566,18 +577,25 @@ export default function FusionPage() {
             </div>
 
             <div>
-              <label className="block text-sm font-semibold mb-2">핏 보정</label>
+              <label className="block text-sm font-semibold mb-2">
+                핏 보정 (기존 모델 스펙 → AI 모델 스펙)
+              </label>
               <input
                 type="text"
                 value={fitSpec}
                 onChange={(e) => setFitSpec(e.target.value)}
-                placeholder="예: 173/71 183/63"
+                placeholder="예: 173/71 → 183/63"
                 className="w-full border rounded-xl px-4 py-3"
               />
+              <div className="mt-2 text-xs text-gray-500 leading-5">
+                베타 서비스 단계 · 미입력 시 기존 핏과 유사하게 맞춰드립니다.
+              </div>
             </div>
 
             <div>
-              <label className="block text-sm font-semibold mb-2">Shooting Mode</label>
+              <label className="block text-sm font-semibold mb-2">
+                Shooting Mode
+              </label>
               <select
                 value={shootingMode}
                 onChange={(e) => setShootingMode(e.target.value)}
@@ -593,7 +611,9 @@ export default function FusionPage() {
             </div>
 
             <div>
-              <label className="block text-sm font-semibold mb-2">Custom Prompt</label>
+              <label className="block text-sm font-semibold mb-2">
+                Custom Prompt
+              </label>
               <input
                 type="text"
                 value={customPrompt}
@@ -614,7 +634,9 @@ export default function FusionPage() {
               <div>의상 모드: {outfitMode}</div>
               <div>장소 수: {safeCount}</div>
               <div>총 예상 결과 수: {expectedResultCount}장</div>
-              <div>핏 보정: {fitSpec || "없음"}</div>
+              <div>
+                핏 보정 (기존 모델 스펙 → AI 모델 스펙): {fitSpec || "없음"}
+              </div>
               <div>Shooting Mode: {shootingMode}</div>
               <div>Vibe Lock: {lockedVibe ? "설정됨" : "없음"}</div>
               <div>실행 비용: {totalCost}P</div>
@@ -642,7 +664,9 @@ export default function FusionPage() {
 
         <div className="mt-6 border rounded-2xl p-5 bg-white">
           <div className="font-semibold mb-2">상태</div>
-          <div className="text-sm text-gray-700">{statusMessage || "아직 실행 전"}</div>
+          <div className="text-sm text-gray-700">
+            {statusMessage || "아직 실행 전"}
+          </div>
         </div>
 
         {lockedVibe ? (
@@ -653,7 +677,10 @@ export default function FusionPage() {
               <ShortTag label="포즈" value={shorten(lockedVibe.pose)} />
               <ShortTag label="표정" value={shorten(lockedVibe.expression)} />
               <ShortTag label="무드" value={shorten(lockedVibe.overall_mood)} />
-              <ShortTag label="카메라" value={shorten(lockedVibe.camera_angle_and_crop)} />
+              <ShortTag
+                label="카메라"
+                value={shorten(lockedVibe.camera_angle_and_crop)}
+              />
             </div>
           </div>
         ) : null}
@@ -696,8 +723,14 @@ export default function FusionPage() {
                       />
 
                       <div className="flex flex-wrap gap-2 mb-4">
-                        <ShortTag label="무드" value={shorten(slot.result.bgDNA?.spatial_mood)} />
-                        <ShortTag label="장소" value={shorten(slot.result.locationPrompt)} />
+                        <ShortTag
+                          label="무드"
+                          value={shorten(slot.result.bgDNA?.spatial_mood)}
+                        />
+                        <ShortTag
+                          label="장소"
+                          value={shorten(slot.result.locationPrompt)}
+                        />
                         <ShortTag
                           label="카메라"
                           value={shorten(
@@ -705,9 +738,18 @@ export default function FusionPage() {
                               slot.result.poseBlueprint?.camera_angle_and_crop
                           )}
                         />
-                        <ShortTag label="조명" value={shorten(slot.result.bgDNA?.lighting_and_exposure)} />
-                        <ShortTag label="포즈" value={shorten(slot.result.poseBlueprint?.pose)} />
-                        <ShortTag label="표정" value={shorten(slot.result.poseBlueprint?.expression)} />
+                        <ShortTag
+                          label="조명"
+                          value={shorten(slot.result.bgDNA?.lighting_and_exposure)}
+                        />
+                        <ShortTag
+                          label="포즈"
+                          value={shorten(slot.result.poseBlueprint?.pose)}
+                        />
+                        <ShortTag
+                          label="표정"
+                          value={shorten(slot.result.poseBlueprint?.expression)}
+                        />
                       </div>
 
                       <div className="text-sm text-gray-700 mb-4">
