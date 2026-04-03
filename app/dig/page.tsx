@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { spendPoints } from "@/lib/points";
 import FaceInputSection, {
   ModelGenerateOptions,
@@ -181,6 +182,8 @@ function getImageMime(base64?: string) {
 }
 
 export default function DigPage() {
+  const router = useRouter();
+
   const [faces, setFaces] = useState<UploadItem[]>([]);
   const [outfits, setOutfits] = useState<UploadItem[]>([]);
 
@@ -202,6 +205,19 @@ export default function DigPage() {
   const safeCount = Math.max(1, Math.min(20, Number(count) || 1));
   const totalCost = safeCount * 50;
 
+  const handlePointFailure = (message: string) => {
+    setStatusMessage(`오류: ${message}`);
+
+    if (message.includes("포인트 부족")) {
+      alert("포인트가 부족합니다. 충전 페이지로 이동합니다.");
+      router.push("/charge");
+      return true;
+    }
+
+    alert(message);
+    return false;
+  };
+
   const appendFiles = (
     setter: React.Dispatch<React.SetStateAction<UploadItem[]>>,
     files: FileList | null
@@ -209,7 +225,6 @@ export default function DigPage() {
     if (!files || files.length === 0) return;
 
     const MAX_SIZE = 4.5 * 1024 * 1024;
-
     const newItems: UploadItem[] = [];
 
     for (const file of Array.from(files)) {
@@ -316,8 +331,7 @@ export default function DigPage() {
     } catch (error) {
       const message =
         error instanceof Error ? error.message : "모델 생성 중 오류";
-      setStatusMessage(`오류: ${message}`);
-      alert(message);
+      handlePointFailure(message);
     } finally {
       setModelGenerating(false);
     }
@@ -385,7 +399,8 @@ export default function DigPage() {
         `Directions 생성 완료. ${directions.length}개 컷 생성 시작...`
       );
 
-      directions.forEach(async (direction, index) => {
+      for (let index = 0; index < directions.length; index++) {
+        const direction = directions[index];
         updateSlot(index, { status: "generating" });
 
         try {
@@ -440,12 +455,11 @@ export default function DigPage() {
 
           setStatusMessage(`컷 ${index + 1} 오류`);
         }
-      });
+      }
     } catch (error) {
       const message =
         error instanceof Error ? error.message : "알 수 없는 DIG 오류";
-      setStatusMessage(`오류: ${message}`);
-      alert(message);
+      handlePointFailure(message);
     } finally {
       setLoading(false);
     }
@@ -616,6 +630,24 @@ export default function DigPage() {
               <div>Shooting Mode: {shootingMode}</div>
               <div>Vibe Lock: {lockedVibe ? "설정됨" : "없음"}</div>
               <div>실행 비용: {totalCost}P</div>
+            </div>
+          </div>
+
+          <div className="rounded-2xl border bg-white p-4">
+            <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+              <div>
+                <div className="text-sm font-semibold text-black">포인트 충전</div>
+                <div className="mt-1 text-sm text-gray-600">
+                  DIG 실행 전 포인트를 미리 충전해 두시면 작업이 끊기지 않습니다.
+                </div>
+              </div>
+
+              <Link
+                href="/charge"
+                className="inline-flex items-center justify-center rounded-xl border px-5 py-3 text-sm font-medium transition hover:bg-[#f3f3f1]"
+              >
+                충전하러 가기
+              </Link>
             </div>
           </div>
 

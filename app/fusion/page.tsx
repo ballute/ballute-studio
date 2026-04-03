@@ -2,6 +2,7 @@
 
 import { useMemo, useState } from "react";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { spendPoints } from "@/lib/points";
 import FaceInputSection, {
   ModelGenerateOptions,
@@ -180,6 +181,8 @@ function getImageMime(base64?: string) {
 }
 
 export default function FusionPage() {
+  const router = useRouter();
+
   const [faces, setFaces] = useState<UploadItem[]>([]);
   const [outfits, setOutfits] = useState<UploadItem[]>([]);
   const [bgs, setBgs] = useState<UploadItem[]>([]);
@@ -204,6 +207,19 @@ export default function FusionPage() {
   );
   const expectedResultCount = poses.length * safeCount;
   const totalCost = expectedResultCount * costPerImage;
+
+  const handlePointFailure = (message: string) => {
+    setStatusMessage(`오류: ${message}`);
+
+    if (message.includes("포인트 부족")) {
+      alert("포인트가 부족합니다. 충전 페이지로 이동합니다.");
+      router.push("/charge");
+      return true;
+    }
+
+    alert(message);
+    return false;
+  };
 
   const appendFiles = (
     setter: React.Dispatch<React.SetStateAction<UploadItem[]>>,
@@ -319,8 +335,7 @@ export default function FusionPage() {
     } catch (error) {
       const message =
         error instanceof Error ? error.message : "모델 생성 중 오류";
-      setStatusMessage(`오류: ${message}`);
-      alert(message);
+      handlePointFailure(message);
     } finally {
       setModelGenerating(false);
     }
@@ -375,90 +390,93 @@ export default function FusionPage() {
       const { bgDNA, locationPrompts, poseBlueprints } = prepareData;
 
       const initialSlots: ResultSlot[] = [];
-      poseBlueprints.forEach((_: unknown, poseIndex: number) => {
-        locationPrompts.forEach((_: string, locationIndex: number) => {
+      for (let poseIndex = 0; poseIndex < poseBlueprints.length; poseIndex++) {
+        for (
+          let locationIndex = 0;
+          locationIndex < locationPrompts.length;
+          locationIndex++
+        ) {
           initialSlots.push({
             status: "waiting",
             result: null,
             poseIndex,
             locationIndex,
           });
-        });
-      });
+        }
+      }
 
       setResultSlots(initialSlots);
 
-      poseBlueprints.forEach(
-        async (poseBlueprint: unknown, poseIndex: number) => {
-          for (
-            let locationIndex = 0;
-            locationIndex < locationPrompts.length;
-            locationIndex++
-          ) {
-            const slotIndex = poseIndex * locationPrompts.length + locationIndex;
-            updateSlot(slotIndex, { status: "generating" });
+      for (let poseIndex = 0; poseIndex < poseBlueprints.length; poseIndex++) {
+        const poseBlueprint = poseBlueprints[poseIndex];
 
-            try {
-              const formData = new FormData();
-              formData.append("fitSpec", fitSpec);
-              formData.append("shootingMode", shootingMode);
-              formData.append("customPrompt", customPrompt);
-              formData.append("outfitMode", outfitMode);
-              formData.append(
-                "mixCaptions",
-                JSON.stringify(outfits.map((item) => item.caption || ""))
-              );
-              formData.append("bgDNA", JSON.stringify(bgDNA));
-              formData.append("poseBlueprint", JSON.stringify(poseBlueprint));
-              formData.append("locationPrompt", locationPrompts[locationIndex]);
-              formData.append(
-                "lockedVibe",
-                lockedVibe ? JSON.stringify(lockedVibe) : ""
-              );
+        for (
+          let locationIndex = 0;
+          locationIndex < locationPrompts.length;
+          locationIndex++
+        ) {
+          const slotIndex = poseIndex * locationPrompts.length + locationIndex;
+          updateSlot(slotIndex, { status: "generating" });
 
-              faces.forEach((item) => formData.append("faces", item.file));
-              outfits.forEach((item) => formData.append("outfits", item.file));
+          try {
+            const formData = new FormData();
+            formData.append("fitSpec", fitSpec);
+            formData.append("shootingMode", shootingMode);
+            formData.append("customPrompt", customPrompt);
+            formData.append("outfitMode", outfitMode);
+            formData.append(
+              "mixCaptions",
+              JSON.stringify(outfits.map((item) => item.caption || ""))
+            );
+            formData.append("bgDNA", JSON.stringify(bgDNA));
+            formData.append("poseBlueprint", JSON.stringify(poseBlueprint));
+            formData.append("locationPrompt", locationPrompts[locationIndex]);
+            formData.append(
+              "lockedVibe",
+              lockedVibe ? JSON.stringify(lockedVibe) : ""
+            );
 
-              const res = await fetch("/api/fusion/generate-one", {
-                method: "POST",
-                body: formData,
-              });
+            faces.forEach((item) => formData.append("faces", item.file));
+            outfits.forEach((item) => formData.append("outfits", item.file));
 
-              const data = await res.json();
+            const res = await fetch("/api/fusion/generate-one", {
+              method: "POST",
+              body: formData,
+            });
 
-              if (!res.ok) {
-                throw new Error(data?.error || "FUSION 한 장 생성 실패");
-              }
+            const data = await res.json();
 
-              updateSlot(slotIndex, {
-                status: "done",
-                result: data.result as FusionResult,
-              });
-
-              setStatusMessage(
-                `Pose ${poseIndex + 1} / Location ${locationIndex + 1} 생성 완료`
-              );
-            } catch (error) {
-              const message =
-                error instanceof Error ? error.message : "알 수 없는 FUSION 오류";
-
-              updateSlot(slotIndex, {
-                status: "error",
-                error: message,
-              });
-
-              setStatusMessage(
-                `Pose ${poseIndex + 1} / Location ${locationIndex + 1} 오류`
-              );
+            if (!res.ok) {
+              throw new Error(data?.error || "FUSION 한 장 생성 실패");
             }
+
+            updateSlot(slotIndex, {
+              status: "done",
+              result: data.result as FusionResult,
+            });
+
+            setStatusMessage(
+              `Pose ${poseIndex + 1} / Location ${locationIndex + 1} 생성 완료`
+            );
+          } catch (error) {
+            const message =
+              error instanceof Error ? error.message : "알 수 없는 FUSION 오류";
+
+            updateSlot(slotIndex, {
+              status: "error",
+              error: message,
+            });
+
+            setStatusMessage(
+              `Pose ${poseIndex + 1} / Location ${locationIndex + 1} 오류`
+            );
           }
         }
-      );
+      }
     } catch (error) {
       const message =
         error instanceof Error ? error.message : "알 수 없는 FUSION 오류";
-      setStatusMessage(`오류: ${message}`);
-      alert(message);
+      handlePointFailure(message);
     } finally {
       setLoading(false);
     }
@@ -634,12 +652,28 @@ export default function FusionPage() {
               <div>의상 모드: {outfitMode}</div>
               <div>장소 수: {safeCount}</div>
               <div>총 예상 결과 수: {expectedResultCount}장</div>
-              <div>
-                핏 보정 (기존 모델 스펙 → AI 모델 스펙): {fitSpec || "없음"}
-              </div>
+              <div>핏 보정: {fitSpec || "없음"}</div>
               <div>Shooting Mode: {shootingMode}</div>
               <div>Vibe Lock: {lockedVibe ? "설정됨" : "없음"}</div>
               <div>실행 비용: {totalCost}P</div>
+            </div>
+          </div>
+
+          <div className="rounded-2xl border bg-white p-4">
+            <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+              <div>
+                <div className="text-sm font-semibold text-black">포인트 충전</div>
+                <div className="mt-1 text-sm text-gray-600">
+                  FUSION은 이미지당 차감 포인트가 높아 실행 전 잔액 확인을 권장합니다.
+                </div>
+              </div>
+
+              <Link
+                href="/charge"
+                className="inline-flex items-center justify-center rounded-xl border px-5 py-3 text-sm font-medium transition hover:bg-[#f3f3f1]"
+              >
+                충전하러 가기
+              </Link>
             </div>
           </div>
 
@@ -740,7 +774,9 @@ export default function FusionPage() {
                         />
                         <ShortTag
                           label="조명"
-                          value={shorten(slot.result.bgDNA?.lighting_and_exposure)}
+                          value={shorten(
+                            slot.result.bgDNA?.lighting_and_exposure
+                          )}
                         />
                         <ShortTag
                           label="포즈"

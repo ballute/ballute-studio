@@ -190,6 +190,13 @@ export default function HomePage() {
                       my page
                     </Link>
 
+                    <Link
+                      href="/charge"
+                      className="rounded-full border border-[#cfcbd2] px-4 py-2 text-[13px] transition hover:bg-[#ece8ee]"
+                    >
+                      charge
+                    </Link>
+
                     <button
                       type="button"
                       onClick={handleLogout}

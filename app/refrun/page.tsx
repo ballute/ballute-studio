@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { spendPoints } from "@/lib/points";
 import FaceInputSection, {
   ModelGenerateOptions,
@@ -175,6 +176,8 @@ function getImageMime(base64?: string) {
 }
 
 export default function RefRunPage() {
+  const router = useRouter();
+
   const [faces, setFaces] = useState<UploadItem[]>([]);
   const [outfits, setOutfits] = useState<UploadItem[]>([]);
   const [references, setReferences] = useState<UploadItem[]>([]);
@@ -194,6 +197,19 @@ export default function RefRunPage() {
   const safeCount = Math.max(1, Math.min(20, Number(perReferenceCount) || 1));
   const totalResults = references.length * safeCount;
   const totalCost = totalResults * 50;
+
+  const handlePointFailure = (message: string) => {
+    setStatusMessage(`오류: ${message}`);
+
+    if (message.includes("포인트 부족")) {
+      alert("포인트가 부족합니다. 충전 페이지로 이동합니다.");
+      router.push("/charge");
+      return true;
+    }
+
+    alert(message);
+    return false;
+  };
 
   const appendFiles = (
     setter: React.Dispatch<React.SetStateAction<UploadItem[]>>,
@@ -289,8 +305,7 @@ export default function RefRunPage() {
     } catch (error) {
       const message =
         error instanceof Error ? error.message : "모델 생성 중 오류";
-      setStatusMessage(`오류: ${message}`);
-      alert(message);
+      handlePointFailure(message);
     } finally {
       setModelGenerating(false);
     }
@@ -337,7 +352,9 @@ export default function RefRunPage() {
 
       setResultSlots(initialSlots);
 
-      references.forEach(async (referenceItem, refIndex) => {
+      for (let refIndex = 0; refIndex < references.length; refIndex++) {
+        const referenceItem = references[refIndex];
+
         for (let cutIndex = 0; cutIndex < safeCount; cutIndex++) {
           const slotIndex = refIndex * safeCount + cutIndex;
 
@@ -397,12 +414,11 @@ export default function RefRunPage() {
             );
           }
         }
-      });
+      }
     } catch (error) {
       const message =
         error instanceof Error ? error.message : "알 수 없는 REFRUN 오류";
-      setStatusMessage(`오류: ${message}`);
-      alert(message);
+      handlePointFailure(message);
     } finally {
       setLoading(false);
     }
@@ -568,12 +584,28 @@ export default function RefRunPage() {
               <div>레퍼런스: {references.length}장</div>
               <div>레퍼런스당 생성 수: {safeCount}</div>
               <div>총 예상 결과 수: {totalResults}장</div>
-              <div>
-                핏 보정 (기존 모델 스펙 → AI 모델 스펙): {fitSpec || "없음"}
-              </div>
+              <div>핏 보정: {fitSpec || "없음"}</div>
               <div>Shooting Mode: {shootingMode}</div>
               <div>Custom Prompt: {customPrompt || "없음"}</div>
               <div>실행 비용: {totalCost}P</div>
+            </div>
+          </div>
+
+          <div className="rounded-2xl border bg-white p-4">
+            <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+              <div>
+                <div className="text-sm font-semibold text-black">포인트 충전</div>
+                <div className="mt-1 text-sm text-gray-600">
+                  REFRUN은 레퍼런스 수와 생성 수에 따라 포인트가 빠르게 차감될 수 있습니다.
+                </div>
+              </div>
+
+              <Link
+                href="/charge"
+                className="inline-flex items-center justify-center rounded-xl border px-5 py-3 text-sm font-medium transition hover:bg-[#f3f3f1]"
+              >
+                충전하러 가기
+              </Link>
             </div>
           </div>
 

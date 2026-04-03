@@ -41,16 +41,11 @@ export default function MyPage() {
           return;
         }
 
-        const { data: profile, error: profileError } = await supabase
+        const { data: profile } = await supabase
           .from("users")
           .select("id, email, point_balance")
           .eq("id", user.id)
           .maybeSingle();
-
-        if (profileError) {
-          console.error("profile 오류:", profileError);
-          setPageError("사용자 정보를 불러오지 못했습니다.");
-        }
 
         setViewer({
           id: user.id,
@@ -58,21 +53,16 @@ export default function MyPage() {
           pointBalance: profile?.point_balance ?? 0,
         });
 
-        const { data: pointLogs, error: logsError } = await supabase
+        const { data: pointLogs } = await supabase
           .from("point_logs")
           .select("id, type, amount, balance_after, reason, created_at")
           .eq("user_id", user.id)
           .order("created_at", { ascending: false });
 
-        if (logsError) {
-          console.error("point_logs 오류:", logsError);
-          setLogs([]);
-        } else {
-          setLogs(pointLogs ?? []);
-        }
+        setLogs(pointLogs ?? []);
       } catch (error) {
-        console.error("mypage 로드 오류:", error);
-        setPageError("마이페이지를 불러오는 중 오류가 발생했습니다.");
+        console.error(error);
+        setPageError("마이페이지 로드 실패");
       } finally {
         setLoading(false);
       }
@@ -95,101 +85,93 @@ export default function MyPage() {
 
   if (loading) {
     return (
-      <main className="min-h-screen bg-[#f7f7f5] px-6 py-12">
-        <div className="mx-auto max-w-5xl text-sm text-gray-500">불러오는 중...</div>
+      <main className="min-h-screen flex items-center justify-center">
+        로딩중...
       </main>
     );
   }
 
-  if (!viewer) {
-    return null;
-  }
+  if (!viewer) return null;
 
   return (
     <main className="min-h-screen bg-[#f7f7f5] px-6 py-12">
-      <div className="mx-auto max-w-5xl">
-        <div className="mb-8">
-          <Link
-            href="/"
-            className="inline-flex items-center text-sm text-gray-600 mb-4"
-          >
+      <div className="max-w-5xl mx-auto">
+
+        {/* 헤더 */}
+        <div className="mb-10">
+          <Link href="/" className="text-sm text-gray-600 mb-4 inline-block">
             ← 홈으로
           </Link>
-
-          <h1 className="text-4xl font-bold mb-3">마이페이지</h1>
-          <p className="text-gray-700 text-lg leading-8">
-            계정 정보와 포인트 사용 내역을 확인할 수 있습니다.
-          </p>
+          <h1 className="text-4xl font-bold">마이페이지</h1>
         </div>
 
-        {pageError ? (
-          <div className="mb-6 rounded-2xl border bg-white p-4 text-sm text-red-500">
-            {pageError}
-          </div>
-        ) : null}
+        {/* 핵심 카드 */}
+        <div className="rounded-3xl border bg-white p-8 mb-10">
+          <div className="flex flex-col md:flex-row md:justify-between md:items-center gap-6">
 
-        <div className="grid grid-cols-1 gap-6 md:grid-cols-3 mb-8">
-          <div className="rounded-3xl border bg-white p-6">
-            <div className="text-sm text-gray-500 mb-2">로그인 계정</div>
-            <div className="text-lg font-semibold break-all">{viewer.email}</div>
-          </div>
+            <div>
+              <div className="text-sm text-gray-500">현재 포인트</div>
+              <div className="text-4xl font-bold">
+                {viewer.pointBalance}P
+              </div>
+            </div>
 
-          <div className="rounded-3xl border bg-white p-6">
-            <div className="text-sm text-gray-500 mb-2">현재 잔액</div>
-            <div className="text-3xl font-bold">{viewer.pointBalance}P</div>
-          </div>
+            <Link
+              href="/charge"
+              className="bg-black text-white px-6 py-4 rounded-2xl text-lg text-center"
+            >
+              포인트 충전
+            </Link>
 
-          <div className="rounded-3xl border bg-white p-6">
-            <div className="text-sm text-gray-500 mb-2">총 사용 포인트</div>
-            <div className="text-3xl font-bold">{totalUsedPoints}P</div>
           </div>
         </div>
 
-        <div className="grid grid-cols-1 gap-6 md:grid-cols-2 mb-8">
-          <div className="rounded-3xl border bg-white p-6">
-            <div className="text-sm text-gray-500 mb-2">총 적립/충전 포인트</div>
-            <div className="text-3xl font-bold">{totalChargedPoints}P</div>
+        {/* 요약 */}
+        <div className="grid md:grid-cols-2 gap-6 mb-10">
+          <div className="rounded-2xl border bg-white p-6">
+            <div className="text-sm text-gray-500 mb-2">총 사용</div>
+            <div className="text-2xl font-bold">{totalUsedPoints}P</div>
           </div>
 
-          <div className="rounded-3xl border bg-white p-6">
-            <div className="text-sm text-gray-500 mb-2">로그 수</div>
-            <div className="text-3xl font-bold">{logs.length}건</div>
+          <div className="rounded-2xl border bg-white p-6">
+            <div className="text-sm text-gray-500 mb-2">총 충전</div>
+            <div className="text-2xl font-bold">{totalChargedPoints}P</div>
           </div>
         </div>
 
+        {/* 로그 */}
         <div className="rounded-3xl border bg-white p-6">
-          <div className="mb-4 text-2xl font-bold">최근 포인트 내역</div>
+          <div className="text-2xl font-bold mb-6">포인트 내역</div>
 
           {logs.length === 0 ? (
-            <div className="text-sm text-gray-500">아직 내역이 없습니다.</div>
+            <div className="text-gray-500">내역 없음</div>
           ) : (
-            <div className="space-y-3">
+            <div className="space-y-4">
               {logs.map((log) => (
                 <div
                   key={log.id}
-                  className="flex flex-col gap-2 rounded-2xl border p-4 md:flex-row md:items-center md:justify-between"
+                  className="flex justify-between border rounded-xl p-4"
                 >
                   <div>
-                    <div className="font-semibold">{log.reason || "사유 없음"}</div>
+                    <div className="font-semibold">
+                      {log.reason || "사유 없음"}
+                    </div>
                     <div className="text-sm text-gray-500">
-                      {log.type} ·{" "}
-                      {log.created_at
-                        ? new Date(log.created_at).toLocaleString("ko-KR")
-                        : "-"}
+                      {new Date(log.created_at).toLocaleString()}
                     </div>
                   </div>
 
                   <div className="text-right">
                     <div
                       className={`font-bold ${
-                        Number(log.amount) < 0 ? "text-red-500" : "text-blue-600"
+                        log.amount < 0 ? "text-red-500" : "text-blue-500"
                       }`}
                     >
-                      {Number(log.amount) > 0 ? "+" : ""}
+                      {log.amount > 0 ? "+" : ""}
                       {log.amount}P
                     </div>
-                    <div className="text-sm text-gray-500">
-                      잔액 후: {log.balance_after ?? "-"}P
+                    <div className="text-sm text-gray-400">
+                      잔액 {log.balance_after ?? "-"}P
                     </div>
                   </div>
                 </div>
@@ -197,6 +179,7 @@ export default function MyPage() {
             </div>
           )}
         </div>
+
       </div>
     </main>
   );
