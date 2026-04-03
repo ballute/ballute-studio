@@ -1,13 +1,17 @@
 "use client";
 
 import Link from "next/link";
-import { useSearchParams } from "next/navigation";
+import { useEffect, useState } from "react";
 
 export default function FailPage() {
-  const searchParams = useSearchParams();
+  const [code, setCode] = useState<string>("-");
+  const [message, setMessage] = useState<string>("알 수 없는 오류");
 
-  const code = searchParams.get("code");
-  const message = searchParams.get("message");
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    setCode(params.get("code") || "-");
+    setMessage(params.get("message") || "알 수 없는 오류");
+  }, []);
 
   return (
     <main className="min-h-screen bg-[#f7f7f5] px-6 py-16">
@@ -24,13 +28,11 @@ export default function FailPage() {
 
           <div className="space-y-3 rounded-2xl border bg-[#fafaf8] p-5 mb-8">
             <div className="text-sm text-gray-500">실패 코드</div>
-            <div className="text-base font-medium text-black">
-              {code || "-"}
-            </div>
+            <div className="text-base font-medium text-black">{code}</div>
 
             <div className="pt-2 text-sm text-gray-500">실패 사유</div>
             <div className="text-base font-medium text-black break-words">
-              {message || "알 수 없는 오류"}
+              {message}
             </div>
           </div>
 
