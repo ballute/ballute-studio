@@ -46,12 +46,20 @@ export async function POST(req: Request) {
       throw new Error("유저 식별 실패");
     }
 
-    const supabase = createClient(
-      process.env.NEXT_PUBLIC_SUPABASE_URL!,
-      process.env.SUPABASE_SERVICE_ROLE_KEY!
-    );
+    const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
+    const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
 
-    const { error } = await supabase.rpc("add_points", {
+    if (!supabaseUrl) {
+      throw new Error("NEXT_PUBLIC_SUPABASE_URL 없음");
+    }
+
+    if (!serviceRoleKey) {
+      throw new Error("SUPABASE_SERVICE_ROLE_KEY 없음");
+    }
+
+    const supabase = createClient(supabaseUrl, serviceRoleKey);
+
+    const { data, error } = await supabase.rpc("add_points", {
       p_user_id: userId,
       p_amount: Number(points),
       p_reason: "충전",
@@ -59,11 +67,14 @@ export async function POST(req: Request) {
 
     if (error) {
       console.error("포인트 추가 실패:", error);
-      throw new Error("포인트 지급 실패");
+      throw new Error(
+        error.message || error.details || error.hint || "포인트 지급 실패"
+      );
     }
 
     return NextResponse.json({
       success: true,
+      data,
     });
   } catch (e: any) {
     console.error("confirm route error:", e);
