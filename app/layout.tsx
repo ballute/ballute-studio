@@ -20,14 +20,19 @@ export const metadata: Metadata = {
 
 export default function RootLayout({
   children,
-}: Readonly<{
+}: {
   children: React.ReactNode;
-}>) {
+}) {
   return (
     <html
       lang="en"
       className={`${geistSans.variable} ${geistMono.variable} h-full antialiased`}
     >
+      <head>
+        {/* 🔥 토스 SDK 추가 */}
+        <script src="https://js.tosspayments.com/v1"></script>
+      </head>
+
       <body className="min-h-full flex flex-col">
         <main className="flex-1">{children}</main>
         <Footer />
