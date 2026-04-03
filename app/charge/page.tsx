@@ -2,6 +2,8 @@
 
 import Link from "next/link";
 import { useMemo, useState } from "react";
+import { useRouter } from "next/navigation";
+import { supabase } from "@/lib/supabase";
 
 declare global {
   interface Window {
@@ -20,6 +22,7 @@ function formatWon(value: number) {
 }
 
 export default function ChargePage() {
+  const router = useRouter();
   const [loading, setLoading] = useState(false);
   const [selectedPrice, setSelectedPrice] = useState<number>(PRODUCTS[0].price);
 
@@ -32,17 +35,30 @@ export default function ChargePage() {
     setLoading(true);
 
     try {
-      const tossPayments = window.TossPayments(
-        process.env.NEXT_PUBLIC_TOSS_CLIENT_KEY
-      );
+      const {
+        data: { user },
+        error: userError,
+      } = await supabase.auth.getUser();
 
-      const orderId = `order_${Date.now()}`;
+      if (userError || !user) {
+        alert("로그인이 필요합니다.");
+        router.push("/login");
+        return;
+      }
+
+      const clientKey = process.env.NEXT_PUBLIC_TOSS_CLIENT_KEY;
+      if (!clientKey) {
+        throw new Error("NEXT_PUBLIC_TOSS_CLIENT_KEY 없음");
+      }
+
+      const tossPayments = window.TossPayments(clientKey);
+      const orderId = `order_${user.id}_${Date.now()}`;
 
       await tossPayments.requestPayment("카드", {
         amount,
         orderId,
         orderName: `${points} 포인트 충전`,
-        successUrl: `${window.location.origin}/charge/success?amount=${amount}&points=${points}`,
+        successUrl: `${window.location.origin}/charge/success`,
         failUrl: `${window.location.origin}/charge/fail`,
       });
     } catch (e) {
