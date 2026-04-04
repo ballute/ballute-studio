@@ -1,9 +1,10 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { spendPoints } from "@/lib/points";
+import { makeSessionId, uploadTempAssets } from "@/lib/storage";
 import FaceInputSection, {
   ModelGenerateOptions,
 } from "@/components/face-input-section";
@@ -12,6 +13,9 @@ type UploadItem = {
   file: File;
   preview: string;
   caption?: string;
+  storagePath?: string;
+  uploaded?: boolean;
+  expiresAt?: string;
 };
 
 type DigDirection = {
@@ -127,6 +131,12 @@ function UploadSection({
                 {item.file.name}
               </div>
 
+              {item.uploaded ? (
+                <div className="mt-2 text-[11px] text-green-600">
+                  temp 업로드 완료
+                </div>
+              ) : null}
+
               {showCaptionInput && onCaptionChange ? (
                 <textarea
                   value={item.caption || ""}
@@ -154,13 +164,7 @@ function UploadSection({
   );
 }
 
-function ShortTag({
-  label,
-  value,
-}: {
-  label: string;
-  value: string;
-}) {
+function ShortTag({ label, value }: { label: string; value: string }) {
   return (
     <div className="inline-flex items-center gap-2 rounded-full border px-3 py-2 text-xs bg-[#fafaf8]">
       <span className="font-semibold text-gray-800">{label}</span>
@@ -181,12 +185,19 @@ function getImageMime(base64?: string) {
   return "image/jpeg";
 }
 
+function parseJsonSafely(raw: string) {
+  try {
+    return JSON.parse(raw);
+  } catch {
+    return null;
+  }
+}
+
 export default function DigPage() {
   const router = useRouter();
 
   const [faces, setFaces] = useState<UploadItem[]>([]);
   const [outfits, setOutfits] = useState<UploadItem[]>([]);
-
   const [outfitMode, setOutfitMode] = useState<"outfit" | "mix">("outfit");
 
   const [moodQuery, setMoodQuery] = useState("");
@@ -194,15 +205,19 @@ export default function DigPage() {
   const [fitSpec, setFitSpec] = useState("");
   const [shootingMode, setShootingMode] = useState("default");
   const [customPrompt, setCustomPrompt] = useState("");
-
   const [lockedVibe, setLockedVibe] = useState<LockedVibe | null>(null);
 
   const [loading, setLoading] = useState(false);
   const [modelGenerating, setModelGenerating] = useState(false);
   const [statusMessage, setStatusMessage] = useState("");
   const [resultSlots, setResultSlots] = useState<ResultSlot[]>([]);
+  const [digSessionId, setDigSessionId] = useState<string | null>(null);
 
-  const safeCount = Math.max(1, Math.min(20, Number(count) || 1));
+  useEffect(() => {
+    setDigSessionId(makeSessionId("dig"));
+  }, []);
+
+  const safeCount = Math.max(1, Math.min(8, Number(count) || 1));
   const totalCost = safeCount * 50;
 
   const handlePointFailure = (message: string) => {
@@ -289,6 +304,97 @@ export default function DigPage() {
     );
   };
 
+  const uploadItemsToStorage = async (
+    items: UploadItem[],
+    kind: "faces" | "outfits"
+  ) => {
+    const currentSessionId = digSessionId;
+
+    if (!currentSessionId) {
+      throw new Error("세션 생성중입니다. 잠시 후 다시 시도해 주세요.");
+    }
+
+    const pending = items.filter((item) => !item.uploaded || !item.storagePath);
+
+    if (!pending.length) {
+      return items;
+    }
+
+    const uploaded = await uploadTempAssets({
+      files: pending.map((item) => item.file),
+      kind,
+      sessionId: currentSessionId,
+    });
+
+    let uploadIndex = 0;
+
+    return items.map((item) => {
+      if (item.uploaded && item.storagePath) {
+        return item;
+      }
+
+      const asset = uploaded[uploadIndex++];
+
+      return {
+        ...item,
+        storagePath: asset.path,
+        uploaded: true,
+        expiresAt: asset.expiresAt,
+      };
+    });
+  };
+
+  const ensureAssetsUploaded = async () => {
+    setStatusMessage("임시 스토리지 업로드중...");
+
+    const uploadedFaces = await uploadItemsToStorage(faces, "faces");
+    setFaces(uploadedFaces);
+
+    const uploadedOutfits = await uploadItemsToStorage(outfits, "outfits");
+    setOutfits(uploadedOutfits);
+
+    return {
+      uploadedFaces,
+      uploadedOutfits,
+    };
+  };
+
+  const cleanupDigSession = async () => {
+    try {
+      const { supabase } = await import("@/lib/supabase");
+
+      const {
+        data: { session },
+        error: sessionError,
+      } = await supabase.auth.getSession();
+
+      if (sessionError || !session?.access_token) {
+        console.warn("세션 토큰이 없어 temp 즉시 삭제를 건너뜁니다.");
+        return;
+      }
+
+      const res = await fetch("/api/temp-assets/delete", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${session.access_token}`,
+        },
+        body: JSON.stringify({
+          sessionId: digSessionId,
+        }),
+      });
+
+      const raw = await res.text();
+      const data = parseJsonSafely(raw);
+
+      if (!res.ok) {
+        throw new Error(data?.error || raw || "임시 파일 삭제 실패");
+      }
+    } catch (error) {
+      console.error("DIG_SESSION_CLEANUP_ERROR:", error);
+    }
+  };
+
   const handleGenerateModel = async (options: ModelGenerateOptions) => {
     try {
       setModelGenerating(true);
@@ -304,10 +410,15 @@ export default function DigPage() {
         body: JSON.stringify(options),
       });
 
-      const data = await res.json();
+      const raw = await res.text();
+      const data = parseJsonSafely(raw);
 
       if (!res.ok) {
-        throw new Error(data?.error || "모델 생성 실패");
+        throw new Error(data?.error || raw || "모델 생성 실패");
+      }
+
+      if (!data?.imageBase64) {
+        throw new Error("모델 생성 응답이 비어 있습니다.");
       }
 
       const mimeType = data.mimeType || getImageMime(data.imageBase64);
@@ -338,6 +449,11 @@ export default function DigPage() {
   };
 
   const handleRunDig = async () => {
+    if (!digSessionId) {
+      alert("세션 생성중입니다. 잠시 후 다시 시도해 주세요.");
+      return;
+    }
+
     if (faces.length === 0 || outfits.length === 0) {
       alert("얼굴과 의상은 최소 1장씩 필요하다.");
       return;
@@ -362,27 +478,46 @@ export default function DigPage() {
       setLoading(true);
       setStatusMessage(`포인트 차감중... (${totalCost}P)`);
 
+      const { uploadedFaces, uploadedOutfits } = await ensureAssetsUploaded();
+
+      const facePaths = uploadedFaces
+        .map((item) => item.storagePath)
+        .filter((v): v is string => Boolean(v));
+
+      const outfitPaths = uploadedOutfits
+        .map((item) => item.storagePath)
+        .filter((v): v is string => Boolean(v));
+
+      if (!facePaths.length || !outfitPaths.length) {
+        throw new Error("얼굴 또는 의상 업로드 경로 확보 실패");
+      }
+
       await spendPoints(totalCost, `DIG 실행 (${safeCount}장)`);
 
       setStatusMessage("DIG directions 생성중...");
       setResultSlots([]);
 
-      const directionForm = new FormData();
-      directionForm.append("moodQuery", moodQuery);
-      directionForm.append("count", String(safeCount));
-
       const directionsRes = await fetch("/api/dig/directions", {
         method: "POST",
-        body: directionForm,
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          moodQuery,
+          count: safeCount,
+        }),
       });
 
-      const directionsData = await directionsRes.json();
+      const directionsRaw = await directionsRes.text();
+      const directionsData = parseJsonSafely(directionsRaw);
 
       if (!directionsRes.ok) {
-        throw new Error(directionsData?.error || "DIG directions 생성 실패");
+        throw new Error(
+          directionsData?.error || directionsRaw || "DIG directions 생성 실패"
+        );
       }
 
-      const directions: DigDirection[] = directionsData.directions || [];
+      const directions: DigDirection[] = directionsData?.directions || [];
 
       if (!directions.length) {
         throw new Error("direction이 비어 있다.");
@@ -404,38 +539,29 @@ export default function DigPage() {
         updateSlot(index, { status: "generating" });
 
         try {
-          const formData = new FormData();
-          formData.append("fitSpec", fitSpec);
-          formData.append("shootingMode", shootingMode);
-          formData.append("customPrompt", customPrompt);
-          formData.append("outfitMode", outfitMode);
-          formData.append(
-            "mixCaptions",
-            JSON.stringify(outfits.map((item) => item.caption || ""))
-          );
-          formData.append(
-            "lockedVibe",
-            lockedVibe ? JSON.stringify(lockedVibe) : ""
-          );
-          formData.append("direction", JSON.stringify(direction));
-
-          faces.forEach((item) => {
-            formData.append("faces", item.file);
-          });
-
-          outfits.forEach((item) => {
-            formData.append("outfits", item.file);
-          });
-
           const res = await fetch("/api/dig/generate-one", {
             method: "POST",
-            body: formData,
+            headers: {
+              "Content-Type": "application/json",
+            },
+            body: JSON.stringify({
+              fitSpec,
+              shootingMode,
+              customPrompt,
+              outfitMode,
+              mixCaptions: uploadedOutfits.map((item) => item.caption || ""),
+              lockedVibe,
+              direction,
+              facePaths,
+              outfitPaths,
+            }),
           });
 
-          const data = await res.json();
+          const raw = await res.text();
+          const data = parseJsonSafely(raw);
 
           if (!res.ok) {
-            throw new Error(data?.error || "한 장 생성 실패");
+            throw new Error(data?.error || raw || "한 장 생성 실패");
           }
 
           updateSlot(index, {
@@ -456,6 +582,10 @@ export default function DigPage() {
           setStatusMessage(`컷 ${index + 1} 오류`);
         }
       }
+
+      setStatusMessage("임시 파일 정리중...");
+      await cleanupDigSession();
+      setStatusMessage("DIG 완료");
     } catch (error) {
       const message =
         error instanceof Error ? error.message : "알 수 없는 DIG 오류";
@@ -481,6 +611,16 @@ export default function DigPage() {
             무드 키워드를 리서치해서 여러 크리에이티브 디렉션을 만들고, 각
             디렉션마다 한 컷씩 생성하는 생산 라인.
           </p>
+        </div>
+
+        <div className="mb-4 rounded-2xl border bg-[#fafaf8] p-4">
+          <div className="text-sm font-semibold text-black">현재 DIG 세션</div>
+          <div className="mt-1 break-all text-xs text-gray-600">
+            {digSessionId || "세션 생성중..."}
+          </div>
+          <div className="mt-2 text-xs text-gray-500">
+            이번 실행에서 업로드되는 임시 파일은 이 세션 경로 기준으로 분리됩니다.
+          </div>
         </div>
 
         <div className="grid grid-cols-1 xl:grid-cols-2 gap-6 mb-6">
@@ -561,7 +701,7 @@ export default function DigPage() {
               <input
                 type="number"
                 min={1}
-                max={20}
+                max={8}
                 value={count}
                 onChange={(e) => setCount(Number(e.target.value))}
                 className="w-full border rounded-xl px-4 py-3"
@@ -654,7 +794,7 @@ export default function DigPage() {
           <div className="flex gap-3">
             <button
               onClick={handleRunDig}
-              disabled={loading || modelGenerating}
+              disabled={loading || modelGenerating || !digSessionId}
               className="flex-1 bg-black text-white py-5 rounded-2xl text-xl disabled:opacity-60"
             >
               {loading ? "DIG 준비중..." : "DIG 실행하기"}

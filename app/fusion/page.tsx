@@ -1,9 +1,10 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { spendPoints } from "@/lib/points";
+import { makeSessionId, uploadTempAssets } from "@/lib/storage";
 import FaceInputSection, {
   ModelGenerateOptions,
 } from "@/components/face-input-section";
@@ -12,6 +13,9 @@ type UploadItem = {
   file: File;
   preview: string;
   caption?: string;
+  storagePath?: string;
+  uploaded?: boolean;
+  expiresAt?: string;
 };
 
 type LockedVibe = {
@@ -132,6 +136,12 @@ function UploadSection({
                 {item.file.name}
               </div>
 
+              {item.uploaded ? (
+                <div className="mt-2 text-[11px] text-green-600">
+                  temp 업로드 완료
+                </div>
+              ) : null}
+
               {showCaptionInput && onCaptionChange ? (
                 <textarea
                   value={item.caption || ""}
@@ -180,6 +190,14 @@ function getImageMime(base64?: string) {
   return "image/jpeg";
 }
 
+function parseJsonSafely(raw: string) {
+  try {
+    return JSON.parse(raw);
+  } catch {
+    return null;
+  }
+}
+
 export default function FusionPage() {
   const router = useRouter();
 
@@ -199,6 +217,11 @@ export default function FusionPage() {
   const [modelGenerating, setModelGenerating] = useState(false);
   const [statusMessage, setStatusMessage] = useState("");
   const [resultSlots, setResultSlots] = useState<ResultSlot[]>([]);
+  const [fusionSessionId, setFusionSessionId] = useState<string | null>(null);
+
+  useEffect(() => {
+    setFusionSessionId(makeSessionId("fusion"));
+  }, []);
 
   const costPerImage = 60;
   const safeCount = useMemo(
@@ -293,6 +316,105 @@ export default function FusionPage() {
     setStatusMessage("Vibe Lock 해제됨");
   };
 
+  const uploadItemsToStorage = async (
+    items: UploadItem[],
+    kind: "faces" | "outfits" | "bgs" | "poses"
+  ) => {
+    const currentSessionId = fusionSessionId;
+
+    if (!currentSessionId) {
+      throw new Error("세션 생성중입니다. 잠시 후 다시 시도해 주세요.");
+    }
+
+    const pending = items.filter((item) => !item.uploaded || !item.storagePath);
+
+    if (!pending.length) {
+      return items;
+    }
+
+    const uploaded = await uploadTempAssets({
+      files: pending.map((item) => item.file),
+      kind,
+      sessionId: currentSessionId,
+    });
+
+    let uploadIndex = 0;
+
+    return items.map((item) => {
+      if (item.uploaded && item.storagePath) {
+        return item;
+      }
+
+      const asset = uploaded[uploadIndex++];
+
+      return {
+        ...item,
+        storagePath: asset.path,
+        uploaded: true,
+        expiresAt: asset.expiresAt,
+      };
+    });
+  };
+
+  const ensureAssetsUploaded = async () => {
+    setStatusMessage("임시 스토리지 업로드중...");
+
+    const uploadedFaces = await uploadItemsToStorage(faces, "faces");
+    setFaces(uploadedFaces);
+
+    const uploadedOutfits = await uploadItemsToStorage(outfits, "outfits");
+    setOutfits(uploadedOutfits);
+
+    const uploadedBgs = await uploadItemsToStorage(bgs, "bgs");
+    setBgs(uploadedBgs);
+
+    const uploadedPoses = await uploadItemsToStorage(poses, "poses");
+    setPoses(uploadedPoses);
+
+    return {
+      uploadedFaces,
+      uploadedOutfits,
+      uploadedBgs,
+      uploadedPoses,
+    };
+  };
+
+  const cleanupFusionSession = async () => {
+    try {
+      const { supabase } = await import("@/lib/supabase");
+
+      const {
+        data: { session },
+        error: sessionError,
+      } = await supabase.auth.getSession();
+
+      if (sessionError || !session?.access_token) {
+        console.warn("세션 토큰이 없어 temp 즉시 삭제를 건너뜁니다.");
+        return;
+      }
+
+      const res = await fetch("/api/temp-assets/delete", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${session.access_token}`,
+        },
+        body: JSON.stringify({
+          sessionId: fusionSessionId,
+        }),
+      });
+
+      const raw = await res.text();
+      const data = parseJsonSafely(raw);
+
+      if (!res.ok) {
+        throw new Error(data?.error || raw || "임시 파일 삭제 실패");
+      }
+    } catch (error) {
+      console.error("FUSION_SESSION_CLEANUP_ERROR:", error);
+    }
+  };
+
   const handleGenerateModel = async (options: ModelGenerateOptions) => {
     try {
       setModelGenerating(true);
@@ -308,10 +430,15 @@ export default function FusionPage() {
         body: JSON.stringify(options),
       });
 
-      const data = await res.json();
+      const raw = await res.text();
+      const data = parseJsonSafely(raw);
 
       if (!res.ok) {
-        throw new Error(data?.error || "모델 생성 실패");
+        throw new Error(data?.error || raw || "모델 생성 실패");
+      }
+
+      if (!data?.imageBase64) {
+        throw new Error("모델 생성 응답이 비어 있습니다.");
       }
 
       const mimeType = data.mimeType || getImageMime(data.imageBase64);
@@ -342,6 +469,11 @@ export default function FusionPage() {
   };
 
   const handleRunFusion = async () => {
+    if (!fusionSessionId) {
+      alert("세션 생성중입니다. 잠시 후 다시 시도해 주세요.");
+      return;
+    }
+
     if (!faces.length || !outfits.length || !bgs.length || !poses.length) {
       alert("얼굴 / 의상 / BG / POSE는 최소 1장씩 필요하다.");
       return;
@@ -364,30 +496,82 @@ export default function FusionPage() {
 
     try {
       setLoading(true);
-      setStatusMessage(`포인트 차감중... (${totalCost}P)`);
+      setResultSlots([]);
 
+      const {
+        uploadedFaces,
+        uploadedOutfits,
+        uploadedBgs,
+        uploadedPoses,
+      } = await ensureAssetsUploaded();
+
+      const bgPaths = uploadedBgs
+        .map((item) => item.storagePath)
+        .filter((v): v is string => Boolean(v));
+
+      const posePaths = uploadedPoses
+        .map((item) => item.storagePath)
+        .filter((v): v is string => Boolean(v));
+
+      const facePaths = uploadedFaces
+        .map((item) => item.storagePath)
+        .filter((v): v is string => Boolean(v));
+
+      const outfitPaths = uploadedOutfits
+        .map((item) => item.storagePath)
+        .filter((v): v is string => Boolean(v));
+
+      if (!bgPaths.length || !posePaths.length) {
+        throw new Error("BG 또는 POSE 업로드 경로 확보 실패");
+      }
+
+      if (!facePaths.length || !outfitPaths.length) {
+        throw new Error("얼굴 또는 의상 업로드 경로 확보 실패");
+      }
+
+      setStatusMessage(`포인트 차감중... (${totalCost}P)`);
       await spendPoints(totalCost, `FUSION 실행 (${expectedResultCount}장)`);
 
       setStatusMessage("FUSION 준비중...");
-      setResultSlots([]);
-
-      const prepareForm = new FormData();
-      prepareForm.append("count", String(safeCount));
-      bgs.forEach((item) => prepareForm.append("bgs", item.file));
-      poses.forEach((item) => prepareForm.append("poses", item.file));
 
       const prepareRes = await fetch("/api/fusion/prepare", {
         method: "POST",
-        body: prepareForm,
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          count: safeCount,
+          bgPaths,
+          posePaths,
+        }),
       });
 
-      const prepareData = await prepareRes.json();
+      const prepareRaw = await prepareRes.text();
+      const prepareData = parseJsonSafely(prepareRaw);
 
       if (!prepareRes.ok) {
-        throw new Error(prepareData?.error || "FUSION 준비 실패");
+        throw new Error(
+          prepareData?.error || prepareRaw || "FUSION 준비 실패"
+        );
       }
 
-      const { bgDNA, locationPrompts, poseBlueprints } = prepareData;
+      if (
+        !prepareData?.bgDNA ||
+        !Array.isArray(prepareData?.locationPrompts) ||
+        !Array.isArray(prepareData?.poseBlueprints)
+      ) {
+        throw new Error("FUSION 준비 응답 형식이 올바르지 않습니다.");
+      }
+
+      const {
+        bgDNA,
+        locationPrompts,
+        poseBlueprints,
+      }: {
+        bgDNA: FusionResult["bgDNA"];
+        locationPrompts: string[];
+        poseBlueprints: FusionResult["poseBlueprint"][];
+      } = prepareData;
 
       const initialSlots: ResultSlot[] = [];
       for (let poseIndex = 0; poseIndex < poseBlueprints.length; poseIndex++) {
@@ -419,35 +603,35 @@ export default function FusionPage() {
           updateSlot(slotIndex, { status: "generating" });
 
           try {
-            const formData = new FormData();
-            formData.append("fitSpec", fitSpec);
-            formData.append("shootingMode", shootingMode);
-            formData.append("customPrompt", customPrompt);
-            formData.append("outfitMode", outfitMode);
-            formData.append(
-              "mixCaptions",
-              JSON.stringify(outfits.map((item) => item.caption || ""))
-            );
-            formData.append("bgDNA", JSON.stringify(bgDNA));
-            formData.append("poseBlueprint", JSON.stringify(poseBlueprint));
-            formData.append("locationPrompt", locationPrompts[locationIndex]);
-            formData.append(
-              "lockedVibe",
-              lockedVibe ? JSON.stringify(lockedVibe) : ""
-            );
-
-            faces.forEach((item) => formData.append("faces", item.file));
-            outfits.forEach((item) => formData.append("outfits", item.file));
-
             const res = await fetch("/api/fusion/generate-one", {
               method: "POST",
-              body: formData,
+              headers: {
+                "Content-Type": "application/json",
+              },
+              body: JSON.stringify({
+                fitSpec,
+                shootingMode,
+                customPrompt,
+                outfitMode,
+                mixCaptions: uploadedOutfits.map((item) => item.caption || ""),
+                bgDNA,
+                poseBlueprint,
+                locationPrompt: locationPrompts[locationIndex],
+                lockedVibe,
+                facePaths,
+                outfitPaths,
+              }),
             });
 
-            const data = await res.json();
+            const raw = await res.text();
+            const data = parseJsonSafely(raw);
 
             if (!res.ok) {
-              throw new Error(data?.error || "FUSION 한 장 생성 실패");
+              throw new Error(data?.error || raw || "FUSION 한 장 생성 실패");
+            }
+
+            if (!data?.result) {
+              throw new Error("FUSION 결과 응답이 비어 있습니다.");
             }
 
             updateSlot(slotIndex, {
@@ -473,6 +657,10 @@ export default function FusionPage() {
           }
         }
       }
+
+      setStatusMessage("임시 파일 정리중...");
+      await cleanupFusionSession();
+      setStatusMessage("FUSION 완료");
     } catch (error) {
       const message =
         error instanceof Error ? error.message : "알 수 없는 FUSION 오류";
@@ -498,6 +686,16 @@ export default function FusionPage() {
             배경 DNA와 포즈 블루프린트를 결합해서 고급 editorial 결과를 만드는
             생산 라인.
           </p>
+        </div>
+
+        <div className="mb-4 rounded-2xl border bg-[#fafaf8] p-4">
+          <div className="text-sm font-semibold text-black">현재 FUSION 세션</div>
+          <div className="mt-1 break-all text-xs text-gray-600">
+            {fusionSessionId || "세션 생성중..."}
+          </div>
+          <div className="mt-2 text-xs text-gray-500">
+            이번 실행에서 업로드되는 임시 파일은 이 세션 경로 기준으로 분리됩니다.
+          </div>
         </div>
 
         <div className="grid grid-cols-1 xl:grid-cols-2 gap-6 mb-6">
@@ -680,7 +878,7 @@ export default function FusionPage() {
           <div className="flex gap-3">
             <button
               onClick={handleRunFusion}
-              disabled={loading || modelGenerating}
+              disabled={loading || modelGenerating || !fusionSessionId}
               className="flex-1 bg-black text-white py-5 rounded-2xl text-xl disabled:opacity-60"
             >
               {loading ? "FUSION 준비중..." : `FUSION 실행하기 (${totalCost}P)`}

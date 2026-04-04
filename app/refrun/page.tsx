@@ -1,9 +1,10 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { spendPoints } from "@/lib/points";
+import { makeSessionId, uploadTempAssets } from "@/lib/storage";
 import FaceInputSection, {
   ModelGenerateOptions,
 } from "@/components/face-input-section";
@@ -12,6 +13,9 @@ type UploadItem = {
   file: File;
   preview: string;
   caption?: string;
+  storagePath?: string;
+  uploaded?: boolean;
+  expiresAt?: string;
 };
 
 type RefRunDirection = {
@@ -121,6 +125,12 @@ function UploadSection({
                 {item.file.name}
               </div>
 
+              {item.uploaded ? (
+                <div className="mt-2 text-[11px] text-green-600">
+                  temp 업로드 완료
+                </div>
+              ) : null}
+
               {showCaptionInput && onCaptionChange ? (
                 <textarea
                   value={item.caption || ""}
@@ -148,13 +158,7 @@ function UploadSection({
   );
 }
 
-function ShortTag({
-  label,
-  value,
-}: {
-  label: string;
-  value: string;
-}) {
+function ShortTag({ label, value }: { label: string; value: string }) {
   return (
     <div className="inline-flex items-center gap-2 rounded-full border px-3 py-2 text-xs bg-[#fafaf8]">
       <span className="font-semibold text-gray-800">{label}</span>
@@ -175,6 +179,14 @@ function getImageMime(base64?: string) {
   return "image/jpeg";
 }
 
+function parseJsonSafely(raw: string) {
+  try {
+    return JSON.parse(raw);
+  } catch {
+    return null;
+  }
+}
+
 export default function RefRunPage() {
   const router = useRouter();
 
@@ -193,6 +205,11 @@ export default function RefRunPage() {
   const [modelGenerating, setModelGenerating] = useState(false);
   const [statusMessage, setStatusMessage] = useState("");
   const [resultSlots, setResultSlots] = useState<ResultSlot[]>([]);
+  const [refRunSessionId, setRefRunSessionId] = useState<string | null>(null);
+
+  useEffect(() => {
+    setRefRunSessionId(makeSessionId("refrun"));
+  }, []);
 
   const safeCount = Math.max(1, Math.min(20, Number(perReferenceCount) || 1));
   const totalResults = references.length * safeCount;
@@ -263,6 +280,104 @@ export default function RefRunPage() {
     );
   };
 
+  const uploadItemsToStorage = async (
+    items: UploadItem[],
+    kind: "faces" | "outfits" | "references"
+  ) => {
+    const currentSessionId = refRunSessionId;
+
+    if (!currentSessionId) {
+      throw new Error("세션 생성중입니다. 잠시 후 다시 시도해 주세요.");
+    }
+
+    const pending = items.filter((item) => !item.uploaded || !item.storagePath);
+
+    if (!pending.length) {
+      return items;
+    }
+
+    const uploaded = await uploadTempAssets({
+      files: pending.map((item) => item.file),
+      kind,
+      sessionId: currentSessionId,
+    });
+
+    let uploadIndex = 0;
+
+    return items.map((item) => {
+      if (item.uploaded && item.storagePath) {
+        return item;
+      }
+
+      const asset = uploaded[uploadIndex++];
+
+      return {
+        ...item,
+        storagePath: asset.path,
+        uploaded: true,
+        expiresAt: asset.expiresAt,
+      };
+    });
+  };
+
+  const ensureAssetsUploaded = async () => {
+    setStatusMessage("임시 스토리지 업로드중...");
+
+    const uploadedFaces = await uploadItemsToStorage(faces, "faces");
+    setFaces(uploadedFaces);
+
+    const uploadedOutfits = await uploadItemsToStorage(outfits, "outfits");
+    setOutfits(uploadedOutfits);
+
+    const uploadedReferences = await uploadItemsToStorage(
+      references,
+      "references"
+    );
+    setReferences(uploadedReferences);
+
+    return {
+      uploadedFaces,
+      uploadedOutfits,
+      uploadedReferences,
+    };
+  };
+
+  const cleanupRefRunSession = async () => {
+    try {
+      const { supabase } = await import("@/lib/supabase");
+
+      const {
+        data: { session },
+        error: sessionError,
+      } = await supabase.auth.getSession();
+
+      if (sessionError || !session?.access_token) {
+        console.warn("세션 토큰이 없어 temp 즉시 삭제를 건너뜁니다.");
+        return;
+      }
+
+      const res = await fetch("/api/temp-assets/delete", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${session.access_token}`,
+        },
+        body: JSON.stringify({
+          sessionId: refRunSessionId,
+        }),
+      });
+
+      const raw = await res.text();
+      const data = parseJsonSafely(raw);
+
+      if (!res.ok) {
+        throw new Error(data?.error || raw || "임시 파일 삭제 실패");
+      }
+    } catch (error) {
+      console.error("REFRUN_SESSION_CLEANUP_ERROR:", error);
+    }
+  };
+
   const handleGenerateModel = async (options: ModelGenerateOptions) => {
     try {
       setModelGenerating(true);
@@ -278,10 +393,15 @@ export default function RefRunPage() {
         body: JSON.stringify(options),
       });
 
-      const data = await res.json();
+      const raw = await res.text();
+      const data = parseJsonSafely(raw);
 
       if (!res.ok) {
-        throw new Error(data?.error || "모델 생성 실패");
+        throw new Error(data?.error || raw || "모델 생성 실패");
+      }
+
+      if (!data?.imageBase64) {
+        throw new Error("모델 생성 응답이 비어 있습니다.");
       }
 
       const mimeType = data.mimeType || getImageMime(data.imageBase64);
@@ -312,6 +432,11 @@ export default function RefRunPage() {
   };
 
   const handleRunRefRun = async () => {
+    if (!refRunSessionId) {
+      alert("세션 생성중입니다. 잠시 후 다시 시도해 주세요.");
+      return;
+    }
+
     if (faces.length === 0 || outfits.length === 0 || references.length === 0) {
       alert("얼굴 / 의상 / 레퍼런스는 최소 1장씩 필요하다.");
       return;
@@ -329,8 +454,23 @@ export default function RefRunPage() {
 
     try {
       setLoading(true);
-      setStatusMessage(`포인트 차감중... (${totalCost}P)`);
 
+      const { uploadedFaces, uploadedOutfits, uploadedReferences } =
+        await ensureAssetsUploaded();
+
+      const facePaths = uploadedFaces
+        .map((item) => item.storagePath)
+        .filter((v): v is string => Boolean(v));
+
+      const outfitPaths = uploadedOutfits
+        .map((item) => item.storagePath)
+        .filter((v): v is string => Boolean(v));
+
+      if (!facePaths.length || !outfitPaths.length) {
+        throw new Error("얼굴 또는 의상 업로드 경로 확보 실패");
+      }
+
+      setStatusMessage(`포인트 차감중... (${totalCost}P)`);
       await spendPoints(
         totalCost,
         `REFRUN 실행 (${references.length}개 레퍼런스 × ${safeCount}장)`
@@ -339,7 +479,7 @@ export default function RefRunPage() {
       setStatusMessage("REFRUN 시작...");
 
       const initialSlots: ResultSlot[] = [];
-      references.forEach((_, refIndex) => {
+      uploadedReferences.forEach((_, refIndex) => {
         for (let cutIndex = 0; cutIndex < safeCount; cutIndex++) {
           initialSlots.push({
             status: "waiting",
@@ -352,8 +492,13 @@ export default function RefRunPage() {
 
       setResultSlots(initialSlots);
 
-      for (let refIndex = 0; refIndex < references.length; refIndex++) {
-        const referenceItem = references[refIndex];
+      for (let refIndex = 0; refIndex < uploadedReferences.length; refIndex++) {
+        const referenceItem = uploadedReferences[refIndex];
+        const referencePath = referenceItem.storagePath;
+
+        if (!referencePath) {
+          throw new Error("레퍼런스 업로드 경로 확보 실패");
+        }
 
         for (let cutIndex = 0; cutIndex < safeCount; cutIndex++) {
           const slotIndex = refIndex * safeCount + cutIndex;
@@ -361,35 +506,28 @@ export default function RefRunPage() {
           updateSlot(slotIndex, { status: "generating" });
 
           try {
-            const formData = new FormData();
-            formData.append("fitSpec", fitSpec);
-            formData.append("shootingMode", shootingMode);
-            formData.append("customPrompt", customPrompt);
-            formData.append("outfitMode", outfitMode);
-            formData.append(
-              "mixCaptions",
-              JSON.stringify(outfits.map((item) => item.caption || ""))
-            );
-
-            faces.forEach((item) => {
-              formData.append("faces", item.file);
-            });
-
-            outfits.forEach((item) => {
-              formData.append("outfits", item.file);
-            });
-
-            formData.append("reference", referenceItem.file);
-
             const res = await fetch("/api/refrun/run-one", {
               method: "POST",
-              body: formData,
+              headers: {
+                "Content-Type": "application/json",
+              },
+              body: JSON.stringify({
+                fitSpec,
+                shootingMode,
+                customPrompt,
+                outfitMode,
+                mixCaptions: uploadedOutfits.map((item) => item.caption || ""),
+                facePaths,
+                outfitPaths,
+                referencePath,
+              }),
             });
 
-            const data = await res.json();
+            const raw = await res.text();
+            const data = parseJsonSafely(raw);
 
             if (!res.ok) {
-              throw new Error(data?.error || "REFRUN 한 장 생성 실패");
+              throw new Error(data?.error || raw || "REFRUN 한 장 생성 실패");
             }
 
             updateSlot(slotIndex, {
@@ -415,6 +553,10 @@ export default function RefRunPage() {
           }
         }
       }
+
+      setStatusMessage("임시 파일 정리중...");
+      await cleanupRefRunSession();
+      setStatusMessage("REFRUN 완료");
     } catch (error) {
       const message =
         error instanceof Error ? error.message : "알 수 없는 REFRUN 오류";
@@ -440,6 +582,16 @@ export default function RefRunPage() {
             레퍼런스 이미지의 구도, 무드, 사진 문법을 분석해서 그대로 따라가는
             생산 라인.
           </p>
+        </div>
+
+        <div className="mb-4 rounded-2xl border bg-[#fafaf8] p-4">
+          <div className="text-sm font-semibold text-black">현재 REFRUN 세션</div>
+          <div className="mt-1 break-all text-xs text-gray-600">
+            {refRunSessionId || "세션 생성중..."}
+          </div>
+          <div className="mt-2 text-xs text-gray-500">
+            이번 실행에서 업로드되는 임시 파일은 이 세션 경로 기준으로 분리됩니다.
+          </div>
         </div>
 
         <div className="grid grid-cols-1 xl:grid-cols-3 gap-6 mb-6">
@@ -611,7 +763,7 @@ export default function RefRunPage() {
 
           <button
             onClick={handleRunRefRun}
-            disabled={loading || modelGenerating}
+            disabled={loading || modelGenerating || !refRunSessionId}
             className="w-full bg-black text-white py-5 rounded-2xl text-xl disabled:opacity-60"
           >
             {loading ? "REFRUN 준비중..." : "REFRUN 실행하기"}

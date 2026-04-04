@@ -586,172 +586,6 @@ Type: ${projectType}
 }
 </file>
 
-<file path="app/api/toss/confirm/route.ts">
-import { NextResponse } from "next/server";
-import { createClient } from "@supabase/supabase-js";
-
-export async function POST(req: Request) {
-  try {
-    const body = await req.json();
-    const { amount, points } = body;
-
-    const supabase = createClient(
-      process.env.NEXT_PUBLIC_SUPABASE_URL!,
-      process.env.SUPABASE_SERVICE_ROLE_KEY!
-    );
-
-    // 현재 유저 가져오기 (간단버전)
-    const {
-      data: { user },
-    } = await supabase.auth.getUser();
-
-    if (!user) {
-      throw new Error("유저 없음");
-    }
-
-    // 포인트 추가
-    const { error } = await supabase.rpc("add_points", {
-      p_user_id: user.id,
-      p_amount: Number(points),
-      p_reason: "충전",
-    });
-
-    if (error) throw error;
-
-    return NextResponse.json({ success: true });
-  } catch (e: any) {
-    return NextResponse.json(
-      { error: e.message },
-      { status: 500 }
-    );
-  }
-}
-</file>
-
-<file path="app/charge/fail/page.tsx">
-export default function FailPage() {
-  return (
-    <main className="min-h-screen flex items-center justify-center">
-      <div className="text-xl text-red-500">결제 실패</div>
-    </main>
-  );
-}
-</file>
-
-<file path="app/charge/success/page.tsx">
-"use client";
-
-import { useEffect, useState } from "react";
-
-export default function SuccessPage() {
-  const [message, setMessage] = useState("처리중...");
-
-  useEffect(() => {
-    const params = new URLSearchParams(window.location.search);
-    const amount = params.get("amount");
-    const points = params.get("points");
-
-    const run = async () => {
-      try {
-        const res = await fetch("/api/toss/confirm", {
-          method: "POST",
-          body: JSON.stringify({
-            amount,
-            points,
-          }),
-        });
-
-        const data = await res.json();
-
-        if (!res.ok) throw new Error(data.error);
-
-        setMessage("충전 완료");
-      } catch (e) {
-        console.error(e);
-        setMessage("충전 실패");
-      }
-    };
-
-    run();
-  }, []);
-
-  return (
-    <main className="min-h-screen flex items-center justify-center">
-      <div className="text-xl">{message}</div>
-    </main>
-  );
-}
-</file>
-
-<file path="app/charge/page.tsx">
-"use client";
-
-import { useState } from "react";
-
-declare global {
-  interface Window {
-    TossPayments: any;
-  }
-}
-
-const PRODUCTS = [
-  { price: 1000, points: 100 },
-  { price: 3000, points: 300 },
-  { price: 5000, points: 500 },
-];
-
-export default function ChargePage() {
-  const [loading, setLoading] = useState(false);
-
-  const handlePayment = async (amount: number, points: number) => {
-    setLoading(true);
-
-    try {
-      const tossPayments = window.TossPayments(
-        process.env.NEXT_PUBLIC_TOSS_CLIENT_KEY
-      );
-
-      const orderId = `order_${Date.now()}`;
-
-      await tossPayments.requestPayment("카드", {
-        amount,
-        orderId,
-        orderName: `${points} 포인트 충전`,
-        successUrl: `${window.location.origin}/charge/success?amount=${amount}&points=${points}`,
-        failUrl: `${window.location.origin}/charge/fail`,
-      });
-    } catch (e) {
-      console.error(e);
-      alert("결제 실행 오류");
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  return (
-    <main className="min-h-screen bg-white px-6 py-16">
-      <div className="max-w-md mx-auto">
-        <h1 className="text-3xl font-bold mb-8">포인트 충전</h1>
-
-        <div className="space-y-4">
-          {PRODUCTS.map((p) => (
-            <button
-              key={p.price}
-              onClick={() => handlePayment(p.price, p.points)}
-              disabled={loading}
-              className="w-full border rounded-xl px-4 py-4 text-left"
-            >
-              <div className="font-semibold">{p.points}P</div>
-              <div className="text-sm text-gray-600">{p.price}원</div>
-            </button>
-          ))}
-        </div>
-      </div>
-    </main>
-  );
-}
-</file>
-
 <file path="app/privacy-policy/page.tsx">
 import Link from "next/link";
 
@@ -2082,204 +1916,159 @@ export async function POST(req: Request) {
 }
 </file>
 
-<file path="app/mypage/page.tsx">
+<file path="app/charge/success/page.tsx">
 "use client";
 
 import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
-import { useRouter } from "next/navigation";
-import { supabase } from "@/lib/supabase";
 
-type Viewer = {
-  id: string;
-  email: string | null;
-  pointBalance: number;
+const AMOUNT_TO_POINTS: Record<number, number> = {
+  1000: 100,
+  3000: 300,
+  5000: 500,
 };
 
-type PointLog = {
-  id: string;
-  type: string;
-  amount: number;
-  balance_after: number | null;
-  reason: string | null;
-  created_at: string;
-};
+export default function SuccessPage() {
+  const [status, setStatus] = useState<"loading" | "success" | "error">("loading");
+  const [message, setMessage] = useState("결제 승인 처리중...");
+  const [chargedPoints, setChargedPoints] = useState<number>(0);
 
-export default function MyPage() {
-  const router = useRouter();
-
-  const [viewer, setViewer] = useState<Viewer | null>(null);
-  const [logs, setLogs] = useState<PointLog[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [pageError, setPageError] = useState("");
+  const search = useMemo(() => {
+    if (typeof window === "undefined") return null;
+    return new URLSearchParams(window.location.search);
+  }, []);
 
   useEffect(() => {
-    const loadPage = async () => {
+    if (!search) return;
+
+    const paymentKey = search.get("paymentKey");
+    const orderId = search.get("orderId");
+    const amount = search.get("amount");
+
+    const run = async () => {
       try {
-        const {
-          data: { user },
-          error: userError,
-        } = await supabase.auth.getUser();
-
-        if (userError || !user) {
-          router.replace("/login");
-          return;
+        if (!paymentKey || !orderId || !amount) {
+          throw new Error("결제 승인에 필요한 정보가 없습니다.");
         }
 
-        const { data: profile, error: profileError } = await supabase
-          .from("users")
-          .select("id, email, point_balance")
-          .eq("id", user.id)
-          .maybeSingle();
+        const numericAmount = Number(amount);
+        const points = AMOUNT_TO_POINTS[numericAmount] ?? 0;
 
-        if (profileError) {
-          console.error("profile 오류:", profileError);
-          setPageError("사용자 정보를 불러오지 못했습니다.");
+        if (!points) {
+          throw new Error("유효하지 않은 결제 금액입니다.");
         }
 
-        setViewer({
-          id: user.id,
-          email: profile?.email ?? user.email ?? null,
-          pointBalance: profile?.point_balance ?? 0,
+        const res = await fetch("/api/toss/confirm", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({
+            paymentKey,
+            orderId,
+            amount: numericAmount,
+            points,
+          }),
         });
 
-        const { data: pointLogs, error: logsError } = await supabase
-          .from("point_logs")
-          .select("id, type, amount, balance_after, reason, created_at")
-          .eq("user_id", user.id)
-          .order("created_at", { ascending: false });
+        const data = await res.json();
 
-        if (logsError) {
-          console.error("point_logs 오류:", logsError);
-          setLogs([]);
-        } else {
-          setLogs(pointLogs ?? []);
+        if (!res.ok) {
+          throw new Error(data?.error || "결제 승인 실패");
         }
+
+        setChargedPoints(points);
+        setStatus("success");
+        setMessage("포인트 충전이 완료되었습니다.");
       } catch (error) {
-        console.error("mypage 로드 오류:", error);
-        setPageError("마이페이지를 불러오는 중 오류가 발생했습니다.");
-      } finally {
-        setLoading(false);
+        console.error(error);
+        setStatus("error");
+        setMessage(
+          error instanceof Error ? error.message : "충전 처리 중 오류가 발생했습니다."
+        );
       }
     };
 
-    loadPage();
-  }, [router]);
-
-  const totalUsedPoints = useMemo(() => {
-    return logs
-      .filter((log) => Number(log.amount) < 0)
-      .reduce((sum, log) => sum + Math.abs(Number(log.amount)), 0);
-  }, [logs]);
-
-  const totalChargedPoints = useMemo(() => {
-    return logs
-      .filter((log) => Number(log.amount) > 0)
-      .reduce((sum, log) => sum + Number(log.amount), 0);
-  }, [logs]);
-
-  if (loading) {
-    return (
-      <main className="min-h-screen bg-[#f7f7f5] px-6 py-12">
-        <div className="mx-auto max-w-5xl text-sm text-gray-500">불러오는 중...</div>
-      </main>
-    );
-  }
-
-  if (!viewer) {
-    return null;
-  }
+    run();
+  }, [search]);
 
   return (
-    <main className="min-h-screen bg-[#f7f7f5] px-6 py-12">
-      <div className="mx-auto max-w-5xl">
-        <div className="mb-8">
-          <Link
-            href="/"
-            className="inline-flex items-center text-sm text-gray-600 mb-4"
-          >
-            ← 홈으로
-          </Link>
+    <main className="min-h-screen bg-[#f7f7f5] px-6 py-16">
+      <div className="mx-auto max-w-2xl">
+        <div className="rounded-3xl border bg-white p-8 md:p-10">
+          <div className="mb-6 text-sm text-gray-500">결제 결과</div>
 
-          <h1 className="text-4xl font-bold mb-3">마이페이지</h1>
-          <p className="text-gray-700 text-lg leading-8">
-            계정 정보와 포인트 사용 내역을 확인할 수 있습니다.
-          </p>
-        </div>
+          {status === "loading" && (
+            <>
+              <h1 className="text-3xl font-bold text-black mb-4">
+                결제 승인 처리중
+              </h1>
+              <p className="text-base leading-7 text-gray-700">
+                결제 정보를 확인하고 포인트를 반영하고 있습니다.
+                잠시만 기다려 주세요.
+              </p>
+            </>
+          )}
 
-        {pageError ? (
-          <div className="mb-6 rounded-2xl border bg-white p-4 text-sm text-red-500">
-            {pageError}
-          </div>
-        ) : null}
+          {status === "success" && (
+            <>
+              <h1 className="text-3xl font-bold text-black mb-4">충전 완료</h1>
 
-        <div className="grid grid-cols-1 gap-6 md:grid-cols-3 mb-8">
-          <div className="rounded-3xl border bg-white p-6">
-            <div className="text-sm text-gray-500 mb-2">로그인 계정</div>
-            <div className="text-lg font-semibold break-all">{viewer.email}</div>
-          </div>
+              <p className="text-base leading-7 text-gray-700 mb-8">
+                {message}
+              </p>
 
-          <div className="rounded-3xl border bg-white p-6">
-            <div className="text-sm text-gray-500 mb-2">현재 잔액</div>
-            <div className="text-3xl font-bold">{viewer.pointBalance}P</div>
-          </div>
-
-          <div className="rounded-3xl border bg-white p-6">
-            <div className="text-sm text-gray-500 mb-2">총 사용 포인트</div>
-            <div className="text-3xl font-bold">{totalUsedPoints}P</div>
-          </div>
-        </div>
-
-        <div className="grid grid-cols-1 gap-6 md:grid-cols-2 mb-8">
-          <div className="rounded-3xl border bg-white p-6">
-            <div className="text-sm text-gray-500 mb-2">총 적립/충전 포인트</div>
-            <div className="text-3xl font-bold">{totalChargedPoints}P</div>
-          </div>
-
-          <div className="rounded-3xl border bg-white p-6">
-            <div className="text-sm text-gray-500 mb-2">로그 수</div>
-            <div className="text-3xl font-bold">{logs.length}건</div>
-          </div>
-        </div>
-
-        <div className="rounded-3xl border bg-white p-6">
-          <div className="mb-4 text-2xl font-bold">최근 포인트 내역</div>
-
-          {logs.length === 0 ? (
-            <div className="text-sm text-gray-500">아직 내역이 없습니다.</div>
-          ) : (
-            <div className="space-y-3">
-              {logs.map((log) => (
-                <div
-                  key={log.id}
-                  className="flex flex-col gap-2 rounded-2xl border p-4 md:flex-row md:items-center md:justify-between"
-                >
-                  <div>
-                    <div className="font-semibold">{log.reason || "사유 없음"}</div>
-                    <div className="text-sm text-gray-500">
-                      {log.type} ·{" "}
-                      {log.created_at
-                        ? new Date(log.created_at).toLocaleString("ko-KR")
-                        : "-"}
-                    </div>
-                  </div>
-
-                  <div className="text-right">
-                    <div
-                      className={`font-bold ${
-                        Number(log.amount) < 0 ? "text-red-500" : "text-blue-600"
-                      }`}
-                    >
-                      {Number(log.amount) > 0 ? "+" : ""}
-                      {log.amount}P
-                    </div>
-                    <div className="text-sm text-gray-500">
-                      잔액 후: {log.balance_after ?? "-"}P
-                    </div>
-                  </div>
+              <div className="rounded-2xl border bg-[#fafaf8] p-5 mb-8">
+                <div className="text-sm text-gray-500 mb-2">충전된 포인트</div>
+                <div className="text-3xl font-bold text-black">
+                  {chargedPoints}P
                 </div>
-              ))}
-            </div>
+              </div>
+
+              <div className="flex flex-col gap-3 sm:flex-row">
+                <Link
+                  href="/mypage"
+                  className="inline-flex items-center justify-center rounded-2xl bg-black px-6 py-4 text-sm font-medium text-white transition hover:opacity-90"
+                >
+                  마이페이지로
+                </Link>
+
+                <Link
+                  href="/charge"
+                  className="inline-flex items-center justify-center rounded-2xl border px-6 py-4 text-sm font-medium text-black transition hover:bg-[#f3f3f1]"
+                >
+                  추가 충전하기
+                </Link>
+              </div>
+            </>
+          )}
+
+          {status === "error" && (
+            <>
+              <h1 className="text-3xl font-bold text-black mb-4">
+                충전 처리 실패
+              </h1>
+
+              <p className="text-base leading-7 text-red-500 mb-8">
+                {message}
+              </p>
+
+              <div className="flex flex-col gap-3 sm:flex-row">
+                <Link
+                  href="/charge"
+                  className="inline-flex items-center justify-center rounded-2xl bg-black px-6 py-4 text-sm font-medium text-white transition hover:opacity-90"
+                >
+                  다시 결제하기
+                </Link>
+
+                <Link
+                  href="/mypage"
+                  className="inline-flex items-center justify-center rounded-2xl border px-6 py-4 text-sm font-medium text-black transition hover:bg-[#f3f3f1]"
+                >
+                  마이페이지로
+                </Link>
+              </div>
+            </>
           )}
         </div>
       </div>
@@ -4013,6 +3802,378 @@ OUTPUT RULE:
 }
 </file>
 
+<file path="app/api/toss/confirm/route.ts">
+import { NextResponse } from "next/server";
+import { createClient } from "@supabase/supabase-js";
+
+export async function POST(req: Request) {
+  try {
+    const body = await req.json();
+    const { paymentKey, orderId, amount, points } = body;
+
+    if (!paymentKey || !orderId || !amount || !points) {
+      throw new Error("필수값 누락");
+    }
+
+    const secretKey = process.env.TOSS_SECRET_KEY;
+    if (!secretKey) {
+      throw new Error("TOSS_SECRET_KEY 없음");
+    }
+
+    const tossResponse = await fetch(
+      "https://api.tosspayments.com/v1/payments/confirm",
+      {
+        method: "POST",
+        headers: {
+          Authorization:
+            "Basic " + Buffer.from(`${secretKey}:`).toString("base64"),
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          paymentKey,
+          orderId,
+          amount: Number(amount),
+        }),
+      }
+    );
+
+    const tossData = await tossResponse.json();
+
+    if (!tossResponse.ok) {
+      console.error("토스 승인 실패:", tossData);
+      throw new Error(tossData?.message || "결제 승인 실패");
+    }
+
+    const orderParts = String(orderId).split("_");
+    const userId = orderParts[1];
+
+    if (!userId) {
+      throw new Error("유저 식별 실패");
+    }
+
+    const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
+    const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
+
+    if (!supabaseUrl) {
+      throw new Error("NEXT_PUBLIC_SUPABASE_URL 없음");
+    }
+
+    if (!serviceRoleKey) {
+      throw new Error("SUPABASE_SERVICE_ROLE_KEY 없음");
+    }
+
+    const supabase = createClient(supabaseUrl, serviceRoleKey);
+
+    const { data, error } = await supabase.rpc("add_points", {
+      p_user_id: userId,
+      p_amount: Number(points),
+      p_reason: "충전",
+    });
+
+    if (error) {
+      console.error("포인트 추가 실패:", error);
+      throw new Error(
+        error.message || error.details || error.hint || "포인트 지급 실패"
+      );
+    }
+
+    return NextResponse.json({
+      success: true,
+      data,
+    });
+  } catch (e: any) {
+    console.error("confirm route error:", e);
+
+    return NextResponse.json(
+      { error: e.message || "알 수 없는 오류" },
+      { status: 500 }
+    );
+  }
+}
+</file>
+
+<file path="app/charge/fail/page.tsx">
+"use client";
+
+import Link from "next/link";
+import { useEffect, useState } from "react";
+
+export default function FailPage() {
+  const [code, setCode] = useState<string>("-");
+  const [message, setMessage] = useState<string>("알 수 없는 오류");
+
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    setCode(params.get("code") || "-");
+    setMessage(params.get("message") || "알 수 없는 오류");
+  }, []);
+
+  return (
+    <main className="min-h-screen bg-[#f7f7f5] px-6 py-16">
+      <div className="mx-auto max-w-2xl">
+        <div className="rounded-3xl border bg-white p-8 md:p-10">
+          <div className="mb-6 text-sm text-gray-500">결제 결과</div>
+
+          <h1 className="text-3xl font-bold text-black mb-4">결제 실패</h1>
+
+          <p className="text-base leading-7 text-gray-700 mb-8">
+            결제가 정상적으로 완료되지 않았습니다.
+            다시 시도하시거나 다른 결제 수단으로 진행해 주세요.
+          </p>
+
+          <div className="space-y-3 rounded-2xl border bg-[#fafaf8] p-5 mb-8">
+            <div className="text-sm text-gray-500">실패 코드</div>
+            <div className="text-base font-medium text-black">{code}</div>
+
+            <div className="pt-2 text-sm text-gray-500">실패 사유</div>
+            <div className="text-base font-medium text-black break-words">
+              {message}
+            </div>
+          </div>
+
+          <div className="flex flex-col gap-3 sm:flex-row">
+            <Link
+              href="/charge"
+              className="inline-flex items-center justify-center rounded-2xl bg-black px-6 py-4 text-sm font-medium text-white transition hover:opacity-90"
+            >
+              다시 결제하기
+            </Link>
+
+            <Link
+              href="/mypage"
+              className="inline-flex items-center justify-center rounded-2xl border px-6 py-4 text-sm font-medium text-black transition hover:bg-[#f3f3f1]"
+            >
+              마이페이지로
+            </Link>
+          </div>
+        </div>
+      </div>
+    </main>
+  );
+}
+</file>
+
+<file path="app/charge/page.tsx">
+"use client";
+
+import Link from "next/link";
+import { useMemo, useState } from "react";
+import { useRouter } from "next/navigation";
+import { supabase } from "@/lib/supabase";
+
+declare global {
+  interface Window {
+    TossPayments: any;
+  }
+}
+
+const PRODUCTS = [
+  { price: 1000, points: 100, label: "Starter" },
+  { price: 3000, points: 300, label: "Basic" },
+  { price: 5000, points: 500, label: "Standard" },
+];
+
+function formatWon(value: number) {
+  return `${value.toLocaleString("ko-KR")}원`;
+}
+
+export default function ChargePage() {
+  const router = useRouter();
+  const [loading, setLoading] = useState(false);
+  const [selectedPrice, setSelectedPrice] = useState<number>(PRODUCTS[0].price);
+
+  const selectedProduct = useMemo(
+    () => PRODUCTS.find((p) => p.price === selectedPrice) ?? PRODUCTS[0],
+    [selectedPrice]
+  );
+
+  const handlePayment = async (amount: number, points: number) => {
+    setLoading(true);
+
+    try {
+      const {
+        data: { user },
+        error: userError,
+      } = await supabase.auth.getUser();
+
+      if (userError || !user) {
+        alert("로그인이 필요합니다.");
+        router.push("/login");
+        return;
+      }
+
+      const clientKey = process.env.NEXT_PUBLIC_TOSS_CLIENT_KEY;
+      if (!clientKey) {
+        throw new Error("NEXT_PUBLIC_TOSS_CLIENT_KEY 없음");
+      }
+
+      const tossPayments = window.TossPayments(clientKey);
+      const orderId = `order_${user.id}_${Date.now()}`;
+
+      await tossPayments.requestPayment("카드", {
+        amount,
+        orderId,
+        orderName: `${points} 포인트 충전`,
+        successUrl: `${window.location.origin}/charge/success`,
+        failUrl: `${window.location.origin}/charge/fail`,
+      });
+    } catch (e) {
+      console.error(e);
+      alert("결제 실행 오류");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  return (
+    <main className="min-h-screen bg-[#f7f7f5] px-6 py-16">
+      <div className="max-w-6xl mx-auto">
+        <div className="mb-10">
+          <Link
+            href="/"
+            className="inline-flex items-center text-sm text-gray-600 mb-4"
+          >
+            ← 홈으로
+          </Link>
+
+          <h1 className="text-3xl md:text-4xl font-bold tracking-tight text-black">
+            포인트 충전
+          </h1>
+
+          <p className="mt-4 text-sm md:text-base leading-7 text-gray-700 max-w-3xl">
+            SIGNATURE AI STUDIO에서 이미지 생성에 사용할 포인트를 충전합니다.
+            결제 전 상품 정보와 정책을 확인해 주세요.
+          </p>
+        </div>
+
+        <div className="grid grid-cols-1 xl:grid-cols-[1.15fr_0.85fr] gap-6">
+          <section className="border rounded-3xl bg-white p-6 md:p-8">
+            <div className="flex items-center justify-between mb-6">
+              <h2 className="text-xl font-semibold">충전 상품 선택</h2>
+              <div className="text-xs text-gray-500">1,000원 = 100P</div>
+            </div>
+
+            <div className="grid grid-cols-1 gap-4">
+              {PRODUCTS.map((product) => {
+                const selected = selectedProduct.price === product.price;
+
+                return (
+                  <button
+                    key={product.price}
+                    type="button"
+                    onClick={() => setSelectedPrice(product.price)}
+                    disabled={loading}
+                    className={`w-full rounded-2xl border p-5 text-left transition ${
+                      selected
+                        ? "border-black bg-[#fafaf8]"
+                        : "border-gray-300 bg-white hover:bg-[#fafaf8]"
+                    } ${loading ? "opacity-60" : ""}`}
+                  >
+                    <div className="flex items-start justify-between gap-4">
+                      <div>
+                        <div className="text-xs text-gray-500 mb-2">
+                          {product.label}
+                        </div>
+                        <div className="text-2xl font-bold text-black">
+                          {product.points}P
+                        </div>
+                        <div className="mt-1 text-sm text-gray-600">
+                          {formatWon(product.price)}
+                        </div>
+                      </div>
+
+                      {selected ? (
+                        <div className="text-xs px-3 py-1 rounded-full border border-black text-black">
+                          선택됨
+                        </div>
+                      ) : null}
+                    </div>
+                  </button>
+                );
+              })}
+            </div>
+
+            <div className="mt-8 rounded-3xl bg-black text-white p-6">
+              <div className="text-sm text-white/70 mb-2">선택한 상품</div>
+              <div className="text-3xl font-bold">
+                {selectedProduct.points}P
+              </div>
+              <div className="mt-2 text-base text-white/80">
+                {formatWon(selectedProduct.price)}
+              </div>
+
+              <div className="mt-6 space-y-2 text-sm leading-6 text-white/80">
+                <p>충전된 포인트는 DIG / REFRUN / FUSION 실행 시 차감됩니다.</p>
+                <p>
+                  미사용 포인트는 환불 요청이 가능하며, 사용된 포인트는 환불되지
+                  않습니다.
+                </p>
+              </div>
+
+              <button
+                type="button"
+                onClick={() =>
+                  handlePayment(selectedProduct.price, selectedProduct.points)
+                }
+                disabled={loading}
+                className="mt-6 w-full rounded-2xl bg-white text-black py-4 text-base font-semibold disabled:opacity-60"
+              >
+                {loading
+                  ? "결제창 준비중..."
+                  : `${selectedProduct.points}P 결제하기`}
+              </button>
+            </div>
+          </section>
+
+          <aside className="space-y-6">
+            <section className="border rounded-3xl bg-white p-6">
+              <h2 className="text-lg font-semibold mb-4">안내</h2>
+              <div className="space-y-3 text-sm leading-6 text-gray-700">
+                <p>포인트는 결제 완료 후 계정에 충전됩니다.</p>
+                <p>
+                  결제 후 포인트가 정상 반영되지 않을 경우, 잠시 후 다시 확인해
+                  주세요.
+                </p>
+                <p>
+                  문제가 지속되면 아래 이메일로 문의해 주세요:
+                  <br />
+                  official@ballute.co.kr
+                </p>
+              </div>
+            </section>
+
+            <section className="border rounded-3xl bg-white p-6">
+              <h2 className="text-lg font-semibold mb-4">정책 확인</h2>
+              <div className="flex flex-col gap-3 text-sm underline">
+                <Link href="/terms">이용약관</Link>
+                <Link href="/privacy-policy">개인정보처리방침</Link>
+                <Link href="/refund-policy">환불규정</Link>
+              </div>
+            </section>
+
+            <section className="border rounded-3xl bg-white p-6">
+              <h2 className="text-lg font-semibold mb-4">사업자 정보</h2>
+              <div className="space-y-2 text-sm leading-6 text-gray-700">
+                <div>상호: SIGNATURE COMPANY</div>
+                <div>대표자: 김순기</div>
+                <div>사업자등록번호: 485-13-00268</div>
+                <div>통신판매업 신고번호: 2026-서울중구-375</div>
+                <div>
+                  사업장 주소: 04563 서울특별시 중구 장충단로13길 20 (을지로6가)
+                  현대시티타워 12층 무신사스튜디오 발루트
+                </div>
+                <div>연락처: 010-2710-9187</div>
+                <div>이메일: official@ballute.co.kr</div>
+              </div>
+            </section>
+          </aside>
+        </div>
+      </div>
+    </main>
+  );
+}
+</file>
+
 <file path="app/login/page.tsx">
 "use client";
 
@@ -4151,42 +4312,191 @@ export default function LoginPage() {
 }
 </file>
 
-<file path="app/layout.tsx">
-import type { Metadata } from "next";
-import { Geist, Geist_Mono } from "next/font/google";
-import "./globals.css";
-import Footer from "@/components/footer";
+<file path="app/mypage/page.tsx">
+"use client";
 
-const geistSans = Geist({
-  variable: "--font-geist-sans",
-  subsets: ["latin"],
-});
+import Link from "next/link";
+import { useEffect, useMemo, useState } from "react";
+import { useRouter } from "next/navigation";
+import { supabase } from "@/lib/supabase";
 
-const geistMono = Geist_Mono({
-  variable: "--font-geist-mono",
-  subsets: ["latin"],
-});
-
-export const metadata: Metadata = {
-  title: "SIGNATURE AI STUDIO",
-  description: "Brand lookbook AI built for controllable visual production.",
+type Viewer = {
+  id: string;
+  email: string | null;
+  pointBalance: number;
 };
 
-export default function RootLayout({
-  children,
-}: Readonly<{
-  children: React.ReactNode;
-}>) {
+type PointLog = {
+  id: string;
+  type: string;
+  amount: number;
+  balance_after: number | null;
+  reason: string | null;
+  created_at: string;
+};
+
+export default function MyPage() {
+  const router = useRouter();
+
+  const [viewer, setViewer] = useState<Viewer | null>(null);
+  const [logs, setLogs] = useState<PointLog[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [pageError, setPageError] = useState("");
+
+  useEffect(() => {
+    const loadPage = async () => {
+      try {
+        const {
+          data: { user },
+          error: userError,
+        } = await supabase.auth.getUser();
+
+        if (userError || !user) {
+          router.replace("/login");
+          return;
+        }
+
+        const { data: profile } = await supabase
+          .from("users")
+          .select("id, email, point_balance")
+          .eq("id", user.id)
+          .maybeSingle();
+
+        setViewer({
+          id: user.id,
+          email: profile?.email ?? user.email ?? null,
+          pointBalance: profile?.point_balance ?? 0,
+        });
+
+        const { data: pointLogs } = await supabase
+          .from("point_logs")
+          .select("id, type, amount, balance_after, reason, created_at")
+          .eq("user_id", user.id)
+          .order("created_at", { ascending: false });
+
+        setLogs(pointLogs ?? []);
+      } catch (error) {
+        console.error(error);
+        setPageError("마이페이지 로드 실패");
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    loadPage();
+  }, [router]);
+
+  const totalUsedPoints = useMemo(() => {
+    return logs
+      .filter((log) => Number(log.amount) < 0)
+      .reduce((sum, log) => sum + Math.abs(Number(log.amount)), 0);
+  }, [logs]);
+
+  const totalChargedPoints = useMemo(() => {
+    return logs
+      .filter((log) => Number(log.amount) > 0)
+      .reduce((sum, log) => sum + Number(log.amount), 0);
+  }, [logs]);
+
+  if (loading) {
+    return (
+      <main className="min-h-screen flex items-center justify-center">
+        로딩중...
+      </main>
+    );
+  }
+
+  if (!viewer) return null;
+
   return (
-    <html
-      lang="en"
-      className={`${geistSans.variable} ${geistMono.variable} h-full antialiased`}
-    >
-      <body className="min-h-full flex flex-col">
-        <main className="flex-1">{children}</main>
-        <Footer />
-      </body>
-    </html>
+    <main className="min-h-screen bg-[#f7f7f5] px-6 py-12">
+      <div className="max-w-5xl mx-auto">
+
+        {/* 헤더 */}
+        <div className="mb-10">
+          <Link href="/" className="text-sm text-gray-600 mb-4 inline-block">
+            ← 홈으로
+          </Link>
+          <h1 className="text-4xl font-bold">마이페이지</h1>
+        </div>
+
+        {/* 핵심 카드 */}
+        <div className="rounded-3xl border bg-white p-8 mb-10">
+          <div className="flex flex-col md:flex-row md:justify-between md:items-center gap-6">
+
+            <div>
+              <div className="text-sm text-gray-500">현재 포인트</div>
+              <div className="text-4xl font-bold">
+                {viewer.pointBalance}P
+              </div>
+            </div>
+
+            <Link
+              href="/charge"
+              className="bg-black text-white px-6 py-4 rounded-2xl text-lg text-center"
+            >
+              포인트 충전
+            </Link>
+
+          </div>
+        </div>
+
+        {/* 요약 */}
+        <div className="grid md:grid-cols-2 gap-6 mb-10">
+          <div className="rounded-2xl border bg-white p-6">
+            <div className="text-sm text-gray-500 mb-2">총 사용</div>
+            <div className="text-2xl font-bold">{totalUsedPoints}P</div>
+          </div>
+
+          <div className="rounded-2xl border bg-white p-6">
+            <div className="text-sm text-gray-500 mb-2">총 충전</div>
+            <div className="text-2xl font-bold">{totalChargedPoints}P</div>
+          </div>
+        </div>
+
+        {/* 로그 */}
+        <div className="rounded-3xl border bg-white p-6">
+          <div className="text-2xl font-bold mb-6">포인트 내역</div>
+
+          {logs.length === 0 ? (
+            <div className="text-gray-500">내역 없음</div>
+          ) : (
+            <div className="space-y-4">
+              {logs.map((log) => (
+                <div
+                  key={log.id}
+                  className="flex justify-between border rounded-xl p-4"
+                >
+                  <div>
+                    <div className="font-semibold">
+                      {log.reason || "사유 없음"}
+                    </div>
+                    <div className="text-sm text-gray-500">
+                      {new Date(log.created_at).toLocaleString()}
+                    </div>
+                  </div>
+
+                  <div className="text-right">
+                    <div
+                      className={`font-bold ${
+                        log.amount < 0 ? "text-red-500" : "text-blue-500"
+                      }`}
+                    >
+                      {log.amount > 0 ? "+" : ""}
+                      {log.amount}P
+                    </div>
+                    <div className="text-sm text-gray-400">
+                      잔액 {log.balance_after ?? "-"}P
+                    </div>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+
+      </div>
+    </main>
   );
 }
 </file>
@@ -4222,11 +4532,57 @@ export default function RootLayout({
 }
 </file>
 
+<file path="app/layout.tsx">
+import type { Metadata } from "next";
+import { Geist, Geist_Mono } from "next/font/google";
+import "./globals.css";
+import Footer from "@/components/footer";
+
+const geistSans = Geist({
+  variable: "--font-geist-sans",
+  subsets: ["latin"],
+});
+
+const geistMono = Geist_Mono({
+  variable: "--font-geist-mono",
+  subsets: ["latin"],
+});
+
+export const metadata: Metadata = {
+  title: "SIGNATURE AI STUDIO",
+  description: "Brand lookbook AI built for controllable visual production.",
+};
+
+export default function RootLayout({
+  children,
+}: {
+  children: React.ReactNode;
+}) {
+  return (
+    <html
+      lang="en"
+      className={`${geistSans.variable} ${geistMono.variable} h-full antialiased`}
+    >
+      <head>
+        {/* 🔥 토스 SDK 추가 */}
+        <script src="https://js.tosspayments.com/v1"></script>
+      </head>
+
+      <body className="min-h-full flex flex-col">
+        <main className="flex-1">{children}</main>
+        <Footer />
+      </body>
+    </html>
+  );
+}
+</file>
+
 <file path="app/fusion/page.tsx">
 "use client";
 
 import { useMemo, useState } from "react";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { spendPoints } from "@/lib/points";
 import FaceInputSection, {
   ModelGenerateOptions,
@@ -4405,6 +4761,8 @@ function getImageMime(base64?: string) {
 }
 
 export default function FusionPage() {
+  const router = useRouter();
+
   const [faces, setFaces] = useState<UploadItem[]>([]);
   const [outfits, setOutfits] = useState<UploadItem[]>([]);
   const [bgs, setBgs] = useState<UploadItem[]>([]);
@@ -4429,6 +4787,19 @@ export default function FusionPage() {
   );
   const expectedResultCount = poses.length * safeCount;
   const totalCost = expectedResultCount * costPerImage;
+
+  const handlePointFailure = (message: string) => {
+    setStatusMessage(`오류: ${message}`);
+
+    if (message.includes("포인트 부족")) {
+      alert("포인트가 부족합니다. 충전 페이지로 이동합니다.");
+      router.push("/charge");
+      return true;
+    }
+
+    alert(message);
+    return false;
+  };
 
   const appendFiles = (
     setter: React.Dispatch<React.SetStateAction<UploadItem[]>>,
@@ -4544,8 +4915,7 @@ export default function FusionPage() {
     } catch (error) {
       const message =
         error instanceof Error ? error.message : "모델 생성 중 오류";
-      setStatusMessage(`오류: ${message}`);
-      alert(message);
+      handlePointFailure(message);
     } finally {
       setModelGenerating(false);
     }
@@ -4600,90 +4970,93 @@ export default function FusionPage() {
       const { bgDNA, locationPrompts, poseBlueprints } = prepareData;
 
       const initialSlots: ResultSlot[] = [];
-      poseBlueprints.forEach((_: unknown, poseIndex: number) => {
-        locationPrompts.forEach((_: string, locationIndex: number) => {
+      for (let poseIndex = 0; poseIndex < poseBlueprints.length; poseIndex++) {
+        for (
+          let locationIndex = 0;
+          locationIndex < locationPrompts.length;
+          locationIndex++
+        ) {
           initialSlots.push({
             status: "waiting",
             result: null,
             poseIndex,
             locationIndex,
           });
-        });
-      });
+        }
+      }
 
       setResultSlots(initialSlots);
 
-      poseBlueprints.forEach(
-        async (poseBlueprint: unknown, poseIndex: number) => {
-          for (
-            let locationIndex = 0;
-            locationIndex < locationPrompts.length;
-            locationIndex++
-          ) {
-            const slotIndex = poseIndex * locationPrompts.length + locationIndex;
-            updateSlot(slotIndex, { status: "generating" });
+      for (let poseIndex = 0; poseIndex < poseBlueprints.length; poseIndex++) {
+        const poseBlueprint = poseBlueprints[poseIndex];
 
-            try {
-              const formData = new FormData();
-              formData.append("fitSpec", fitSpec);
-              formData.append("shootingMode", shootingMode);
-              formData.append("customPrompt", customPrompt);
-              formData.append("outfitMode", outfitMode);
-              formData.append(
-                "mixCaptions",
-                JSON.stringify(outfits.map((item) => item.caption || ""))
-              );
-              formData.append("bgDNA", JSON.stringify(bgDNA));
-              formData.append("poseBlueprint", JSON.stringify(poseBlueprint));
-              formData.append("locationPrompt", locationPrompts[locationIndex]);
-              formData.append(
-                "lockedVibe",
-                lockedVibe ? JSON.stringify(lockedVibe) : ""
-              );
+        for (
+          let locationIndex = 0;
+          locationIndex < locationPrompts.length;
+          locationIndex++
+        ) {
+          const slotIndex = poseIndex * locationPrompts.length + locationIndex;
+          updateSlot(slotIndex, { status: "generating" });
 
-              faces.forEach((item) => formData.append("faces", item.file));
-              outfits.forEach((item) => formData.append("outfits", item.file));
+          try {
+            const formData = new FormData();
+            formData.append("fitSpec", fitSpec);
+            formData.append("shootingMode", shootingMode);
+            formData.append("customPrompt", customPrompt);
+            formData.append("outfitMode", outfitMode);
+            formData.append(
+              "mixCaptions",
+              JSON.stringify(outfits.map((item) => item.caption || ""))
+            );
+            formData.append("bgDNA", JSON.stringify(bgDNA));
+            formData.append("poseBlueprint", JSON.stringify(poseBlueprint));
+            formData.append("locationPrompt", locationPrompts[locationIndex]);
+            formData.append(
+              "lockedVibe",
+              lockedVibe ? JSON.stringify(lockedVibe) : ""
+            );
 
-              const res = await fetch("/api/fusion/generate-one", {
-                method: "POST",
-                body: formData,
-              });
+            faces.forEach((item) => formData.append("faces", item.file));
+            outfits.forEach((item) => formData.append("outfits", item.file));
 
-              const data = await res.json();
+            const res = await fetch("/api/fusion/generate-one", {
+              method: "POST",
+              body: formData,
+            });
 
-              if (!res.ok) {
-                throw new Error(data?.error || "FUSION 한 장 생성 실패");
-              }
+            const data = await res.json();
 
-              updateSlot(slotIndex, {
-                status: "done",
-                result: data.result as FusionResult,
-              });
-
-              setStatusMessage(
-                `Pose ${poseIndex + 1} / Location ${locationIndex + 1} 생성 완료`
-              );
-            } catch (error) {
-              const message =
-                error instanceof Error ? error.message : "알 수 없는 FUSION 오류";
-
-              updateSlot(slotIndex, {
-                status: "error",
-                error: message,
-              });
-
-              setStatusMessage(
-                `Pose ${poseIndex + 1} / Location ${locationIndex + 1} 오류`
-              );
+            if (!res.ok) {
+              throw new Error(data?.error || "FUSION 한 장 생성 실패");
             }
+
+            updateSlot(slotIndex, {
+              status: "done",
+              result: data.result as FusionResult,
+            });
+
+            setStatusMessage(
+              `Pose ${poseIndex + 1} / Location ${locationIndex + 1} 생성 완료`
+            );
+          } catch (error) {
+            const message =
+              error instanceof Error ? error.message : "알 수 없는 FUSION 오류";
+
+            updateSlot(slotIndex, {
+              status: "error",
+              error: message,
+            });
+
+            setStatusMessage(
+              `Pose ${poseIndex + 1} / Location ${locationIndex + 1} 오류`
+            );
           }
         }
-      );
+      }
     } catch (error) {
       const message =
         error instanceof Error ? error.message : "알 수 없는 FUSION 오류";
-      setStatusMessage(`오류: ${message}`);
-      alert(message);
+      handlePointFailure(message);
     } finally {
       setLoading(false);
     }
@@ -4981,7 +5354,9 @@ export default function FusionPage() {
                         />
                         <ShortTag
                           label="조명"
-                          value={shorten(slot.result.bgDNA?.lighting_and_exposure)}
+                          value={shorten(
+                            slot.result.bgDNA?.lighting_and_exposure
+                          )}
                         />
                         <ShortTag
                           label="포즈"
@@ -5025,6 +5400,7 @@ export default function FusionPage() {
 
 import { useState } from "react";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { spendPoints } from "@/lib/points";
 import FaceInputSection, {
   ModelGenerateOptions,
@@ -5198,6 +5574,8 @@ function getImageMime(base64?: string) {
 }
 
 export default function RefRunPage() {
+  const router = useRouter();
+
   const [faces, setFaces] = useState<UploadItem[]>([]);
   const [outfits, setOutfits] = useState<UploadItem[]>([]);
   const [references, setReferences] = useState<UploadItem[]>([]);
@@ -5217,6 +5595,19 @@ export default function RefRunPage() {
   const safeCount = Math.max(1, Math.min(20, Number(perReferenceCount) || 1));
   const totalResults = references.length * safeCount;
   const totalCost = totalResults * 50;
+
+  const handlePointFailure = (message: string) => {
+    setStatusMessage(`오류: ${message}`);
+
+    if (message.includes("포인트 부족")) {
+      alert("포인트가 부족합니다. 충전 페이지로 이동합니다.");
+      router.push("/charge");
+      return true;
+    }
+
+    alert(message);
+    return false;
+  };
 
   const appendFiles = (
     setter: React.Dispatch<React.SetStateAction<UploadItem[]>>,
@@ -5312,8 +5703,7 @@ export default function RefRunPage() {
     } catch (error) {
       const message =
         error instanceof Error ? error.message : "모델 생성 중 오류";
-      setStatusMessage(`오류: ${message}`);
-      alert(message);
+      handlePointFailure(message);
     } finally {
       setModelGenerating(false);
     }
@@ -5360,7 +5750,9 @@ export default function RefRunPage() {
 
       setResultSlots(initialSlots);
 
-      references.forEach(async (referenceItem, refIndex) => {
+      for (let refIndex = 0; refIndex < references.length; refIndex++) {
+        const referenceItem = references[refIndex];
+
         for (let cutIndex = 0; cutIndex < safeCount; cutIndex++) {
           const slotIndex = refIndex * safeCount + cutIndex;
 
@@ -5420,12 +5812,11 @@ export default function RefRunPage() {
             );
           }
         }
-      });
+      }
     } catch (error) {
       const message =
         error instanceof Error ? error.message : "알 수 없는 REFRUN 오류";
-      setStatusMessage(`오류: ${message}`);
-      alert(message);
+      handlePointFailure(message);
     } finally {
       setLoading(false);
     }
@@ -5715,6 +6106,7 @@ export default function RefRunPage() {
 
 import { useState } from "react";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { spendPoints } from "@/lib/points";
 import FaceInputSection, {
   ModelGenerateOptions,
@@ -5894,6 +6286,8 @@ function getImageMime(base64?: string) {
 }
 
 export default function DigPage() {
+  const router = useRouter();
+
   const [faces, setFaces] = useState<UploadItem[]>([]);
   const [outfits, setOutfits] = useState<UploadItem[]>([]);
 
@@ -5915,6 +6309,19 @@ export default function DigPage() {
   const safeCount = Math.max(1, Math.min(20, Number(count) || 1));
   const totalCost = safeCount * 50;
 
+  const handlePointFailure = (message: string) => {
+    setStatusMessage(`오류: ${message}`);
+
+    if (message.includes("포인트 부족")) {
+      alert("포인트가 부족합니다. 충전 페이지로 이동합니다.");
+      router.push("/charge");
+      return true;
+    }
+
+    alert(message);
+    return false;
+  };
+
   const appendFiles = (
     setter: React.Dispatch<React.SetStateAction<UploadItem[]>>,
     files: FileList | null
@@ -5922,7 +6329,6 @@ export default function DigPage() {
     if (!files || files.length === 0) return;
 
     const MAX_SIZE = 4.5 * 1024 * 1024;
-
     const newItems: UploadItem[] = [];
 
     for (const file of Array.from(files)) {
@@ -6029,8 +6435,7 @@ export default function DigPage() {
     } catch (error) {
       const message =
         error instanceof Error ? error.message : "모델 생성 중 오류";
-      setStatusMessage(`오류: ${message}`);
-      alert(message);
+      handlePointFailure(message);
     } finally {
       setModelGenerating(false);
     }
@@ -6098,7 +6503,8 @@ export default function DigPage() {
         `Directions 생성 완료. ${directions.length}개 컷 생성 시작...`
       );
 
-      directions.forEach(async (direction, index) => {
+      for (let index = 0; index < directions.length; index++) {
+        const direction = directions[index];
         updateSlot(index, { status: "generating" });
 
         try {
@@ -6153,12 +6559,11 @@ export default function DigPage() {
 
           setStatusMessage(`컷 ${index + 1} 오류`);
         }
-      });
+      }
     } catch (error) {
       const message =
         error instanceof Error ? error.message : "알 수 없는 DIG 오류";
-      setStatusMessage(`오류: ${message}`);
-      alert(message);
+      handlePointFailure(message);
     } finally {
       setLoading(false);
     }
@@ -6332,7 +6737,6 @@ export default function DigPage() {
             </div>
           </div>
 
-          {/* 🔥 이 블록 추가 */}
           <div className="rounded-2xl border bg-white p-4">
             <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
               <div>
@@ -6359,6 +6763,7 @@ export default function DigPage() {
             >
               {loading ? "DIG 준비중..." : "DIG 실행하기"}
             </button>
+
             <button
               type="button"
               onClick={handleClearVibe}
@@ -6670,6 +7075,13 @@ export default function HomePage() {
                       className="rounded-full border border-[#cfcbd2] px-4 py-2 text-[13px] transition hover:bg-[#ece8ee]"
                     >
                       my page
+                    </Link>
+
+                    <Link
+                      href="/charge"
+                      className="rounded-full border border-[#cfcbd2] px-4 py-2 text-[13px] transition hover:bg-[#ece8ee]"
+                    >
+                      charge
                     </Link>
 
                     <button
