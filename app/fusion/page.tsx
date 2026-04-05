@@ -474,7 +474,12 @@ export default function FusionPage() {
       return;
     }
 
-    if (!faces.length || !outfits.length || !bgs.length || !poses.length) {
+    if (
+      faces.length === 0 ||
+      outfits.length === 0 ||
+      bgs.length === 0 ||
+      poses.length === 0
+    ) {
       alert("얼굴 / 의상 / BG / POSE는 최소 1장씩 필요하다.");
       return;
     }
@@ -591,15 +596,13 @@ export default function FusionPage() {
 
       setResultSlots(initialSlots);
 
+      let slotIndex = 0;
       for (let poseIndex = 0; poseIndex < poseBlueprints.length; poseIndex++) {
-        const poseBlueprint = poseBlueprints[poseIndex];
-
         for (
           let locationIndex = 0;
           locationIndex < locationPrompts.length;
           locationIndex++
         ) {
-          const slotIndex = poseIndex * locationPrompts.length + locationIndex;
           updateSlot(slotIndex, { status: "generating" });
 
           try {
@@ -614,12 +617,12 @@ export default function FusionPage() {
                 customPrompt,
                 outfitMode,
                 mixCaptions: uploadedOutfits.map((item) => item.caption || ""),
-                bgDNA,
-                poseBlueprint,
-                locationPrompt: locationPrompts[locationIndex],
                 lockedVibe,
                 facePaths,
                 outfitPaths,
+                bgDNA,
+                poseBlueprint: poseBlueprints[poseIndex],
+                locationPrompt: locationPrompts[locationIndex],
               }),
             });
 
@@ -628,10 +631,6 @@ export default function FusionPage() {
 
             if (!res.ok) {
               throw new Error(data?.error || raw || "FUSION 한 장 생성 실패");
-            }
-
-            if (!data?.result) {
-              throw new Error("FUSION 결과 응답이 비어 있습니다.");
             }
 
             updateSlot(slotIndex, {
@@ -655,6 +654,8 @@ export default function FusionPage() {
               `Pose ${poseIndex + 1} / Location ${locationIndex + 1} 오류`
             );
           }
+
+          slotIndex += 1;
         }
       }
 
@@ -683,19 +684,9 @@ export default function FusionPage() {
 
           <h1 className="text-4xl font-bold mb-3">FUSION</h1>
           <p className="text-gray-700 text-lg leading-8 max-w-4xl">
-            배경 DNA와 포즈 블루프린트를 결합해서 고급 editorial 결과를 만드는
-            생산 라인.
+            BG DNA와 POSE BLUEPRINT를 조합해 한 무드 안에서 다양한 결과를
+            만드는 생산 라인.
           </p>
-        </div>
-
-        <div className="mb-4 rounded-2xl border bg-[#fafaf8] p-4">
-          <div className="text-sm font-semibold text-black">현재 FUSION 세션</div>
-          <div className="mt-1 break-all text-xs text-gray-600">
-            {fusionSessionId || "세션 생성중..."}
-          </div>
-          <div className="mt-2 text-xs text-gray-500">
-            이번 실행에서 업로드되는 임시 파일은 이 세션 경로 기준으로 분리됩니다.
-          </div>
         </div>
 
         <div className="grid grid-cols-1 xl:grid-cols-2 gap-6 mb-6">
@@ -760,7 +751,7 @@ export default function FusionPage() {
           <UploadSection
             title="BG 업로드"
             required
-            description="공간, 톤, 질감, 라이팅 DNA를 추출할 기준 이미지."
+            description="환경 DNA를 추출할 배경 이미지."
             items={bgs}
             onAddFiles={(files) => appendFiles(setBgs, files)}
             onRemoveItem={(index) => removeItem(setBgs, index)}
@@ -770,7 +761,7 @@ export default function FusionPage() {
           <UploadSection
             title="POSE 업로드"
             required
-            description="포즈와 크롭, 카메라 감각을 추출할 기준 이미지."
+            description="포즈와 프레이밍을 추출할 기준 이미지."
             items={poses}
             onAddFiles={(files) => appendFiles(setPoses, files)}
             onRemoveItem={(index) => removeItem(setPoses, index)}
@@ -781,7 +772,7 @@ export default function FusionPage() {
         <div className="border rounded-2xl p-6 bg-white space-y-5">
           <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
             <div>
-              <label className="block text-sm font-semibold mb-2">장소 수</label>
+              <label className="block text-sm font-semibold mb-2">Count</label>
               <input
                 type="number"
                 min={1}
@@ -848,7 +839,7 @@ export default function FusionPage() {
               <div>BG: {bgs.length}장</div>
               <div>POSE: {poses.length}장</div>
               <div>의상 모드: {outfitMode}</div>
-              <div>장소 수: {safeCount}</div>
+              <div>Count: {safeCount}</div>
               <div>총 예상 결과 수: {expectedResultCount}장</div>
               <div>핏 보정: {fitSpec || "없음"}</div>
               <div>Shooting Mode: {shootingMode}</div>
@@ -956,25 +947,8 @@ export default function FusionPage() {
 
                       <div className="flex flex-wrap gap-2 mb-4">
                         <ShortTag
-                          label="무드"
-                          value={shorten(slot.result.bgDNA?.spatial_mood)}
-                        />
-                        <ShortTag
-                          label="장소"
+                          label="배경"
                           value={shorten(slot.result.locationPrompt)}
-                        />
-                        <ShortTag
-                          label="카메라"
-                          value={shorten(
-                            slot.result.bgDNA?.camera_feel ||
-                              slot.result.poseBlueprint?.camera_angle_and_crop
-                          )}
-                        />
-                        <ShortTag
-                          label="조명"
-                          value={shorten(
-                            slot.result.bgDNA?.lighting_and_exposure
-                          )}
                         />
                         <ShortTag
                           label="포즈"
@@ -984,10 +958,20 @@ export default function FusionPage() {
                           label="표정"
                           value={shorten(slot.result.poseBlueprint?.expression)}
                         />
+                        <ShortTag
+                          label="카메라"
+                          value={shorten(
+                            slot.result.poseBlueprint?.camera_angle_and_crop
+                          )}
+                        />
+                        <ShortTag
+                          label="무드"
+                          value={shorten(slot.result.bgDNA?.spatial_mood)}
+                        />
                       </div>
 
                       <div className="text-sm text-gray-700 mb-4">
-                        <b>요약:</b> {slot.result.summary}
+                        <b>요약:</b> {slot.result.summary || "-"}
                       </div>
 
                       <button

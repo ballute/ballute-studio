@@ -499,13 +499,12 @@ export default function DigPage() {
 
       const directionsRes = await fetch("/api/dig/directions", {
         method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
-          moodQuery,
-          count: safeCount,
-        }),
+        body: (() => {
+          const formData = new FormData();
+          formData.append("moodQuery", moodQuery);
+          formData.append("count", String(safeCount));
+          return formData;
+        })(),
       });
 
       const directionsRaw = await directionsRes.text();
@@ -611,16 +610,6 @@ export default function DigPage() {
             무드 키워드를 리서치해서 여러 크리에이티브 디렉션을 만들고, 각
             디렉션마다 한 컷씩 생성하는 생산 라인.
           </p>
-        </div>
-
-        <div className="mb-4 rounded-2xl border bg-[#fafaf8] p-4">
-          <div className="text-sm font-semibold text-black">현재 DIG 세션</div>
-          <div className="mt-1 break-all text-xs text-gray-600">
-            {digSessionId || "세션 생성중..."}
-          </div>
-          <div className="mt-2 text-xs text-gray-500">
-            이번 실행에서 업로드되는 임시 파일은 이 세션 경로 기준으로 분리됩니다.
-          </div>
         </div>
 
         <div className="grid grid-cols-1 xl:grid-cols-2 gap-6 mb-6">

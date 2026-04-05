@@ -195,7 +195,6 @@ export default function RefRunPage() {
   const [references, setReferences] = useState<UploadItem[]>([]);
 
   const [outfitMode, setOutfitMode] = useState<"outfit" | "mix">("outfit");
-
   const [fitSpec, setFitSpec] = useState("");
   const [shootingMode, setShootingMode] = useState("default");
   const [customPrompt, setCustomPrompt] = useState("");
@@ -466,20 +465,19 @@ export default function RefRunPage() {
         .map((item) => item.storagePath)
         .filter((v): v is string => Boolean(v));
 
-      if (!facePaths.length || !outfitPaths.length) {
-        throw new Error("얼굴 또는 의상 업로드 경로 확보 실패");
+      const referencePaths = uploadedReferences
+        .map((item) => item.storagePath)
+        .filter((v): v is string => Boolean(v));
+
+      if (!facePaths.length || !outfitPaths.length || !referencePaths.length) {
+        throw new Error("얼굴 / 의상 / 레퍼런스 업로드 경로 확보 실패");
       }
 
       setStatusMessage(`포인트 차감중... (${totalCost}P)`);
-      await spendPoints(
-        totalCost,
-        `REFRUN 실행 (${references.length}개 레퍼런스 × ${safeCount}장)`
-      );
-
-      setStatusMessage("REFRUN 시작...");
+      await spendPoints(totalCost, `REFRUN 실행 (${totalResults}장)`);
 
       const initialSlots: ResultSlot[] = [];
-      uploadedReferences.forEach((_, refIndex) => {
+      for (let refIndex = 0; refIndex < referencePaths.length; refIndex++) {
         for (let cutIndex = 0; cutIndex < safeCount; cutIndex++) {
           initialSlots.push({
             status: "waiting",
@@ -488,21 +486,16 @@ export default function RefRunPage() {
             cutIndex,
           });
         }
-      });
-
+      }
       setResultSlots(initialSlots);
 
-      for (let refIndex = 0; refIndex < uploadedReferences.length; refIndex++) {
-        const referenceItem = uploadedReferences[refIndex];
-        const referencePath = referenceItem.storagePath;
+      setStatusMessage("REFRUN 생성 시작...");
 
-        if (!referencePath) {
-          throw new Error("레퍼런스 업로드 경로 확보 실패");
-        }
+      for (let refIndex = 0; refIndex < referencePaths.length; refIndex++) {
+        const referencePath = referencePaths[refIndex];
 
         for (let cutIndex = 0; cutIndex < safeCount; cutIndex++) {
           const slotIndex = refIndex * safeCount + cutIndex;
-
           updateSlot(slotIndex, { status: "generating" });
 
           try {
@@ -584,16 +577,6 @@ export default function RefRunPage() {
           </p>
         </div>
 
-        <div className="mb-4 rounded-2xl border bg-[#fafaf8] p-4">
-          <div className="text-sm font-semibold text-black">현재 REFRUN 세션</div>
-          <div className="mt-1 break-all text-xs text-gray-600">
-            {refRunSessionId || "세션 생성중..."}
-          </div>
-          <div className="mt-2 text-xs text-gray-500">
-            이번 실행에서 업로드되는 임시 파일은 이 세션 경로 기준으로 분리됩니다.
-          </div>
-        </div>
-
         <div className="grid grid-cols-1 xl:grid-cols-3 gap-6 mb-6">
           <FaceInputSection
             items={faces}
@@ -654,7 +637,7 @@ export default function RefRunPage() {
           <UploadSection
             title="레퍼런스 업로드"
             required
-            description="구도, 무드, 사진 문법을 따라갈 기준 이미지."
+            description="구도, 무드, 사진 문법을 따라갈 기준 레퍼런스 이미지."
             items={references}
             onAddFiles={(files) => appendFiles(setReferences, files)}
             onRemoveItem={(index) => removeItem(setReferences, index)}
@@ -666,7 +649,7 @@ export default function RefRunPage() {
           <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
             <div>
               <label className="block text-sm font-semibold mb-2">
-                레퍼런스당 생성 수
+                Reference당 생성 수
               </label>
               <input
                 type="number"
@@ -709,7 +692,6 @@ export default function RefRunPage() {
                 <option value="studio">studio</option>
                 <option value="raw">raw</option>
                 <option value="custom">custom</option>
-                <option value="dig_original">dig_original</option>
               </select>
             </div>
 
@@ -732,13 +714,12 @@ export default function RefRunPage() {
             <div className="text-sm text-gray-700 space-y-1">
               <div>얼굴: {faces.length}장</div>
               <div>의상: {outfits.length}장</div>
-              <div>의상 모드: {outfitMode}</div>
               <div>레퍼런스: {references.length}장</div>
-              <div>레퍼런스당 생성 수: {safeCount}</div>
+              <div>의상 모드: {outfitMode}</div>
+              <div>Reference당 생성 수: {safeCount}</div>
               <div>총 예상 결과 수: {totalResults}장</div>
               <div>핏 보정: {fitSpec || "없음"}</div>
               <div>Shooting Mode: {shootingMode}</div>
-              <div>Custom Prompt: {customPrompt || "없음"}</div>
               <div>실행 비용: {totalCost}P</div>
             </div>
           </div>
@@ -748,7 +729,7 @@ export default function RefRunPage() {
               <div>
                 <div className="text-sm font-semibold text-black">포인트 충전</div>
                 <div className="mt-1 text-sm text-gray-600">
-                  REFRUN은 레퍼런스 수와 생성 수에 따라 포인트가 빠르게 차감될 수 있습니다.
+                  REFRUN 실행 전 포인트를 미리 충전해 두시면 작업이 끊기지 않습니다.
                 </div>
               </div>
 
@@ -766,7 +747,7 @@ export default function RefRunPage() {
             disabled={loading || modelGenerating || !refRunSessionId}
             className="w-full bg-black text-white py-5 rounded-2xl text-xl disabled:opacity-60"
           >
-            {loading ? "REFRUN 준비중..." : "REFRUN 실행하기"}
+            {loading ? "REFRUN 준비중..." : `REFRUN 실행하기 (${totalCost}P)`}
           </button>
         </div>
 
@@ -785,7 +766,7 @@ export default function RefRunPage() {
               {resultSlots.map((slot, index) => (
                 <div key={index} className="border rounded-2xl p-5 bg-white">
                   <div className="font-semibold mb-3">
-                    Ref #{slot.referenceIndex + 1} · Cut #{slot.cutIndex + 1}
+                    Ref {slot.referenceIndex + 1} / Cut {slot.cutIndex + 1}
                   </div>
 
                   {slot.status === "waiting" && (
@@ -834,12 +815,18 @@ export default function RefRunPage() {
                           )}
                         />
                         <ShortTag
+                          label="조명"
+                          value={shorten(
+                            slot.result.direction.lighting_and_exposure
+                          )}
+                        />
+                        <ShortTag
                           label="무드"
                           value={shorten(slot.result.direction.overall_mood)}
                         />
                       </div>
 
-                      <div className="text-sm text-gray-700 mb-4">
+                      <div className="text-sm text-gray-700">
                         <b>요약:</b> {slot.result.summary}
                       </div>
                     </>
