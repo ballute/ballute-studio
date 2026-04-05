@@ -60,6 +60,11 @@ app/
     refrun/
       run-one/
         route.ts
+    temp-assets/
+      cleanup/
+        route.ts
+      delete/
+        route.ts
     toss/
       confirm/
         route.ts
@@ -100,6 +105,7 @@ lib/
   gemini-refrun.ts
   gemini-web.ts
   points.ts
+  storage.ts
   supabase.ts
   utils.ts
 project_backup/
@@ -163,348 +169,6 @@ export async function POST(req: Request) {
 
     const message =
       error instanceof Error ? error.message : "알 수 없는 directions 오류";
-
-    return NextResponse.json({ error: message }, { status: 500 });
-  }
-}
-</file>
-
-<file path="app/api/dig/generate-one/route.ts">
-import { NextResponse } from "next/server";
-import { fileToBase64 } from "@/lib/utils";
-import {
-  generateDigImageWeb,
-  LockedVibe,
-  DigDirection,
-} from "@/lib/gemini-dig";
-
-export async function POST(req: Request) {
-  try {
-    const formData = await req.formData();
-
-    const fitSpec = (formData.get("fitSpec") as string) || "";
-    const shootingMode = (formData.get("shootingMode") as string) || "default";
-    const customPrompt = (formData.get("customPrompt") as string) || "";
-    const outfitMode = (formData.get("outfitMode") as string) || "outfit";
-    const lockedVibeRaw = (formData.get("lockedVibe") as string) || "";
-    const directionRaw = (formData.get("direction") as string) || "";
-    const mixCaptionsRaw = (formData.get("mixCaptions") as string) || "[]";
-
-    const faceFiles = formData.getAll("faces") as File[];
-    const outfitFiles = formData.getAll("outfits") as File[];
-
-    if (!directionRaw) {
-      return NextResponse.json(
-        { error: "direction 정보가 필요하다." },
-        { status: 400 }
-      );
-    }
-
-    if (!faceFiles.length) {
-      return NextResponse.json(
-        { error: "얼굴 이미지는 최소 1장 필요하다." },
-        { status: 400 }
-      );
-    }
-
-    if (!outfitFiles.length) {
-      return NextResponse.json(
-        { error: "의상 이미지는 최소 1장 필요하다." },
-        { status: 400 }
-      );
-    }
-
-    const direction = JSON.parse(directionRaw) as DigDirection;
-    const mixCaptions = JSON.parse(mixCaptionsRaw) as string[];
-    const lockedVibe: LockedVibe | null = lockedVibeRaw
-      ? JSON.parse(lockedVibeRaw)
-      : null;
-
-    if (outfitMode === "mix" && mixCaptions.length !== outfitFiles.length) {
-      return NextResponse.json(
-        { error: "MIX 설명 수와 의상 이미지 수가 맞지 않는다." },
-        { status: 400 }
-      );
-    }
-
-    const faceBase64s = await Promise.all(faceFiles.map(fileToBase64));
-    const outfitBase64s = await Promise.all(outfitFiles.map(fileToBase64));
-
-    const generated = await generateDigImageWeb({
-      faceBase64s,
-      outfitBase64s,
-      dirSet: direction,
-      bodySpecs: fitSpec,
-      shootingMode,
-      customPrompt: shootingMode === "custom" ? customPrompt : undefined,
-      lockedVibe,
-      isMixMode: outfitMode === "mix",
-      mixCaptions,
-    });
-
-    return NextResponse.json({
-      success: true,
-      result: {
-        image: generated.base64,
-        summary: generated.summary,
-        direction,
-      },
-    });
-  } catch (error) {
-    console.error("DIG_GENERATE_ONE_ERROR:", error);
-
-    const message =
-      error instanceof Error ? error.message : "알 수 없는 generate-one 오류";
-
-    return NextResponse.json({ error: message }, { status: 500 });
-  }
-}
-</file>
-
-<file path="app/api/dig/route.ts">
-import { NextResponse } from "next/server";
-import { fileToBase64 } from "@/lib/utils";
-import {
-  generateCreativeDirectionsWeb,
-  generateDigImageWeb,
-  LockedVibe,
-} from "@/lib/gemini-dig";
-
-export async function POST(req: Request) {
-  try {
-    const formData = await req.formData();
-
-    const moodQuery = (formData.get("moodQuery") as string) || "";
-    const bodySpecs = (formData.get("fitSpec") as string) || "";
-    const shootingMode = (formData.get("shootingMode") as string) || "default";
-    const customPrompt = (formData.get("customPrompt") as string) || "";
-    const outfitMode = (formData.get("outfitMode") as string) || "outfit";
-    const countRaw = (formData.get("count") as string) || "4";
-    const lockedVibeRaw = (formData.get("lockedVibe") as string) || "";
-
-    const count = Math.max(1, Math.min(8, Number(countRaw) || 4));
-
-    const faceFiles = formData.getAll("faces") as File[];
-    const outfitFiles = formData.getAll("outfits") as File[];
-    const mixCaptionsRaw = (formData.get("mixCaptions") as string) || "[]";
-
-    const mixCaptions = JSON.parse(mixCaptionsRaw) as string[];
-    const lockedVibe: LockedVibe | null = lockedVibeRaw
-      ? JSON.parse(lockedVibeRaw)
-      : null;
-
-    if (!moodQuery.trim()) {
-      return NextResponse.json(
-        { error: "무드 키워드가 필요하다." },
-        { status: 400 }
-      );
-    }
-
-    if (!faceFiles.length) {
-      return NextResponse.json(
-        { error: "얼굴 이미지는 최소 1장 필요하다." },
-        { status: 400 }
-      );
-    }
-
-    if (!outfitFiles.length) {
-      return NextResponse.json(
-        { error: "의상 이미지는 최소 1장 필요하다." },
-        { status: 400 }
-      );
-    }
-
-    if (outfitMode === "mix" && mixCaptions.length !== outfitFiles.length) {
-      return NextResponse.json(
-        { error: "MIX 설명 수와 의상 이미지 수가 맞지 않는다." },
-        { status: 400 }
-      );
-    }
-
-    const faceBase64s = await Promise.all(faceFiles.map(fileToBase64));
-    const outfitBase64s = await Promise.all(outfitFiles.map(fileToBase64));
-
-    const directions = await generateCreativeDirectionsWeb(moodQuery, count);
-
-    const results = [];
-    for (const dirSet of directions) {
-      const generated = await generateDigImageWeb({
-        faceBase64s,
-        outfitBase64s,
-        dirSet,
-        bodySpecs,
-        shootingMode,
-        customPrompt: shootingMode === "custom" ? customPrompt : undefined,
-        lockedVibe,
-        isMixMode: outfitMode === "mix",
-        mixCaptions,
-      });
-
-      results.push({
-        image: generated.base64,
-        summary: generated.summary,
-        direction: dirSet,
-      });
-    }
-
-    return NextResponse.json({
-      success: true,
-      directions,
-      results,
-    });
-  } catch (error) {
-    console.error("DIG_ROUTE_ERROR:", error);
-
-    const message =
-      error instanceof Error ? error.message : "알 수 없는 DIG 서버 오류";
-
-    return NextResponse.json({ error: message }, { status: 500 });
-  }
-}
-</file>
-
-<file path="app/api/fusion/generate-one/route.ts">
-import { NextResponse } from "next/server";
-import { fileToBase64 } from "@/lib/utils";
-import {
-  generateFusionImageWeb,
-  BackgroundDNA,
-  PoseBlueprint,
-  LockedVibe,
-} from "@/lib/gemini-fusion";
-
-export async function POST(req: Request) {
-  try {
-    const formData = await req.formData();
-
-    const fitSpec = (formData.get("fitSpec") as string) || "";
-    const shootingMode = (formData.get("shootingMode") as string) || "default";
-    const customPrompt = (formData.get("customPrompt") as string) || "";
-    const outfitMode = (formData.get("outfitMode") as string) || "outfit";
-    const mixCaptionsRaw = (formData.get("mixCaptions") as string) || "[]";
-    const bgDNARaw = (formData.get("bgDNA") as string) || "{}";
-    const poseBlueprintRaw = (formData.get("poseBlueprint") as string) || "{}";
-    const locationPrompt = (formData.get("locationPrompt") as string) || "";
-    const lockedVibeRaw = (formData.get("lockedVibe") as string) || "";
-
-    const faceFiles = formData.getAll("faces") as File[];
-    const outfitFiles = formData.getAll("outfits") as File[];
-
-    if (!faceFiles.length) {
-      return NextResponse.json(
-        { error: "얼굴 이미지는 최소 1장 필요하다." },
-        { status: 400 }
-      );
-    }
-
-    if (!outfitFiles.length) {
-      return NextResponse.json(
-        { error: "의상 이미지는 최소 1장 필요하다." },
-        { status: 400 }
-      );
-    }
-
-    if (!locationPrompt.trim()) {
-      return NextResponse.json(
-        { error: "로케이션 프롬프트가 필요하다." },
-        { status: 400 }
-      );
-    }
-
-    const faceBase64s = await Promise.all(faceFiles.map(fileToBase64));
-    const outfitBase64s = await Promise.all(outfitFiles.map(fileToBase64));
-
-    const mixCaptions = JSON.parse(mixCaptionsRaw) as string[];
-    const bgDNA = JSON.parse(bgDNARaw) as BackgroundDNA;
-    const poseBlueprint = JSON.parse(poseBlueprintRaw) as PoseBlueprint;
-    const lockedVibe: LockedVibe | null = lockedVibeRaw
-      ? JSON.parse(lockedVibeRaw)
-      : null;
-
-    const generated = await generateFusionImageWeb({
-      faceBase64s,
-      outfitBase64s,
-      poseBlueprint,
-      targetLocationText: locationPrompt,
-      bgDNA,
-      bodySpecs: fitSpec,
-      isMixMode: outfitMode === "mix",
-      mixCaptions,
-      lockedVibe,
-      shootingMode,
-      customPrompt: shootingMode === "custom" ? customPrompt : undefined,
-    });
-
-    return NextResponse.json({
-      success: true,
-      result: {
-        image: generated.base64,
-        summary: generated.summary,
-        locationPrompt,
-        poseBlueprint,
-        bgDNA,
-      },
-    });
-  } catch (error) {
-    console.error("FUSION_GENERATE_ONE_ERROR:", error);
-
-    const message =
-      error instanceof Error ? error.message : "알 수 없는 FUSION 생성 오류";
-
-    return NextResponse.json({ error: message }, { status: 500 });
-  }
-}
-</file>
-
-<file path="app/api/fusion/prepare/route.ts">
-import { NextResponse } from "next/server";
-import { fileToBase64 } from "@/lib/utils";
-import {
-  analyzeBackgroundDNAFromBase64s,
-  analyzePoseBlueprintFromBase64,
-  searchLocationPrompts,
-} from "@/lib/gemini-fusion";
-
-export async function POST(req: Request) {
-  try {
-    const formData = await req.formData();
-
-    const countRaw = (formData.get("count") as string) || "4";
-    const count = Math.max(1, Math.min(8, Number(countRaw) || 4));
-
-    const bgFiles = formData.getAll("bgs") as File[];
-    const poseFiles = formData.getAll("poses") as File[];
-
-    if (!bgFiles.length || !poseFiles.length) {
-      return NextResponse.json(
-        { error: "BG 또는 POSE 사진 누락." },
-        { status: 400 }
-      );
-    }
-
-    const bgBase64s = await Promise.all(bgFiles.map(fileToBase64));
-    const poseBase64s = await Promise.all(poseFiles.map(fileToBase64));
-
-    const bgDNA = await analyzeBackgroundDNAFromBase64s(bgBase64s);
-    const locationPrompts = await searchLocationPrompts(bgDNA, count);
-
-    const poseBlueprints = [];
-    for (const poseBase64 of poseBase64s) {
-      const blueprint = await analyzePoseBlueprintFromBase64(poseBase64);
-      poseBlueprints.push(blueprint);
-    }
-
-    return NextResponse.json({
-      success: true,
-      bgDNA,
-      locationPrompts,
-      poseBlueprints,
-    });
-  } catch (error) {
-    console.error("FUSION_PREPARE_ERROR:", error);
-
-    const message =
-      error instanceof Error ? error.message : "알 수 없는 FUSION 준비 오류";
 
     return NextResponse.json({ error: message }, { status: 500 });
   }
@@ -582,6 +246,374 @@ Type: ${projectType}
       { error: "이미지 생성 실패" },
       { status: 500 }
     );
+  }
+}
+</file>
+
+<file path="app/api/temp-assets/cleanup/route.ts">
+import { NextRequest, NextResponse } from "next/server";
+import { createClient } from "@supabase/supabase-js";
+
+const TEMP_INPUT_BUCKET = "temp-inputs";
+const TTL_MS = 2 * 60 * 60 * 1000;
+
+function getAdminClient() {
+  const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
+  const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
+
+  if (!url || !serviceRoleKey) {
+    throw new Error(
+      "Supabase admin 설정 누락: NEXT_PUBLIC_SUPABASE_URL / SUPABASE_SERVICE_ROLE_KEY 확인 필요"
+    );
+  }
+
+  return createClient(url, serviceRoleKey, {
+    auth: {
+      persistSession: false,
+      autoRefreshToken: false,
+    },
+  });
+}
+
+function isAuthorized(req: NextRequest) {
+  const cronSecret = process.env.CRON_SECRET;
+
+  if (!cronSecret) {
+    throw new Error("CRON_SECRET 환경변수가 없습니다.");
+  }
+
+  const authHeader = req.headers.get("authorization");
+  return authHeader === `Bearer ${cronSecret}`;
+}
+
+function extractTimestampFromFileName(fileName: string) {
+  const firstPart = fileName.split("_")[0];
+  const ts = Number(firstPart);
+
+  if (!Number.isFinite(ts) || ts <= 0) {
+    return null;
+  }
+
+  return ts;
+}
+
+async function listAllFilesRecursively(
+  supabaseAdmin: ReturnType<typeof getAdminClient>,
+  bucket: string,
+  folder = ""
+): Promise<string[]> {
+  const results: string[] = [];
+  let offset = 0;
+  const limit = 100;
+
+  while (true) {
+    const { data, error } = await supabaseAdmin.storage.from(bucket).list(folder, {
+      limit,
+      offset,
+      sortBy: { column: "name", order: "asc" },
+    });
+
+    if (error) {
+      throw new Error(`스토리지 조회 실패 (${folder || "root"}): ${error.message}`);
+    }
+
+    if (!data || data.length === 0) {
+      break;
+    }
+
+    for (const item of data) {
+      const itemPath = folder ? `${folder}/${item.name}` : item.name;
+
+      const isFolder =
+        !item.metadata &&
+        !item.id &&
+        !item.updated_at &&
+        !item.created_at &&
+        !item.last_accessed_at;
+
+      if (isFolder) {
+        const nested = await listAllFilesRecursively(supabaseAdmin, bucket, itemPath);
+        results.push(...nested);
+      } else {
+        results.push(itemPath);
+      }
+    }
+
+    if (data.length < limit) {
+      break;
+    }
+
+    offset += limit;
+  }
+
+  return results;
+}
+
+function isExpiredByPath(path: string, now: number) {
+  const fileName = path.split("/").pop();
+  if (!fileName) return false;
+
+  const ts = extractTimestampFromFileName(fileName);
+  if (!ts) return false;
+
+  return now - ts >= TTL_MS;
+}
+
+function chunkArray<T>(arr: T[], size: number) {
+  const chunks: T[][] = [];
+  for (let i = 0; i < arr.length; i += size) {
+    chunks.push(arr.slice(i, i + size));
+  }
+  return chunks;
+}
+
+export async function POST(req: NextRequest) {
+  try {
+    if (!isAuthorized(req)) {
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    }
+
+    const supabaseAdmin = getAdminClient();
+    const now = Date.now();
+
+    const allPaths = await listAllFilesRecursively(
+      supabaseAdmin,
+      TEMP_INPUT_BUCKET,
+      ""
+    );
+
+    const expiredPaths = allPaths.filter((path) => isExpiredByPath(path, now));
+
+    if (expiredPaths.length === 0) {
+      return NextResponse.json({
+        success: true,
+        scanned: allPaths.length,
+        removed: 0,
+        removedPaths: [],
+      });
+    }
+
+    const chunks = chunkArray(expiredPaths, 100);
+    const removedPaths: string[] = [];
+
+    for (const paths of chunks) {
+      const { error } = await supabaseAdmin.storage
+        .from(TEMP_INPUT_BUCKET)
+        .remove(paths);
+
+      if (error) {
+        throw new Error(`스토리지 삭제 실패: ${error.message}`);
+      }
+
+      removedPaths.push(...paths);
+    }
+
+    return NextResponse.json({
+      success: true,
+      scanned: allPaths.length,
+      removed: removedPaths.length,
+      removedPaths,
+    });
+  } catch (error) {
+    console.error("TEMP_ASSETS_CLEANUP_ERROR:", error);
+
+    const message =
+      error instanceof Error ? error.message : "알 수 없는 cleanup 오류";
+
+    return NextResponse.json({ error: message }, { status: 500 });
+  }
+}
+</file>
+
+<file path="app/api/temp-assets/delete/route.ts">
+import { NextRequest, NextResponse } from "next/server";
+import { createClient } from "@supabase/supabase-js";
+
+const TEMP_INPUT_BUCKET = "temp-inputs";
+
+function getAdminClient() {
+  const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
+  const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
+
+  if (!url || !serviceRoleKey) {
+    throw new Error(
+      "Supabase admin 설정 누락: NEXT_PUBLIC_SUPABASE_URL / SUPABASE_SERVICE_ROLE_KEY 확인 필요"
+    );
+  }
+
+  return createClient(url, serviceRoleKey, {
+    auth: {
+      persistSession: false,
+      autoRefreshToken: false,
+    },
+  });
+}
+
+function getAuthClient() {
+  const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
+  const anonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
+
+  if (!url || !anonKey) {
+    throw new Error(
+      "Supabase auth 설정 누락: NEXT_PUBLIC_SUPABASE_URL / NEXT_PUBLIC_SUPABASE_ANON_KEY 확인 필요"
+    );
+  }
+
+  return createClient(url, anonKey, {
+    auth: {
+      persistSession: false,
+      autoRefreshToken: false,
+    },
+  });
+}
+
+function getBearerToken(req: NextRequest) {
+  const authHeader = req.headers.get("authorization") || "";
+  const [type, token] = authHeader.split(" ");
+
+  if (type !== "Bearer" || !token) {
+    return null;
+  }
+
+  return token;
+}
+
+async function listAllFilesRecursively(
+  supabaseAdmin: ReturnType<typeof getAdminClient>,
+  bucket: string,
+  folder = ""
+): Promise<string[]> {
+  const results: string[] = [];
+  let offset = 0;
+  const limit = 100;
+
+  while (true) {
+    const { data, error } = await supabaseAdmin.storage.from(bucket).list(folder, {
+      limit,
+      offset,
+      sortBy: { column: "name", order: "asc" },
+    });
+
+    if (error) {
+      throw new Error(`스토리지 조회 실패 (${folder || "root"}): ${error.message}`);
+    }
+
+    if (!data || data.length === 0) {
+      break;
+    }
+
+    for (const item of data) {
+      const itemPath = folder ? `${folder}/${item.name}` : item.name;
+
+      const isFolder =
+        !item.metadata &&
+        !item.id &&
+        !item.updated_at &&
+        !item.created_at &&
+        !item.last_accessed_at;
+
+      if (isFolder) {
+        const nested = await listAllFilesRecursively(supabaseAdmin, bucket, itemPath);
+        results.push(...nested);
+      } else {
+        results.push(itemPath);
+      }
+    }
+
+    if (data.length < limit) {
+      break;
+    }
+
+    offset += limit;
+  }
+
+  return results;
+}
+
+function chunkArray<T>(arr: T[], size: number) {
+  const chunks: T[][] = [];
+  for (let i = 0; i < arr.length; i += size) {
+    chunks.push(arr.slice(i, i + size));
+  }
+  return chunks;
+}
+
+type DeleteBody = {
+  sessionId?: string;
+};
+
+export async function POST(req: NextRequest) {
+  try {
+    const accessToken = getBearerToken(req);
+
+    if (!accessToken) {
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    }
+
+    const authClient = getAuthClient();
+    const {
+      data: { user },
+      error: userError,
+    } = await authClient.auth.getUser(accessToken);
+
+    if (userError || !user) {
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    }
+
+    const body = (await req.json()) as DeleteBody;
+    const sessionId = (body.sessionId || "").trim();
+
+    if (!sessionId) {
+      return NextResponse.json(
+        { error: "sessionId가 필요합니다." },
+        { status: 400 }
+      );
+    }
+
+    const supabaseAdmin = getAdminClient();
+    const targetPrefix = `${user.id}/${sessionId}`;
+
+    const allPaths = await listAllFilesRecursively(
+      supabaseAdmin,
+      TEMP_INPUT_BUCKET,
+      targetPrefix
+    );
+
+    if (allPaths.length === 0) {
+      return NextResponse.json({
+        success: true,
+        removed: 0,
+        removedPaths: [],
+      });
+    }
+
+    const chunks = chunkArray(allPaths, 100);
+    const removedPaths: string[] = [];
+
+    for (const paths of chunks) {
+      const { error } = await supabaseAdmin.storage
+        .from(TEMP_INPUT_BUCKET)
+        .remove(paths);
+
+      if (error) {
+        throw new Error(`스토리지 삭제 실패: ${error.message}`);
+      }
+
+      removedPaths.push(...paths);
+    }
+
+    return NextResponse.json({
+      success: true,
+      removed: removedPaths.length,
+      removedPaths,
+    });
+  } catch (error) {
+    console.error("TEMP_ASSETS_DELETE_ERROR:", error);
+
+    const message =
+      error instanceof Error ? error.message : "알 수 없는 temp 삭제 오류";
+
+    return NextResponse.json({ error: message }, { status: 500 });
   }
 }
 </file>
@@ -1549,6 +1581,133 @@ export async function spendPoints(amount: number, reason: string) {
 }
 </file>
 
+<file path="lib/storage.ts">
+import { supabase } from "@/lib/supabase";
+
+export type TempAssetKind =
+  | "faces"
+  | "outfits"
+  | "bgs"
+  | "poses"
+  | "references"
+  | "outputs";
+
+export type TempUploadResult = {
+  path: string;
+  bucket: "temp-inputs";
+  fullPath: string;
+  kind: TempAssetKind;
+  size: number;
+  mimeType: string;
+  fileName: string;
+  sessionId: string;
+  userId: string;
+  expiresAt: string;
+};
+
+const TEMP_INPUT_BUCKET = "temp-inputs";
+const TWO_HOURS_MS = 2 * 60 * 60 * 1000;
+
+function sanitizeFileName(fileName: string) {
+  return fileName
+    .normalize("NFKD")
+    .replace(/[^\w.\-]+/g, "_")
+    .replace(/_+/g, "_")
+    .replace(/^_+|_+$/g, "");
+}
+
+function getExtension(file: File) {
+  const byName = file.name.split(".").pop()?.toLowerCase();
+  if (byName) return byName;
+
+  if (file.type === "image/png") return "png";
+  if (file.type === "image/webp") return "webp";
+  return "jpg";
+}
+
+export function makeSessionId(prefix: string) {
+  return `${prefix}_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+}
+
+export async function getCurrentUserId() {
+  const {
+    data: { user },
+    error,
+  } = await supabase.auth.getUser();
+
+  if (error || !user) {
+    throw new Error("로그인이 필요합니다.");
+  }
+
+  return user.id;
+}
+
+export async function uploadTempAsset(params: {
+  file: File;
+  kind: TempAssetKind;
+  sessionId: string;
+}) {
+  const { file, kind, sessionId } = params;
+
+  const userId = await getCurrentUserId();
+  const now = Date.now();
+  const expiresAt = new Date(now + TWO_HOURS_MS).toISOString();
+
+  const ext = getExtension(file);
+  const safeName = sanitizeFileName(file.name.replace(/\.[^/.]+$/, ""));
+  const uniqueName = `${now}_${Math.random().toString(36).slice(2, 8)}_${safeName}.${ext}`;
+  const path = `${userId}/${sessionId}/${kind}/${uniqueName}`;
+
+  const { error } = await supabase.storage
+    .from(TEMP_INPUT_BUCKET)
+    .upload(path, file, {
+      cacheControl: "3600",
+      upsert: false,
+      contentType: file.type || "application/octet-stream",
+    });
+
+  if (error) {
+    throw new Error(`스토리지 업로드 실패: ${error.message}`);
+  }
+
+  return {
+    path,
+    bucket: TEMP_INPUT_BUCKET,
+    fullPath: `${TEMP_INPUT_BUCKET}/${path}`,
+    kind,
+    size: file.size,
+    mimeType: file.type || "application/octet-stream",
+    fileName: file.name,
+    sessionId,
+    userId,
+    expiresAt,
+  } satisfies TempUploadResult;
+}
+
+export async function uploadTempAssets(params: {
+  files: File[];
+  kind: TempAssetKind;
+  sessionId: string;
+}) {
+  const { files, kind, sessionId } = params;
+  return Promise.all(
+    files.map((file) => uploadTempAsset({ file, kind, sessionId }))
+  );
+}
+
+export async function removeTempPaths(paths: string[]) {
+  if (!paths.length) return;
+
+  const { error } = await supabase.storage
+    .from(TEMP_INPUT_BUCKET)
+    .remove(paths);
+
+  if (error) {
+    throw new Error(`스토리지 삭제 실패: ${error.message}`);
+  }
+}
+</file>
+
 <file path="lib/supabase.ts">
 import { createClient } from "@supabase/supabase-js";
 
@@ -1828,71 +1987,225 @@ Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/bui
 }
 </file>
 
-<file path="app/api/refrun/run-one/route.ts">
+<file path="app/api/dig/generate-one/route.ts">
 import { NextResponse } from "next/server";
+import { createClient } from "@supabase/supabase-js";
 import { fileToBase64 } from "@/lib/utils";
 import {
-  analyzeReferenceWeb,
-  generateRefRunImageWeb,
-} from "@/lib/gemini-refrun";
+  generateDigImageWeb,
+  LockedVibe,
+  DigDirection,
+} from "@/lib/gemini-dig";
+
+const TEMP_INPUT_BUCKET = "temp-inputs";
+
+function stripBucketPrefix(path: string) {
+  if (!path) return path;
+  const prefix = `${TEMP_INPUT_BUCKET}/`;
+  return path.startsWith(prefix) ? path.slice(prefix.length) : path;
+}
+
+function arrayBufferToBase64(buffer: ArrayBuffer) {
+  return Buffer.from(buffer).toString("base64");
+}
+
+function getStorageAdmin() {
+  const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
+  const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
+
+  if (!url || !serviceRoleKey) {
+    throw new Error(
+      "Supabase Storage 서버 설정이 없습니다. NEXT_PUBLIC_SUPABASE_URL / SUPABASE_SERVICE_ROLE_KEY를 확인하세요."
+    );
+  }
+
+  return createClient(url, serviceRoleKey, {
+    auth: {
+      persistSession: false,
+      autoRefreshToken: false,
+    },
+  });
+}
+
+async function storagePathToBase64(path: string) {
+  const cleanedPath = stripBucketPrefix(path);
+
+  if (!cleanedPath) {
+    throw new Error("스토리지 경로가 비어 있습니다.");
+  }
+
+  const supabaseAdmin = getStorageAdmin();
+
+  const { data, error } = await supabaseAdmin.storage
+    .from(TEMP_INPUT_BUCKET)
+    .download(cleanedPath);
+
+  if (error || !data) {
+    throw new Error(
+      `스토리지 파일 읽기 실패: ${cleanedPath} / ${error?.message || "unknown"}`
+    );
+  }
+
+  const buffer = await data.arrayBuffer();
+  return arrayBufferToBase64(buffer);
+}
+
+function safeJsonParse<T>(raw: string, fallback: T): T {
+  try {
+    return JSON.parse(raw) as T;
+  } catch {
+    return fallback;
+  }
+}
+
+type JsonGenerateBody = {
+  fitSpec?: string;
+  shootingMode?: string;
+  customPrompt?: string;
+  outfitMode?: string;
+  lockedVibe?: LockedVibe | null;
+  direction?: DigDirection;
+  mixCaptions?: string[];
+  facePaths?: string[];
+  outfitPaths?: string[];
+};
+
+async function readJsonBody(req: Request): Promise<JsonGenerateBody | null> {
+  const contentType = req.headers.get("content-type") || "";
+
+  if (!contentType.includes("application/json")) {
+    return null;
+  }
+
+  try {
+    return (await req.json()) as JsonGenerateBody;
+  } catch {
+    return null;
+  }
+}
 
 export async function POST(req: Request) {
   try {
-    const formData = await req.formData();
+    const jsonBody = await readJsonBody(req);
 
-    const fitSpec = (formData.get("fitSpec") as string) || "";
-    const shootingMode = (formData.get("shootingMode") as string) || "default";
-    const customPrompt = (formData.get("customPrompt") as string) || "";
-    const outfitMode = (formData.get("outfitMode") as string) || "outfit";
-    const mixCaptionsRaw = (formData.get("mixCaptions") as string) || "[]";
+    let fitSpec = "";
+    let shootingMode = "default";
+    let customPrompt = "";
+    let outfitMode = "outfit";
+    let lockedVibe: LockedVibe | null = null;
+    let direction = {} as DigDirection;
+    let mixCaptions: string[] = [];
+    let faceBase64s: string[] = [];
+    let outfitBase64s: string[] = [];
 
-    const faceFiles = formData.getAll("faces") as File[];
-    const outfitFiles = formData.getAll("outfits") as File[];
-    const referenceFile = formData.get("reference") as File | null;
+    if (jsonBody) {
+      fitSpec = jsonBody.fitSpec || "";
+      shootingMode = jsonBody.shootingMode || "default";
+      customPrompt = jsonBody.customPrompt || "";
+      outfitMode = jsonBody.outfitMode || "outfit";
+      lockedVibe = (jsonBody.lockedVibe || null) as LockedVibe | null;
+      direction = (jsonBody.direction || {}) as DigDirection;
+      mixCaptions = Array.isArray(jsonBody.mixCaptions)
+        ? jsonBody.mixCaptions
+        : [];
 
-    if (!faceFiles.length) {
-      return NextResponse.json(
-        { error: "얼굴 이미지는 최소 1장 필요하다." },
-        { status: 400 }
-      );
+      const facePaths = Array.isArray(jsonBody.facePaths)
+        ? jsonBody.facePaths
+        : [];
+      const outfitPaths = Array.isArray(jsonBody.outfitPaths)
+        ? jsonBody.outfitPaths
+        : [];
+
+      if (!direction?.background && !direction?.mood) {
+        return NextResponse.json(
+          { error: "direction 정보가 필요하다." },
+          { status: 400 }
+        );
+      }
+
+      if (!facePaths.length) {
+        return NextResponse.json(
+          { error: "얼굴 스토리지 경로는 최소 1개 필요하다." },
+          { status: 400 }
+        );
+      }
+
+      if (!outfitPaths.length) {
+        return NextResponse.json(
+          { error: "의상 스토리지 경로는 최소 1개 필요하다." },
+          { status: 400 }
+        );
+      }
+
+      if (outfitMode === "mix" && mixCaptions.length !== outfitPaths.length) {
+        return NextResponse.json(
+          { error: "MIX 설명 수와 의상 이미지 수가 맞지 않는다." },
+          { status: 400 }
+        );
+      }
+
+      faceBase64s = await Promise.all(facePaths.map(storagePathToBase64));
+      outfitBase64s = await Promise.all(outfitPaths.map(storagePathToBase64));
+    } else {
+      const formData = await req.formData();
+
+      fitSpec = (formData.get("fitSpec") as string) || "";
+      shootingMode = (formData.get("shootingMode") as string) || "default";
+      customPrompt = (formData.get("customPrompt") as string) || "";
+      outfitMode = (formData.get("outfitMode") as string) || "outfit";
+      const lockedVibeRaw = (formData.get("lockedVibe") as string) || "";
+      const directionRaw = (formData.get("direction") as string) || "";
+      const mixCaptionsRaw = (formData.get("mixCaptions") as string) || "[]";
+
+      const faceFiles = formData.getAll("faces") as File[];
+      const outfitFiles = formData.getAll("outfits") as File[];
+
+      if (!directionRaw) {
+        return NextResponse.json(
+          { error: "direction 정보가 필요하다." },
+          { status: 400 }
+        );
+      }
+
+      if (!faceFiles.length) {
+        return NextResponse.json(
+          { error: "얼굴 이미지는 최소 1장 필요하다." },
+          { status: 400 }
+        );
+      }
+
+      if (!outfitFiles.length) {
+        return NextResponse.json(
+          { error: "의상 이미지는 최소 1장 필요하다." },
+          { status: 400 }
+        );
+      }
+
+      direction = safeJsonParse<DigDirection>(directionRaw, {} as DigDirection);
+      mixCaptions = safeJsonParse<string[]>(mixCaptionsRaw, []);
+      lockedVibe = lockedVibeRaw
+        ? safeJsonParse<LockedVibe | null>(lockedVibeRaw, null)
+        : null;
+
+      if (outfitMode === "mix" && mixCaptions.length !== outfitFiles.length) {
+        return NextResponse.json(
+          { error: "MIX 설명 수와 의상 이미지 수가 맞지 않는다." },
+          { status: 400 }
+        );
+      }
+
+      faceBase64s = await Promise.all(faceFiles.map(fileToBase64));
+      outfitBase64s = await Promise.all(outfitFiles.map(fileToBase64));
     }
 
-    if (!outfitFiles.length) {
-      return NextResponse.json(
-        { error: "의상 이미지는 최소 1장 필요하다." },
-        { status: 400 }
-      );
-    }
-
-    if (!referenceFile) {
-      return NextResponse.json(
-        { error: "레퍼런스 이미지는 최소 1장 필요하다." },
-        { status: 400 }
-      );
-    }
-
-    const mixCaptions = JSON.parse(mixCaptionsRaw) as string[];
-
-    if (outfitMode === "mix" && mixCaptions.length !== outfitFiles.length) {
-      return NextResponse.json(
-        { error: "MIX 설명 수와 의상 이미지 수가 맞지 않는다." },
-        { status: 400 }
-      );
-    }
-
-    const faceBase64s = await Promise.all(faceFiles.map(fileToBase64));
-    const outfitBase64s = await Promise.all(outfitFiles.map(fileToBase64));
-    const referenceBase64 = await fileToBase64(referenceFile);
-
-    const analyzed = await analyzeReferenceWeb(referenceBase64);
-
-    const generated = await generateRefRunImageWeb({
+    const generated = await generateDigImageWeb({
       faceBase64s,
       outfitBase64s,
-      dirSet: analyzed,
+      dirSet: direction,
       bodySpecs: fitSpec,
       shootingMode,
       customPrompt: shootingMode === "custom" ? customPrompt : undefined,
+      lockedVibe,
       isMixMode: outfitMode === "mix",
       mixCaptions,
     });
@@ -1902,14 +2215,659 @@ export async function POST(req: Request) {
       result: {
         image: generated.base64,
         summary: generated.summary,
-        direction: analyzed,
+        direction,
       },
     });
   } catch (error) {
-    console.error("REFRUN_RUN_ONE_ERROR:", error);
+    console.error("DIG_GENERATE_ONE_ERROR:", error);
 
     const message =
-      error instanceof Error ? error.message : "알 수 없는 REFRUN 오류";
+      error instanceof Error ? error.message : "알 수 없는 generate-one 오류";
+
+    return NextResponse.json({ error: message }, { status: 500 });
+  }
+}
+</file>
+
+<file path="app/api/dig/route.ts">
+import { NextResponse } from "next/server";
+import { createClient } from "@supabase/supabase-js";
+import { fileToBase64 } from "@/lib/utils";
+import {
+  generateDigImageWeb,
+  LockedVibe,
+  DigDirection,
+} from "@/lib/gemini-dig";
+
+const TEMP_INPUT_BUCKET = "temp-inputs";
+
+function stripBucketPrefix(path: string) {
+  if (!path) return path;
+  const prefix = `${TEMP_INPUT_BUCKET}/`;
+  return path.startsWith(prefix) ? path.slice(prefix.length) : path;
+}
+
+function arrayBufferToBase64(buffer: ArrayBuffer) {
+  return Buffer.from(buffer).toString("base64");
+}
+
+function getStorageAdmin() {
+  const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
+  const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
+
+  if (!url || !serviceRoleKey) {
+    throw new Error(
+      "Supabase Storage 서버 설정이 없습니다. NEXT_PUBLIC_SUPABASE_URL / SUPABASE_SERVICE_ROLE_KEY를 확인하세요."
+    );
+  }
+
+  return createClient(url, serviceRoleKey, {
+    auth: {
+      persistSession: false,
+      autoRefreshToken: false,
+    },
+  });
+}
+
+async function storagePathToBase64(path: string) {
+  const cleanedPath = stripBucketPrefix(path);
+
+  if (!cleanedPath) {
+    throw new Error("스토리지 경로가 비어 있습니다.");
+  }
+
+  const supabaseAdmin = getStorageAdmin();
+
+  const { data, error } = await supabaseAdmin.storage
+    .from(TEMP_INPUT_BUCKET)
+    .download(cleanedPath);
+
+  if (error || !data) {
+    throw new Error(
+      `스토리지 파일 읽기 실패: ${cleanedPath} / ${error?.message || "unknown"}`
+    );
+  }
+
+  const buffer = await data.arrayBuffer();
+  return arrayBufferToBase64(buffer);
+}
+
+function safeJsonParse<T>(raw: string, fallback: T): T {
+  try {
+    return JSON.parse(raw) as T;
+  } catch {
+    return fallback;
+  }
+}
+
+type JsonGenerateBody = {
+  fitSpec?: string;
+  shootingMode?: string;
+  customPrompt?: string;
+  outfitMode?: string;
+  lockedVibe?: LockedVibe | null;
+  direction?: DigDirection;
+  mixCaptions?: string[];
+  facePaths?: string[];
+  outfitPaths?: string[];
+};
+
+async function readJsonBody(req: Request): Promise<JsonGenerateBody | null> {
+  const contentType = req.headers.get("content-type") || "";
+
+  if (!contentType.includes("application/json")) {
+    return null;
+  }
+
+  try {
+    return (await req.json()) as JsonGenerateBody;
+  } catch {
+    return null;
+  }
+}
+
+export async function POST(req: Request) {
+  try {
+    const jsonBody = await readJsonBody(req);
+
+    let fitSpec = "";
+    let shootingMode = "default";
+    let customPrompt = "";
+    let outfitMode = "outfit";
+    let lockedVibe: LockedVibe | null = null;
+    let direction = {} as DigDirection;
+    let mixCaptions: string[] = [];
+    let faceBase64s: string[] = [];
+    let outfitBase64s: string[] = [];
+
+    if (jsonBody) {
+      fitSpec = jsonBody.fitSpec || "";
+      shootingMode = jsonBody.shootingMode || "default";
+      customPrompt = jsonBody.customPrompt || "";
+      outfitMode = jsonBody.outfitMode || "outfit";
+      lockedVibe = (jsonBody.lockedVibe || null) as LockedVibe | null;
+      direction = (jsonBody.direction || {}) as DigDirection;
+      mixCaptions = Array.isArray(jsonBody.mixCaptions)
+        ? jsonBody.mixCaptions
+        : [];
+
+      const facePaths = Array.isArray(jsonBody.facePaths)
+        ? jsonBody.facePaths
+        : [];
+      const outfitPaths = Array.isArray(jsonBody.outfitPaths)
+        ? jsonBody.outfitPaths
+        : [];
+
+      if (!direction?.background && !direction?.mood) {
+        return NextResponse.json(
+          { error: "direction 정보가 필요하다." },
+          { status: 400 }
+        );
+      }
+
+      if (!facePaths.length) {
+        return NextResponse.json(
+          { error: "얼굴 스토리지 경로는 최소 1개 필요하다." },
+          { status: 400 }
+        );
+      }
+
+      if (!outfitPaths.length) {
+        return NextResponse.json(
+          { error: "의상 스토리지 경로는 최소 1개 필요하다." },
+          { status: 400 }
+        );
+      }
+
+      if (outfitMode === "mix" && mixCaptions.length !== outfitPaths.length) {
+        return NextResponse.json(
+          { error: "MIX 설명 수와 의상 이미지 수가 맞지 않는다." },
+          { status: 400 }
+        );
+      }
+
+      faceBase64s = await Promise.all(facePaths.map(storagePathToBase64));
+      outfitBase64s = await Promise.all(outfitPaths.map(storagePathToBase64));
+    } else {
+      const formData = await req.formData();
+
+      fitSpec = (formData.get("fitSpec") as string) || "";
+      shootingMode = (formData.get("shootingMode") as string) || "default";
+      customPrompt = (formData.get("customPrompt") as string) || "";
+      outfitMode = (formData.get("outfitMode") as string) || "outfit";
+      const lockedVibeRaw = (formData.get("lockedVibe") as string) || "";
+      const directionRaw = (formData.get("direction") as string) || "";
+      const mixCaptionsRaw = (formData.get("mixCaptions") as string) || "[]";
+
+      const faceFiles = formData.getAll("faces") as File[];
+      const outfitFiles = formData.getAll("outfits") as File[];
+
+      if (!directionRaw) {
+        return NextResponse.json(
+          { error: "direction 정보가 필요하다." },
+          { status: 400 }
+        );
+      }
+
+      if (!faceFiles.length) {
+        return NextResponse.json(
+          { error: "얼굴 이미지는 최소 1장 필요하다." },
+          { status: 400 }
+        );
+      }
+
+      if (!outfitFiles.length) {
+        return NextResponse.json(
+          { error: "의상 이미지는 최소 1장 필요하다." },
+          { status: 400 }
+        );
+      }
+
+      direction = safeJsonParse<DigDirection>(directionRaw, {} as DigDirection);
+      mixCaptions = safeJsonParse<string[]>(mixCaptionsRaw, []);
+      lockedVibe = lockedVibeRaw
+        ? safeJsonParse<LockedVibe | null>(lockedVibeRaw, null)
+        : null;
+
+      if (outfitMode === "mix" && mixCaptions.length !== outfitFiles.length) {
+        return NextResponse.json(
+          { error: "MIX 설명 수와 의상 이미지 수가 맞지 않는다." },
+          { status: 400 }
+        );
+      }
+
+      faceBase64s = await Promise.all(faceFiles.map(fileToBase64));
+      outfitBase64s = await Promise.all(outfitFiles.map(fileToBase64));
+    }
+
+    const generated = await generateDigImageWeb({
+      faceBase64s,
+      outfitBase64s,
+      dirSet: direction,
+      bodySpecs: fitSpec,
+      shootingMode,
+      customPrompt: shootingMode === "custom" ? customPrompt : undefined,
+      lockedVibe,
+      isMixMode: outfitMode === "mix",
+      mixCaptions,
+    });
+
+    return NextResponse.json({
+      success: true,
+      result: {
+        image: generated.base64,
+        summary: generated.summary,
+        direction,
+      },
+    });
+  } catch (error) {
+    console.error("DIG_GENERATE_ONE_ERROR:", error);
+
+    const message =
+      error instanceof Error ? error.message : "알 수 없는 generate-one 오류";
+
+    return NextResponse.json({ error: message }, { status: 500 });
+  }
+}
+</file>
+
+<file path="app/api/fusion/generate-one/route.ts">
+import { NextResponse } from "next/server";
+import { createClient } from "@supabase/supabase-js";
+import { fileToBase64 } from "@/lib/utils";
+import {
+  generateFusionImageWeb,
+  BackgroundDNA,
+  PoseBlueprint,
+  LockedVibe,
+} from "@/lib/gemini-fusion";
+
+const TEMP_INPUT_BUCKET = "temp-inputs";
+
+function stripBucketPrefix(path: string) {
+  if (!path) return path;
+  const prefix = `${TEMP_INPUT_BUCKET}/`;
+  return path.startsWith(prefix) ? path.slice(prefix.length) : path;
+}
+
+function arrayBufferToBase64(buffer: ArrayBuffer) {
+  return Buffer.from(buffer).toString("base64");
+}
+
+function getStorageAdmin() {
+  const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
+  const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
+
+  if (!url || !serviceRoleKey) {
+    throw new Error(
+      "Supabase Storage 서버 설정이 없습니다. NEXT_PUBLIC_SUPABASE_URL / SUPABASE_SERVICE_ROLE_KEY를 확인하세요."
+    );
+  }
+
+  return createClient(url, serviceRoleKey, {
+    auth: {
+      persistSession: false,
+      autoRefreshToken: false,
+    },
+  });
+}
+
+async function storagePathToBase64(path: string) {
+  const cleanedPath = stripBucketPrefix(path);
+
+  if (!cleanedPath) {
+    throw new Error("스토리지 경로가 비어 있습니다.");
+  }
+
+  const supabaseAdmin = getStorageAdmin();
+
+  const { data, error } = await supabaseAdmin.storage
+    .from(TEMP_INPUT_BUCKET)
+    .download(cleanedPath);
+
+  if (error || !data) {
+    throw new Error(
+      `스토리지 파일 읽기 실패: ${cleanedPath} / ${error?.message || "unknown"}`
+    );
+  }
+
+  const buffer = await data.arrayBuffer();
+  return arrayBufferToBase64(buffer);
+}
+
+function safeJsonParse<T>(raw: string, fallback: T): T {
+  try {
+    return JSON.parse(raw) as T;
+  } catch {
+    return fallback;
+  }
+}
+
+type JsonGenerateBody = {
+  fitSpec?: string;
+  shootingMode?: string;
+  customPrompt?: string;
+  outfitMode?: string;
+  mixCaptions?: string[];
+  bgDNA?: BackgroundDNA;
+  poseBlueprint?: PoseBlueprint;
+  locationPrompt?: string;
+  lockedVibe?: LockedVibe | null;
+  facePaths?: string[];
+  outfitPaths?: string[];
+};
+
+async function readJsonBody(req: Request): Promise<JsonGenerateBody | null> {
+  const contentType = req.headers.get("content-type") || "";
+
+  if (!contentType.includes("application/json")) {
+    return null;
+  }
+
+  try {
+    return (await req.json()) as JsonGenerateBody;
+  } catch {
+    return null;
+  }
+}
+
+export async function POST(req: Request) {
+  try {
+    const jsonBody = await readJsonBody(req);
+
+    let fitSpec = "";
+    let shootingMode = "default";
+    let customPrompt = "";
+    let outfitMode = "outfit";
+    let mixCaptions: string[] = [];
+    let bgDNA = {} as BackgroundDNA;
+    let poseBlueprint = {} as PoseBlueprint;
+    let locationPrompt = "";
+    let lockedVibe: LockedVibe | null = null;
+    let faceBase64s: string[] = [];
+    let outfitBase64s: string[] = [];
+
+    if (jsonBody) {
+      fitSpec = jsonBody.fitSpec || "";
+      shootingMode = jsonBody.shootingMode || "default";
+      customPrompt = jsonBody.customPrompt || "";
+      outfitMode = jsonBody.outfitMode || "outfit";
+      mixCaptions = Array.isArray(jsonBody.mixCaptions)
+        ? jsonBody.mixCaptions
+        : [];
+      bgDNA = (jsonBody.bgDNA || {}) as BackgroundDNA;
+      poseBlueprint = (jsonBody.poseBlueprint || {}) as PoseBlueprint;
+      locationPrompt = (jsonBody.locationPrompt || "").trim();
+      lockedVibe = (jsonBody.lockedVibe || null) as LockedVibe | null;
+
+      const facePaths = Array.isArray(jsonBody.facePaths)
+        ? jsonBody.facePaths
+        : [];
+      const outfitPaths = Array.isArray(jsonBody.outfitPaths)
+        ? jsonBody.outfitPaths
+        : [];
+
+      if (!facePaths.length) {
+        return NextResponse.json(
+          { error: "얼굴 스토리지 경로는 최소 1개 필요하다." },
+          { status: 400 }
+        );
+      }
+
+      if (!outfitPaths.length) {
+        return NextResponse.json(
+          { error: "의상 스토리지 경로는 최소 1개 필요하다." },
+          { status: 400 }
+        );
+      }
+
+      if (!locationPrompt) {
+        return NextResponse.json(
+          { error: "로케이션 프롬프트가 필요하다." },
+          { status: 400 }
+        );
+      }
+
+      faceBase64s = await Promise.all(facePaths.map(storagePathToBase64));
+      outfitBase64s = await Promise.all(outfitPaths.map(storagePathToBase64));
+    } else {
+      const formData = await req.formData();
+
+      fitSpec = (formData.get("fitSpec") as string) || "";
+      shootingMode = (formData.get("shootingMode") as string) || "default";
+      customPrompt = (formData.get("customPrompt") as string) || "";
+      outfitMode = (formData.get("outfitMode") as string) || "outfit";
+      const mixCaptionsRaw = (formData.get("mixCaptions") as string) || "[]";
+      const bgDNARaw = (formData.get("bgDNA") as string) || "{}";
+      const poseBlueprintRaw = (formData.get("poseBlueprint") as string) || "{}";
+      locationPrompt = ((formData.get("locationPrompt") as string) || "").trim();
+      const lockedVibeRaw = (formData.get("lockedVibe") as string) || "";
+
+      const faceFiles = formData.getAll("faces") as File[];
+      const outfitFiles = formData.getAll("outfits") as File[];
+
+      if (!faceFiles.length) {
+        return NextResponse.json(
+          { error: "얼굴 이미지는 최소 1장 필요하다." },
+          { status: 400 }
+        );
+      }
+
+      if (!outfitFiles.length) {
+        return NextResponse.json(
+          { error: "의상 이미지는 최소 1장 필요하다." },
+          { status: 400 }
+        );
+      }
+
+      if (!locationPrompt) {
+        return NextResponse.json(
+          { error: "로케이션 프롬프트가 필요하다." },
+          { status: 400 }
+        );
+      }
+
+      faceBase64s = await Promise.all(faceFiles.map(fileToBase64));
+      outfitBase64s = await Promise.all(outfitFiles.map(fileToBase64));
+
+      mixCaptions = safeJsonParse<string[]>(mixCaptionsRaw, []);
+      bgDNA = safeJsonParse<BackgroundDNA>(bgDNARaw, {} as BackgroundDNA);
+      poseBlueprint = safeJsonParse<PoseBlueprint>(
+        poseBlueprintRaw,
+        {} as PoseBlueprint
+      );
+      lockedVibe = lockedVibeRaw
+        ? safeJsonParse<LockedVibe | null>(lockedVibeRaw, null)
+        : null;
+    }
+
+    const generated = await generateFusionImageWeb({
+      faceBase64s,
+      outfitBase64s,
+      poseBlueprint,
+      targetLocationText: locationPrompt,
+      bgDNA,
+      bodySpecs: fitSpec,
+      isMixMode: outfitMode === "mix",
+      mixCaptions,
+      lockedVibe,
+      shootingMode,
+      customPrompt: shootingMode === "custom" ? customPrompt : undefined,
+    });
+
+    return NextResponse.json({
+      success: true,
+      result: {
+        image: generated.base64,
+        summary: generated.summary,
+        locationPrompt,
+        poseBlueprint,
+        bgDNA,
+      },
+    });
+  } catch (error) {
+    console.error("FUSION_GENERATE_ONE_ERROR:", error);
+
+    const message =
+      error instanceof Error ? error.message : "알 수 없는 FUSION 생성 오류";
+
+    return NextResponse.json({ error: message }, { status: 500 });
+  }
+}
+</file>
+
+<file path="app/api/fusion/prepare/route.ts">
+import { NextResponse } from "next/server";
+import { createClient } from "@supabase/supabase-js";
+import { fileToBase64 } from "@/lib/utils";
+import {
+  analyzeBackgroundDNAFromBase64s,
+  analyzePoseBlueprintFromBase64,
+  searchLocationPrompts,
+} from "@/lib/gemini-fusion";
+
+const TEMP_INPUT_BUCKET = "temp-inputs";
+
+function clampCount(value: unknown, fallback = 4) {
+  const n = Number(value);
+  return Math.max(1, Math.min(8, Number.isFinite(n) ? n : fallback));
+}
+
+function stripBucketPrefix(path: string) {
+  if (!path) return path;
+  const prefix = `${TEMP_INPUT_BUCKET}/`;
+  return path.startsWith(prefix) ? path.slice(prefix.length) : path;
+}
+
+function arrayBufferToBase64(buffer: ArrayBuffer) {
+  return Buffer.from(buffer).toString("base64");
+}
+
+function getStorageAdmin() {
+  const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
+  const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
+
+  if (!url || !serviceRoleKey) {
+    throw new Error(
+      "Supabase Storage 서버 설정이 없습니다. NEXT_PUBLIC_SUPABASE_URL / SUPABASE_SERVICE_ROLE_KEY를 확인하세요."
+    );
+  }
+
+  return createClient(url, serviceRoleKey, {
+    auth: {
+      persistSession: false,
+      autoRefreshToken: false,
+    },
+  });
+}
+
+async function storagePathToBase64(path: string) {
+  const cleanedPath = stripBucketPrefix(path);
+
+  if (!cleanedPath) {
+    throw new Error("스토리지 경로가 비어 있습니다.");
+  }
+
+  const supabaseAdmin = getStorageAdmin();
+
+  const { data, error } = await supabaseAdmin.storage
+    .from(TEMP_INPUT_BUCKET)
+    .download(cleanedPath);
+
+  if (error || !data) {
+    throw new Error(
+      `스토리지 파일 읽기 실패: ${cleanedPath} / ${error?.message || "unknown"}`
+    );
+  }
+
+  const buffer = await data.arrayBuffer();
+  return arrayBufferToBase64(buffer);
+}
+
+type JsonPrepareBody = {
+  count?: number | string;
+  bgPaths?: string[];
+  posePaths?: string[];
+};
+
+async function readJsonBody(req: Request): Promise<JsonPrepareBody | null> {
+  const contentType = req.headers.get("content-type") || "";
+
+  if (!contentType.includes("application/json")) {
+    return null;
+  }
+
+  try {
+    return (await req.json()) as JsonPrepareBody;
+  } catch {
+    return null;
+  }
+}
+
+export async function POST(req: Request) {
+  try {
+    const jsonBody = await readJsonBody(req);
+
+    let count = 4;
+    let bgBase64s: string[] = [];
+    let poseBase64s: string[] = [];
+
+    if (jsonBody) {
+      count = clampCount(jsonBody.count, 4);
+
+      const bgPaths = Array.isArray(jsonBody.bgPaths) ? jsonBody.bgPaths : [];
+      const posePaths = Array.isArray(jsonBody.posePaths)
+        ? jsonBody.posePaths
+        : [];
+
+      if (!bgPaths.length || !posePaths.length) {
+        return NextResponse.json(
+          { error: "BG 또는 POSE 스토리지 경로 누락." },
+          { status: 400 }
+        );
+      }
+
+      bgBase64s = await Promise.all(bgPaths.map(storagePathToBase64));
+      poseBase64s = await Promise.all(posePaths.map(storagePathToBase64));
+    } else {
+      const formData = await req.formData();
+
+      count = clampCount(formData.get("count"), 4);
+
+      const bgFiles = formData.getAll("bgs") as File[];
+      const poseFiles = formData.getAll("poses") as File[];
+
+      if (!bgFiles.length || !poseFiles.length) {
+        return NextResponse.json(
+          { error: "BG 또는 POSE 사진 누락." },
+          { status: 400 }
+        );
+      }
+
+      bgBase64s = await Promise.all(bgFiles.map(fileToBase64));
+      poseBase64s = await Promise.all(poseFiles.map(fileToBase64));
+    }
+
+    const bgDNA = await analyzeBackgroundDNAFromBase64s(bgBase64s);
+    const locationPrompts = await searchLocationPrompts(bgDNA, count);
+
+    const poseBlueprints = [];
+    for (const poseBase64 of poseBase64s) {
+      const blueprint = await analyzePoseBlueprintFromBase64(poseBase64);
+      poseBlueprints.push(blueprint);
+    }
+
+    return NextResponse.json({
+      success: true,
+      bgDNA,
+      locationPrompts,
+      poseBlueprints,
+    });
+  } catch (error) {
+    console.error("FUSION_PREPARE_ERROR:", error);
+
+    const message =
+      error instanceof Error ? error.message : "알 수 없는 FUSION 준비 오류";
 
     return NextResponse.json({ error: message }, { status: 500 });
   }
@@ -3802,6 +4760,243 @@ OUTPUT RULE:
 }
 </file>
 
+<file path="app/api/refrun/run-one/route.ts">
+import { NextResponse } from "next/server";
+import { createClient } from "@supabase/supabase-js";
+import { fileToBase64 } from "@/lib/utils";
+import {
+  analyzeReferenceWeb,
+  generateRefRunImageWeb,
+} from "@/lib/gemini-refrun";
+
+const TEMP_INPUT_BUCKET = "temp-inputs";
+
+function stripBucketPrefix(path: string) {
+  if (!path) return path;
+  const prefix = `${TEMP_INPUT_BUCKET}/`;
+  return path.startsWith(prefix) ? path.slice(prefix.length) : path;
+}
+
+function arrayBufferToBase64(buffer: ArrayBuffer) {
+  return Buffer.from(buffer).toString("base64");
+}
+
+function getStorageAdmin() {
+  const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
+  const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
+
+  if (!url || !serviceRoleKey) {
+    throw new Error(
+      "Supabase Storage 서버 설정이 없습니다. NEXT_PUBLIC_SUPABASE_URL / SUPABASE_SERVICE_ROLE_KEY를 확인하세요."
+    );
+  }
+
+  return createClient(url, serviceRoleKey, {
+    auth: {
+      persistSession: false,
+      autoRefreshToken: false,
+    },
+  });
+}
+
+async function storagePathToBase64(path: string) {
+  const cleanedPath = stripBucketPrefix(path);
+
+  if (!cleanedPath) {
+    throw new Error("스토리지 경로가 비어 있습니다.");
+  }
+
+  const supabaseAdmin = getStorageAdmin();
+
+  const { data, error } = await supabaseAdmin.storage
+    .from(TEMP_INPUT_BUCKET)
+    .download(cleanedPath);
+
+  if (error || !data) {
+    throw new Error(
+      `스토리지 파일 읽기 실패: ${cleanedPath} / ${error?.message || "unknown"}`
+    );
+  }
+
+  const buffer = await data.arrayBuffer();
+  return arrayBufferToBase64(buffer);
+}
+
+function safeJsonParse<T>(raw: string, fallback: T): T {
+  try {
+    return JSON.parse(raw) as T;
+  } catch {
+    return fallback;
+  }
+}
+
+type JsonRefRunBody = {
+  fitSpec?: string;
+  shootingMode?: string;
+  customPrompt?: string;
+  outfitMode?: string;
+  mixCaptions?: string[];
+  facePaths?: string[];
+  outfitPaths?: string[];
+  referencePath?: string;
+};
+
+async function readJsonBody(req: Request): Promise<JsonRefRunBody | null> {
+  const contentType = req.headers.get("content-type") || "";
+
+  if (!contentType.includes("application/json")) {
+    return null;
+  }
+
+  try {
+    return (await req.json()) as JsonRefRunBody;
+  } catch {
+    return null;
+  }
+}
+
+export async function POST(req: Request) {
+  try {
+    const jsonBody = await readJsonBody(req);
+
+    let fitSpec = "";
+    let shootingMode = "default";
+    let customPrompt = "";
+    let outfitMode = "outfit";
+    let mixCaptions: string[] = [];
+
+    let faceBase64s: string[] = [];
+    let outfitBase64s: string[] = [];
+    let referenceBase64 = "";
+
+    if (jsonBody) {
+      fitSpec = jsonBody.fitSpec || "";
+      shootingMode = jsonBody.shootingMode || "default";
+      customPrompt = jsonBody.customPrompt || "";
+      outfitMode = jsonBody.outfitMode || "outfit";
+      mixCaptions = Array.isArray(jsonBody.mixCaptions)
+        ? jsonBody.mixCaptions
+        : [];
+
+      const facePaths = Array.isArray(jsonBody.facePaths)
+        ? jsonBody.facePaths
+        : [];
+      const outfitPaths = Array.isArray(jsonBody.outfitPaths)
+        ? jsonBody.outfitPaths
+        : [];
+      const referencePath = (jsonBody.referencePath || "").trim();
+
+      if (!facePaths.length) {
+        return NextResponse.json(
+          { error: "얼굴 스토리지 경로는 최소 1개 필요하다." },
+          { status: 400 }
+        );
+      }
+
+      if (!outfitPaths.length) {
+        return NextResponse.json(
+          { error: "의상 스토리지 경로는 최소 1개 필요하다." },
+          { status: 400 }
+        );
+      }
+
+      if (!referencePath) {
+        return NextResponse.json(
+          { error: "레퍼런스 스토리지 경로는 최소 1개 필요하다." },
+          { status: 400 }
+        );
+      }
+
+      if (outfitMode === "mix" && mixCaptions.length !== outfitPaths.length) {
+        return NextResponse.json(
+          { error: "MIX 설명 수와 의상 이미지 수가 맞지 않는다." },
+          { status: 400 }
+        );
+      }
+
+      faceBase64s = await Promise.all(facePaths.map(storagePathToBase64));
+      outfitBase64s = await Promise.all(outfitPaths.map(storagePathToBase64));
+      referenceBase64 = await storagePathToBase64(referencePath);
+    } else {
+      const formData = await req.formData();
+
+      fitSpec = (formData.get("fitSpec") as string) || "";
+      shootingMode = (formData.get("shootingMode") as string) || "default";
+      customPrompt = (formData.get("customPrompt") as string) || "";
+      outfitMode = (formData.get("outfitMode") as string) || "outfit";
+      const mixCaptionsRaw = (formData.get("mixCaptions") as string) || "[]";
+
+      const faceFiles = formData.getAll("faces") as File[];
+      const outfitFiles = formData.getAll("outfits") as File[];
+      const referenceFile = formData.get("reference") as File | null;
+
+      if (!faceFiles.length) {
+        return NextResponse.json(
+          { error: "얼굴 이미지는 최소 1장 필요하다." },
+          { status: 400 }
+        );
+      }
+
+      if (!outfitFiles.length) {
+        return NextResponse.json(
+          { error: "의상 이미지는 최소 1장 필요하다." },
+          { status: 400 }
+        );
+      }
+
+      if (!referenceFile) {
+        return NextResponse.json(
+          { error: "레퍼런스 이미지는 최소 1장 필요하다." },
+          { status: 400 }
+        );
+      }
+
+      mixCaptions = safeJsonParse<string[]>(mixCaptionsRaw, []);
+
+      if (outfitMode === "mix" && mixCaptions.length !== outfitFiles.length) {
+        return NextResponse.json(
+          { error: "MIX 설명 수와 의상 이미지 수가 맞지 않는다." },
+          { status: 400 }
+        );
+      }
+
+      faceBase64s = await Promise.all(faceFiles.map(fileToBase64));
+      outfitBase64s = await Promise.all(outfitFiles.map(fileToBase64));
+      referenceBase64 = await fileToBase64(referenceFile);
+    }
+
+    const analyzed = await analyzeReferenceWeb(referenceBase64);
+
+    const generated = await generateRefRunImageWeb({
+      faceBase64s,
+      outfitBase64s,
+      dirSet: analyzed,
+      bodySpecs: fitSpec,
+      shootingMode,
+      customPrompt: shootingMode === "custom" ? customPrompt : undefined,
+      isMixMode: outfitMode === "mix",
+      mixCaptions,
+    });
+
+    return NextResponse.json({
+      success: true,
+      result: {
+        image: generated.base64,
+        summary: generated.summary,
+        direction: analyzed,
+      },
+    });
+  } catch (error) {
+    console.error("REFRUN_RUN_ONE_ERROR:", error);
+
+    const message =
+      error instanceof Error ? error.message : "알 수 없는 REFRUN 오류";
+
+    return NextResponse.json({ error: message }, { status: 500 });
+  }
+}
+</file>
+
 <file path="app/api/toss/confirm/route.ts">
 import { NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
@@ -4580,10 +5775,11 @@ export default function RootLayout({
 <file path="app/fusion/page.tsx">
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { spendPoints } from "@/lib/points";
+import { makeSessionId, uploadTempAssets } from "@/lib/storage";
 import FaceInputSection, {
   ModelGenerateOptions,
 } from "@/components/face-input-section";
@@ -4592,6 +5788,9 @@ type UploadItem = {
   file: File;
   preview: string;
   caption?: string;
+  storagePath?: string;
+  uploaded?: boolean;
+  expiresAt?: string;
 };
 
 type LockedVibe = {
@@ -4712,6 +5911,12 @@ function UploadSection({
                 {item.file.name}
               </div>
 
+              {item.uploaded ? (
+                <div className="mt-2 text-[11px] text-green-600">
+                  temp 업로드 완료
+                </div>
+              ) : null}
+
               {showCaptionInput && onCaptionChange ? (
                 <textarea
                   value={item.caption || ""}
@@ -4760,6 +5965,14 @@ function getImageMime(base64?: string) {
   return "image/jpeg";
 }
 
+function parseJsonSafely(raw: string) {
+  try {
+    return JSON.parse(raw);
+  } catch {
+    return null;
+  }
+}
+
 export default function FusionPage() {
   const router = useRouter();
 
@@ -4779,6 +5992,11 @@ export default function FusionPage() {
   const [modelGenerating, setModelGenerating] = useState(false);
   const [statusMessage, setStatusMessage] = useState("");
   const [resultSlots, setResultSlots] = useState<ResultSlot[]>([]);
+  const [fusionSessionId, setFusionSessionId] = useState<string | null>(null);
+
+  useEffect(() => {
+    setFusionSessionId(makeSessionId("fusion"));
+  }, []);
 
   const costPerImage = 60;
   const safeCount = useMemo(
@@ -4873,6 +6091,105 @@ export default function FusionPage() {
     setStatusMessage("Vibe Lock 해제됨");
   };
 
+  const uploadItemsToStorage = async (
+    items: UploadItem[],
+    kind: "faces" | "outfits" | "bgs" | "poses"
+  ) => {
+    const currentSessionId = fusionSessionId;
+
+    if (!currentSessionId) {
+      throw new Error("세션 생성중입니다. 잠시 후 다시 시도해 주세요.");
+    }
+
+    const pending = items.filter((item) => !item.uploaded || !item.storagePath);
+
+    if (!pending.length) {
+      return items;
+    }
+
+    const uploaded = await uploadTempAssets({
+      files: pending.map((item) => item.file),
+      kind,
+      sessionId: currentSessionId,
+    });
+
+    let uploadIndex = 0;
+
+    return items.map((item) => {
+      if (item.uploaded && item.storagePath) {
+        return item;
+      }
+
+      const asset = uploaded[uploadIndex++];
+
+      return {
+        ...item,
+        storagePath: asset.path,
+        uploaded: true,
+        expiresAt: asset.expiresAt,
+      };
+    });
+  };
+
+  const ensureAssetsUploaded = async () => {
+    setStatusMessage("임시 스토리지 업로드중...");
+
+    const uploadedFaces = await uploadItemsToStorage(faces, "faces");
+    setFaces(uploadedFaces);
+
+    const uploadedOutfits = await uploadItemsToStorage(outfits, "outfits");
+    setOutfits(uploadedOutfits);
+
+    const uploadedBgs = await uploadItemsToStorage(bgs, "bgs");
+    setBgs(uploadedBgs);
+
+    const uploadedPoses = await uploadItemsToStorage(poses, "poses");
+    setPoses(uploadedPoses);
+
+    return {
+      uploadedFaces,
+      uploadedOutfits,
+      uploadedBgs,
+      uploadedPoses,
+    };
+  };
+
+  const cleanupFusionSession = async () => {
+    try {
+      const { supabase } = await import("@/lib/supabase");
+
+      const {
+        data: { session },
+        error: sessionError,
+      } = await supabase.auth.getSession();
+
+      if (sessionError || !session?.access_token) {
+        console.warn("세션 토큰이 없어 temp 즉시 삭제를 건너뜁니다.");
+        return;
+      }
+
+      const res = await fetch("/api/temp-assets/delete", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${session.access_token}`,
+        },
+        body: JSON.stringify({
+          sessionId: fusionSessionId,
+        }),
+      });
+
+      const raw = await res.text();
+      const data = parseJsonSafely(raw);
+
+      if (!res.ok) {
+        throw new Error(data?.error || raw || "임시 파일 삭제 실패");
+      }
+    } catch (error) {
+      console.error("FUSION_SESSION_CLEANUP_ERROR:", error);
+    }
+  };
+
   const handleGenerateModel = async (options: ModelGenerateOptions) => {
     try {
       setModelGenerating(true);
@@ -4888,10 +6205,15 @@ export default function FusionPage() {
         body: JSON.stringify(options),
       });
 
-      const data = await res.json();
+      const raw = await res.text();
+      const data = parseJsonSafely(raw);
 
       if (!res.ok) {
-        throw new Error(data?.error || "모델 생성 실패");
+        throw new Error(data?.error || raw || "모델 생성 실패");
+      }
+
+      if (!data?.imageBase64) {
+        throw new Error("모델 생성 응답이 비어 있습니다.");
       }
 
       const mimeType = data.mimeType || getImageMime(data.imageBase64);
@@ -4922,6 +6244,11 @@ export default function FusionPage() {
   };
 
   const handleRunFusion = async () => {
+    if (!fusionSessionId) {
+      alert("세션 생성중입니다. 잠시 후 다시 시도해 주세요.");
+      return;
+    }
+
     if (!faces.length || !outfits.length || !bgs.length || !poses.length) {
       alert("얼굴 / 의상 / BG / POSE는 최소 1장씩 필요하다.");
       return;
@@ -4944,30 +6271,82 @@ export default function FusionPage() {
 
     try {
       setLoading(true);
-      setStatusMessage(`포인트 차감중... (${totalCost}P)`);
+      setResultSlots([]);
 
+      const {
+        uploadedFaces,
+        uploadedOutfits,
+        uploadedBgs,
+        uploadedPoses,
+      } = await ensureAssetsUploaded();
+
+      const bgPaths = uploadedBgs
+        .map((item) => item.storagePath)
+        .filter((v): v is string => Boolean(v));
+
+      const posePaths = uploadedPoses
+        .map((item) => item.storagePath)
+        .filter((v): v is string => Boolean(v));
+
+      const facePaths = uploadedFaces
+        .map((item) => item.storagePath)
+        .filter((v): v is string => Boolean(v));
+
+      const outfitPaths = uploadedOutfits
+        .map((item) => item.storagePath)
+        .filter((v): v is string => Boolean(v));
+
+      if (!bgPaths.length || !posePaths.length) {
+        throw new Error("BG 또는 POSE 업로드 경로 확보 실패");
+      }
+
+      if (!facePaths.length || !outfitPaths.length) {
+        throw new Error("얼굴 또는 의상 업로드 경로 확보 실패");
+      }
+
+      setStatusMessage(`포인트 차감중... (${totalCost}P)`);
       await spendPoints(totalCost, `FUSION 실행 (${expectedResultCount}장)`);
 
       setStatusMessage("FUSION 준비중...");
-      setResultSlots([]);
-
-      const prepareForm = new FormData();
-      prepareForm.append("count", String(safeCount));
-      bgs.forEach((item) => prepareForm.append("bgs", item.file));
-      poses.forEach((item) => prepareForm.append("poses", item.file));
 
       const prepareRes = await fetch("/api/fusion/prepare", {
         method: "POST",
-        body: prepareForm,
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          count: safeCount,
+          bgPaths,
+          posePaths,
+        }),
       });
 
-      const prepareData = await prepareRes.json();
+      const prepareRaw = await prepareRes.text();
+      const prepareData = parseJsonSafely(prepareRaw);
 
       if (!prepareRes.ok) {
-        throw new Error(prepareData?.error || "FUSION 준비 실패");
+        throw new Error(
+          prepareData?.error || prepareRaw || "FUSION 준비 실패"
+        );
       }
 
-      const { bgDNA, locationPrompts, poseBlueprints } = prepareData;
+      if (
+        !prepareData?.bgDNA ||
+        !Array.isArray(prepareData?.locationPrompts) ||
+        !Array.isArray(prepareData?.poseBlueprints)
+      ) {
+        throw new Error("FUSION 준비 응답 형식이 올바르지 않습니다.");
+      }
+
+      const {
+        bgDNA,
+        locationPrompts,
+        poseBlueprints,
+      }: {
+        bgDNA: FusionResult["bgDNA"];
+        locationPrompts: string[];
+        poseBlueprints: FusionResult["poseBlueprint"][];
+      } = prepareData;
 
       const initialSlots: ResultSlot[] = [];
       for (let poseIndex = 0; poseIndex < poseBlueprints.length; poseIndex++) {
@@ -4999,35 +6378,35 @@ export default function FusionPage() {
           updateSlot(slotIndex, { status: "generating" });
 
           try {
-            const formData = new FormData();
-            formData.append("fitSpec", fitSpec);
-            formData.append("shootingMode", shootingMode);
-            formData.append("customPrompt", customPrompt);
-            formData.append("outfitMode", outfitMode);
-            formData.append(
-              "mixCaptions",
-              JSON.stringify(outfits.map((item) => item.caption || ""))
-            );
-            formData.append("bgDNA", JSON.stringify(bgDNA));
-            formData.append("poseBlueprint", JSON.stringify(poseBlueprint));
-            formData.append("locationPrompt", locationPrompts[locationIndex]);
-            formData.append(
-              "lockedVibe",
-              lockedVibe ? JSON.stringify(lockedVibe) : ""
-            );
-
-            faces.forEach((item) => formData.append("faces", item.file));
-            outfits.forEach((item) => formData.append("outfits", item.file));
-
             const res = await fetch("/api/fusion/generate-one", {
               method: "POST",
-              body: formData,
+              headers: {
+                "Content-Type": "application/json",
+              },
+              body: JSON.stringify({
+                fitSpec,
+                shootingMode,
+                customPrompt,
+                outfitMode,
+                mixCaptions: uploadedOutfits.map((item) => item.caption || ""),
+                bgDNA,
+                poseBlueprint,
+                locationPrompt: locationPrompts[locationIndex],
+                lockedVibe,
+                facePaths,
+                outfitPaths,
+              }),
             });
 
-            const data = await res.json();
+            const raw = await res.text();
+            const data = parseJsonSafely(raw);
 
             if (!res.ok) {
-              throw new Error(data?.error || "FUSION 한 장 생성 실패");
+              throw new Error(data?.error || raw || "FUSION 한 장 생성 실패");
+            }
+
+            if (!data?.result) {
+              throw new Error("FUSION 결과 응답이 비어 있습니다.");
             }
 
             updateSlot(slotIndex, {
@@ -5053,6 +6432,10 @@ export default function FusionPage() {
           }
         }
       }
+
+      setStatusMessage("임시 파일 정리중...");
+      await cleanupFusionSession();
+      setStatusMessage("FUSION 완료");
     } catch (error) {
       const message =
         error instanceof Error ? error.message : "알 수 없는 FUSION 오류";
@@ -5078,6 +6461,16 @@ export default function FusionPage() {
             배경 DNA와 포즈 블루프린트를 결합해서 고급 editorial 결과를 만드는
             생산 라인.
           </p>
+        </div>
+
+        <div className="mb-4 rounded-2xl border bg-[#fafaf8] p-4">
+          <div className="text-sm font-semibold text-black">현재 FUSION 세션</div>
+          <div className="mt-1 break-all text-xs text-gray-600">
+            {fusionSessionId || "세션 생성중..."}
+          </div>
+          <div className="mt-2 text-xs text-gray-500">
+            이번 실행에서 업로드되는 임시 파일은 이 세션 경로 기준으로 분리됩니다.
+          </div>
         </div>
 
         <div className="grid grid-cols-1 xl:grid-cols-2 gap-6 mb-6">
@@ -5260,7 +6653,7 @@ export default function FusionPage() {
           <div className="flex gap-3">
             <button
               onClick={handleRunFusion}
-              disabled={loading || modelGenerating}
+              disabled={loading || modelGenerating || !fusionSessionId}
               className="flex-1 bg-black text-white py-5 rounded-2xl text-xl disabled:opacity-60"
             >
               {loading ? "FUSION 준비중..." : `FUSION 실행하기 (${totalCost}P)`}
@@ -5398,10 +6791,11 @@ export default function FusionPage() {
 <file path="app/refrun/page.tsx">
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { spendPoints } from "@/lib/points";
+import { makeSessionId, uploadTempAssets } from "@/lib/storage";
 import FaceInputSection, {
   ModelGenerateOptions,
 } from "@/components/face-input-section";
@@ -5410,6 +6804,9 @@ type UploadItem = {
   file: File;
   preview: string;
   caption?: string;
+  storagePath?: string;
+  uploaded?: boolean;
+  expiresAt?: string;
 };
 
 type RefRunDirection = {
@@ -5519,6 +6916,12 @@ function UploadSection({
                 {item.file.name}
               </div>
 
+              {item.uploaded ? (
+                <div className="mt-2 text-[11px] text-green-600">
+                  temp 업로드 완료
+                </div>
+              ) : null}
+
               {showCaptionInput && onCaptionChange ? (
                 <textarea
                   value={item.caption || ""}
@@ -5546,13 +6949,7 @@ function UploadSection({
   );
 }
 
-function ShortTag({
-  label,
-  value,
-}: {
-  label: string;
-  value: string;
-}) {
+function ShortTag({ label, value }: { label: string; value: string }) {
   return (
     <div className="inline-flex items-center gap-2 rounded-full border px-3 py-2 text-xs bg-[#fafaf8]">
       <span className="font-semibold text-gray-800">{label}</span>
@@ -5573,6 +6970,14 @@ function getImageMime(base64?: string) {
   return "image/jpeg";
 }
 
+function parseJsonSafely(raw: string) {
+  try {
+    return JSON.parse(raw);
+  } catch {
+    return null;
+  }
+}
+
 export default function RefRunPage() {
   const router = useRouter();
 
@@ -5591,6 +6996,11 @@ export default function RefRunPage() {
   const [modelGenerating, setModelGenerating] = useState(false);
   const [statusMessage, setStatusMessage] = useState("");
   const [resultSlots, setResultSlots] = useState<ResultSlot[]>([]);
+  const [refRunSessionId, setRefRunSessionId] = useState<string | null>(null);
+
+  useEffect(() => {
+    setRefRunSessionId(makeSessionId("refrun"));
+  }, []);
 
   const safeCount = Math.max(1, Math.min(20, Number(perReferenceCount) || 1));
   const totalResults = references.length * safeCount;
@@ -5661,6 +7071,104 @@ export default function RefRunPage() {
     );
   };
 
+  const uploadItemsToStorage = async (
+    items: UploadItem[],
+    kind: "faces" | "outfits" | "references"
+  ) => {
+    const currentSessionId = refRunSessionId;
+
+    if (!currentSessionId) {
+      throw new Error("세션 생성중입니다. 잠시 후 다시 시도해 주세요.");
+    }
+
+    const pending = items.filter((item) => !item.uploaded || !item.storagePath);
+
+    if (!pending.length) {
+      return items;
+    }
+
+    const uploaded = await uploadTempAssets({
+      files: pending.map((item) => item.file),
+      kind,
+      sessionId: currentSessionId,
+    });
+
+    let uploadIndex = 0;
+
+    return items.map((item) => {
+      if (item.uploaded && item.storagePath) {
+        return item;
+      }
+
+      const asset = uploaded[uploadIndex++];
+
+      return {
+        ...item,
+        storagePath: asset.path,
+        uploaded: true,
+        expiresAt: asset.expiresAt,
+      };
+    });
+  };
+
+  const ensureAssetsUploaded = async () => {
+    setStatusMessage("임시 스토리지 업로드중...");
+
+    const uploadedFaces = await uploadItemsToStorage(faces, "faces");
+    setFaces(uploadedFaces);
+
+    const uploadedOutfits = await uploadItemsToStorage(outfits, "outfits");
+    setOutfits(uploadedOutfits);
+
+    const uploadedReferences = await uploadItemsToStorage(
+      references,
+      "references"
+    );
+    setReferences(uploadedReferences);
+
+    return {
+      uploadedFaces,
+      uploadedOutfits,
+      uploadedReferences,
+    };
+  };
+
+  const cleanupRefRunSession = async () => {
+    try {
+      const { supabase } = await import("@/lib/supabase");
+
+      const {
+        data: { session },
+        error: sessionError,
+      } = await supabase.auth.getSession();
+
+      if (sessionError || !session?.access_token) {
+        console.warn("세션 토큰이 없어 temp 즉시 삭제를 건너뜁니다.");
+        return;
+      }
+
+      const res = await fetch("/api/temp-assets/delete", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${session.access_token}`,
+        },
+        body: JSON.stringify({
+          sessionId: refRunSessionId,
+        }),
+      });
+
+      const raw = await res.text();
+      const data = parseJsonSafely(raw);
+
+      if (!res.ok) {
+        throw new Error(data?.error || raw || "임시 파일 삭제 실패");
+      }
+    } catch (error) {
+      console.error("REFRUN_SESSION_CLEANUP_ERROR:", error);
+    }
+  };
+
   const handleGenerateModel = async (options: ModelGenerateOptions) => {
     try {
       setModelGenerating(true);
@@ -5676,10 +7184,15 @@ export default function RefRunPage() {
         body: JSON.stringify(options),
       });
 
-      const data = await res.json();
+      const raw = await res.text();
+      const data = parseJsonSafely(raw);
 
       if (!res.ok) {
-        throw new Error(data?.error || "모델 생성 실패");
+        throw new Error(data?.error || raw || "모델 생성 실패");
+      }
+
+      if (!data?.imageBase64) {
+        throw new Error("모델 생성 응답이 비어 있습니다.");
       }
 
       const mimeType = data.mimeType || getImageMime(data.imageBase64);
@@ -5710,6 +7223,11 @@ export default function RefRunPage() {
   };
 
   const handleRunRefRun = async () => {
+    if (!refRunSessionId) {
+      alert("세션 생성중입니다. 잠시 후 다시 시도해 주세요.");
+      return;
+    }
+
     if (faces.length === 0 || outfits.length === 0 || references.length === 0) {
       alert("얼굴 / 의상 / 레퍼런스는 최소 1장씩 필요하다.");
       return;
@@ -5727,8 +7245,23 @@ export default function RefRunPage() {
 
     try {
       setLoading(true);
-      setStatusMessage(`포인트 차감중... (${totalCost}P)`);
 
+      const { uploadedFaces, uploadedOutfits, uploadedReferences } =
+        await ensureAssetsUploaded();
+
+      const facePaths = uploadedFaces
+        .map((item) => item.storagePath)
+        .filter((v): v is string => Boolean(v));
+
+      const outfitPaths = uploadedOutfits
+        .map((item) => item.storagePath)
+        .filter((v): v is string => Boolean(v));
+
+      if (!facePaths.length || !outfitPaths.length) {
+        throw new Error("얼굴 또는 의상 업로드 경로 확보 실패");
+      }
+
+      setStatusMessage(`포인트 차감중... (${totalCost}P)`);
       await spendPoints(
         totalCost,
         `REFRUN 실행 (${references.length}개 레퍼런스 × ${safeCount}장)`
@@ -5737,7 +7270,7 @@ export default function RefRunPage() {
       setStatusMessage("REFRUN 시작...");
 
       const initialSlots: ResultSlot[] = [];
-      references.forEach((_, refIndex) => {
+      uploadedReferences.forEach((_, refIndex) => {
         for (let cutIndex = 0; cutIndex < safeCount; cutIndex++) {
           initialSlots.push({
             status: "waiting",
@@ -5750,8 +7283,13 @@ export default function RefRunPage() {
 
       setResultSlots(initialSlots);
 
-      for (let refIndex = 0; refIndex < references.length; refIndex++) {
-        const referenceItem = references[refIndex];
+      for (let refIndex = 0; refIndex < uploadedReferences.length; refIndex++) {
+        const referenceItem = uploadedReferences[refIndex];
+        const referencePath = referenceItem.storagePath;
+
+        if (!referencePath) {
+          throw new Error("레퍼런스 업로드 경로 확보 실패");
+        }
 
         for (let cutIndex = 0; cutIndex < safeCount; cutIndex++) {
           const slotIndex = refIndex * safeCount + cutIndex;
@@ -5759,35 +7297,28 @@ export default function RefRunPage() {
           updateSlot(slotIndex, { status: "generating" });
 
           try {
-            const formData = new FormData();
-            formData.append("fitSpec", fitSpec);
-            formData.append("shootingMode", shootingMode);
-            formData.append("customPrompt", customPrompt);
-            formData.append("outfitMode", outfitMode);
-            formData.append(
-              "mixCaptions",
-              JSON.stringify(outfits.map((item) => item.caption || ""))
-            );
-
-            faces.forEach((item) => {
-              formData.append("faces", item.file);
-            });
-
-            outfits.forEach((item) => {
-              formData.append("outfits", item.file);
-            });
-
-            formData.append("reference", referenceItem.file);
-
             const res = await fetch("/api/refrun/run-one", {
               method: "POST",
-              body: formData,
+              headers: {
+                "Content-Type": "application/json",
+              },
+              body: JSON.stringify({
+                fitSpec,
+                shootingMode,
+                customPrompt,
+                outfitMode,
+                mixCaptions: uploadedOutfits.map((item) => item.caption || ""),
+                facePaths,
+                outfitPaths,
+                referencePath,
+              }),
             });
 
-            const data = await res.json();
+            const raw = await res.text();
+            const data = parseJsonSafely(raw);
 
             if (!res.ok) {
-              throw new Error(data?.error || "REFRUN 한 장 생성 실패");
+              throw new Error(data?.error || raw || "REFRUN 한 장 생성 실패");
             }
 
             updateSlot(slotIndex, {
@@ -5813,6 +7344,10 @@ export default function RefRunPage() {
           }
         }
       }
+
+      setStatusMessage("임시 파일 정리중...");
+      await cleanupRefRunSession();
+      setStatusMessage("REFRUN 완료");
     } catch (error) {
       const message =
         error instanceof Error ? error.message : "알 수 없는 REFRUN 오류";
@@ -5838,6 +7373,16 @@ export default function RefRunPage() {
             레퍼런스 이미지의 구도, 무드, 사진 문법을 분석해서 그대로 따라가는
             생산 라인.
           </p>
+        </div>
+
+        <div className="mb-4 rounded-2xl border bg-[#fafaf8] p-4">
+          <div className="text-sm font-semibold text-black">현재 REFRUN 세션</div>
+          <div className="mt-1 break-all text-xs text-gray-600">
+            {refRunSessionId || "세션 생성중..."}
+          </div>
+          <div className="mt-2 text-xs text-gray-500">
+            이번 실행에서 업로드되는 임시 파일은 이 세션 경로 기준으로 분리됩니다.
+          </div>
         </div>
 
         <div className="grid grid-cols-1 xl:grid-cols-3 gap-6 mb-6">
@@ -6009,7 +7554,7 @@ export default function RefRunPage() {
 
           <button
             onClick={handleRunRefRun}
-            disabled={loading || modelGenerating}
+            disabled={loading || modelGenerating || !refRunSessionId}
             className="w-full bg-black text-white py-5 rounded-2xl text-xl disabled:opacity-60"
           >
             {loading ? "REFRUN 준비중..." : "REFRUN 실행하기"}
@@ -6104,10 +7649,11 @@ export default function RefRunPage() {
 <file path="app/dig/page.tsx">
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { spendPoints } from "@/lib/points";
+import { makeSessionId, uploadTempAssets } from "@/lib/storage";
 import FaceInputSection, {
   ModelGenerateOptions,
 } from "@/components/face-input-section";
@@ -6116,6 +7662,9 @@ type UploadItem = {
   file: File;
   preview: string;
   caption?: string;
+  storagePath?: string;
+  uploaded?: boolean;
+  expiresAt?: string;
 };
 
 type DigDirection = {
@@ -6231,6 +7780,12 @@ function UploadSection({
                 {item.file.name}
               </div>
 
+              {item.uploaded ? (
+                <div className="mt-2 text-[11px] text-green-600">
+                  temp 업로드 완료
+                </div>
+              ) : null}
+
               {showCaptionInput && onCaptionChange ? (
                 <textarea
                   value={item.caption || ""}
@@ -6258,13 +7813,7 @@ function UploadSection({
   );
 }
 
-function ShortTag({
-  label,
-  value,
-}: {
-  label: string;
-  value: string;
-}) {
+function ShortTag({ label, value }: { label: string; value: string }) {
   return (
     <div className="inline-flex items-center gap-2 rounded-full border px-3 py-2 text-xs bg-[#fafaf8]">
       <span className="font-semibold text-gray-800">{label}</span>
@@ -6285,12 +7834,19 @@ function getImageMime(base64?: string) {
   return "image/jpeg";
 }
 
+function parseJsonSafely(raw: string) {
+  try {
+    return JSON.parse(raw);
+  } catch {
+    return null;
+  }
+}
+
 export default function DigPage() {
   const router = useRouter();
 
   const [faces, setFaces] = useState<UploadItem[]>([]);
   const [outfits, setOutfits] = useState<UploadItem[]>([]);
-
   const [outfitMode, setOutfitMode] = useState<"outfit" | "mix">("outfit");
 
   const [moodQuery, setMoodQuery] = useState("");
@@ -6298,15 +7854,19 @@ export default function DigPage() {
   const [fitSpec, setFitSpec] = useState("");
   const [shootingMode, setShootingMode] = useState("default");
   const [customPrompt, setCustomPrompt] = useState("");
-
   const [lockedVibe, setLockedVibe] = useState<LockedVibe | null>(null);
 
   const [loading, setLoading] = useState(false);
   const [modelGenerating, setModelGenerating] = useState(false);
   const [statusMessage, setStatusMessage] = useState("");
   const [resultSlots, setResultSlots] = useState<ResultSlot[]>([]);
+  const [digSessionId, setDigSessionId] = useState<string | null>(null);
 
-  const safeCount = Math.max(1, Math.min(20, Number(count) || 1));
+  useEffect(() => {
+    setDigSessionId(makeSessionId("dig"));
+  }, []);
+
+  const safeCount = Math.max(1, Math.min(8, Number(count) || 1));
   const totalCost = safeCount * 50;
 
   const handlePointFailure = (message: string) => {
@@ -6393,6 +7953,97 @@ export default function DigPage() {
     );
   };
 
+  const uploadItemsToStorage = async (
+    items: UploadItem[],
+    kind: "faces" | "outfits"
+  ) => {
+    const currentSessionId = digSessionId;
+
+    if (!currentSessionId) {
+      throw new Error("세션 생성중입니다. 잠시 후 다시 시도해 주세요.");
+    }
+
+    const pending = items.filter((item) => !item.uploaded || !item.storagePath);
+
+    if (!pending.length) {
+      return items;
+    }
+
+    const uploaded = await uploadTempAssets({
+      files: pending.map((item) => item.file),
+      kind,
+      sessionId: currentSessionId,
+    });
+
+    let uploadIndex = 0;
+
+    return items.map((item) => {
+      if (item.uploaded && item.storagePath) {
+        return item;
+      }
+
+      const asset = uploaded[uploadIndex++];
+
+      return {
+        ...item,
+        storagePath: asset.path,
+        uploaded: true,
+        expiresAt: asset.expiresAt,
+      };
+    });
+  };
+
+  const ensureAssetsUploaded = async () => {
+    setStatusMessage("임시 스토리지 업로드중...");
+
+    const uploadedFaces = await uploadItemsToStorage(faces, "faces");
+    setFaces(uploadedFaces);
+
+    const uploadedOutfits = await uploadItemsToStorage(outfits, "outfits");
+    setOutfits(uploadedOutfits);
+
+    return {
+      uploadedFaces,
+      uploadedOutfits,
+    };
+  };
+
+  const cleanupDigSession = async () => {
+    try {
+      const { supabase } = await import("@/lib/supabase");
+
+      const {
+        data: { session },
+        error: sessionError,
+      } = await supabase.auth.getSession();
+
+      if (sessionError || !session?.access_token) {
+        console.warn("세션 토큰이 없어 temp 즉시 삭제를 건너뜁니다.");
+        return;
+      }
+
+      const res = await fetch("/api/temp-assets/delete", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${session.access_token}`,
+        },
+        body: JSON.stringify({
+          sessionId: digSessionId,
+        }),
+      });
+
+      const raw = await res.text();
+      const data = parseJsonSafely(raw);
+
+      if (!res.ok) {
+        throw new Error(data?.error || raw || "임시 파일 삭제 실패");
+      }
+    } catch (error) {
+      console.error("DIG_SESSION_CLEANUP_ERROR:", error);
+    }
+  };
+
   const handleGenerateModel = async (options: ModelGenerateOptions) => {
     try {
       setModelGenerating(true);
@@ -6408,10 +8059,15 @@ export default function DigPage() {
         body: JSON.stringify(options),
       });
 
-      const data = await res.json();
+      const raw = await res.text();
+      const data = parseJsonSafely(raw);
 
       if (!res.ok) {
-        throw new Error(data?.error || "모델 생성 실패");
+        throw new Error(data?.error || raw || "모델 생성 실패");
+      }
+
+      if (!data?.imageBase64) {
+        throw new Error("모델 생성 응답이 비어 있습니다.");
       }
 
       const mimeType = data.mimeType || getImageMime(data.imageBase64);
@@ -6442,6 +8098,11 @@ export default function DigPage() {
   };
 
   const handleRunDig = async () => {
+    if (!digSessionId) {
+      alert("세션 생성중입니다. 잠시 후 다시 시도해 주세요.");
+      return;
+    }
+
     if (faces.length === 0 || outfits.length === 0) {
       alert("얼굴과 의상은 최소 1장씩 필요하다.");
       return;
@@ -6466,27 +8127,46 @@ export default function DigPage() {
       setLoading(true);
       setStatusMessage(`포인트 차감중... (${totalCost}P)`);
 
+      const { uploadedFaces, uploadedOutfits } = await ensureAssetsUploaded();
+
+      const facePaths = uploadedFaces
+        .map((item) => item.storagePath)
+        .filter((v): v is string => Boolean(v));
+
+      const outfitPaths = uploadedOutfits
+        .map((item) => item.storagePath)
+        .filter((v): v is string => Boolean(v));
+
+      if (!facePaths.length || !outfitPaths.length) {
+        throw new Error("얼굴 또는 의상 업로드 경로 확보 실패");
+      }
+
       await spendPoints(totalCost, `DIG 실행 (${safeCount}장)`);
 
       setStatusMessage("DIG directions 생성중...");
       setResultSlots([]);
 
-      const directionForm = new FormData();
-      directionForm.append("moodQuery", moodQuery);
-      directionForm.append("count", String(safeCount));
-
       const directionsRes = await fetch("/api/dig/directions", {
         method: "POST",
-        body: directionForm,
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          moodQuery,
+          count: safeCount,
+        }),
       });
 
-      const directionsData = await directionsRes.json();
+      const directionsRaw = await directionsRes.text();
+      const directionsData = parseJsonSafely(directionsRaw);
 
       if (!directionsRes.ok) {
-        throw new Error(directionsData?.error || "DIG directions 생성 실패");
+        throw new Error(
+          directionsData?.error || directionsRaw || "DIG directions 생성 실패"
+        );
       }
 
-      const directions: DigDirection[] = directionsData.directions || [];
+      const directions: DigDirection[] = directionsData?.directions || [];
 
       if (!directions.length) {
         throw new Error("direction이 비어 있다.");
@@ -6508,38 +8188,29 @@ export default function DigPage() {
         updateSlot(index, { status: "generating" });
 
         try {
-          const formData = new FormData();
-          formData.append("fitSpec", fitSpec);
-          formData.append("shootingMode", shootingMode);
-          formData.append("customPrompt", customPrompt);
-          formData.append("outfitMode", outfitMode);
-          formData.append(
-            "mixCaptions",
-            JSON.stringify(outfits.map((item) => item.caption || ""))
-          );
-          formData.append(
-            "lockedVibe",
-            lockedVibe ? JSON.stringify(lockedVibe) : ""
-          );
-          formData.append("direction", JSON.stringify(direction));
-
-          faces.forEach((item) => {
-            formData.append("faces", item.file);
-          });
-
-          outfits.forEach((item) => {
-            formData.append("outfits", item.file);
-          });
-
           const res = await fetch("/api/dig/generate-one", {
             method: "POST",
-            body: formData,
+            headers: {
+              "Content-Type": "application/json",
+            },
+            body: JSON.stringify({
+              fitSpec,
+              shootingMode,
+              customPrompt,
+              outfitMode,
+              mixCaptions: uploadedOutfits.map((item) => item.caption || ""),
+              lockedVibe,
+              direction,
+              facePaths,
+              outfitPaths,
+            }),
           });
 
-          const data = await res.json();
+          const raw = await res.text();
+          const data = parseJsonSafely(raw);
 
           if (!res.ok) {
-            throw new Error(data?.error || "한 장 생성 실패");
+            throw new Error(data?.error || raw || "한 장 생성 실패");
           }
 
           updateSlot(index, {
@@ -6560,6 +8231,10 @@ export default function DigPage() {
           setStatusMessage(`컷 ${index + 1} 오류`);
         }
       }
+
+      setStatusMessage("임시 파일 정리중...");
+      await cleanupDigSession();
+      setStatusMessage("DIG 완료");
     } catch (error) {
       const message =
         error instanceof Error ? error.message : "알 수 없는 DIG 오류";
@@ -6585,6 +8260,16 @@ export default function DigPage() {
             무드 키워드를 리서치해서 여러 크리에이티브 디렉션을 만들고, 각
             디렉션마다 한 컷씩 생성하는 생산 라인.
           </p>
+        </div>
+
+        <div className="mb-4 rounded-2xl border bg-[#fafaf8] p-4">
+          <div className="text-sm font-semibold text-black">현재 DIG 세션</div>
+          <div className="mt-1 break-all text-xs text-gray-600">
+            {digSessionId || "세션 생성중..."}
+          </div>
+          <div className="mt-2 text-xs text-gray-500">
+            이번 실행에서 업로드되는 임시 파일은 이 세션 경로 기준으로 분리됩니다.
+          </div>
         </div>
 
         <div className="grid grid-cols-1 xl:grid-cols-2 gap-6 mb-6">
@@ -6665,7 +8350,7 @@ export default function DigPage() {
               <input
                 type="number"
                 min={1}
-                max={20}
+                max={8}
                 value={count}
                 onChange={(e) => setCount(Number(e.target.value))}
                 className="w-full border rounded-xl px-4 py-3"
@@ -6758,7 +8443,7 @@ export default function DigPage() {
           <div className="flex gap-3">
             <button
               onClick={handleRunDig}
-              disabled={loading || modelGenerating}
+              disabled={loading || modelGenerating || !digSessionId}
               className="flex-1 bg-black text-white py-5 rounded-2xl text-xl disabled:opacity-60"
             >
               {loading ? "DIG 준비중..." : "DIG 실행하기"}

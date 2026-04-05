@@ -6,38 +6,32 @@ import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { supabase } from "@/lib/supabase";
 
-const lines = [
+type Viewer = {
+  id: string;
+  email: string | null;
+  pointBalance: number;
+} | null;
+
+const panels = [
   {
     title: "DIG",
     href: "/dig",
     image: "/home-dig.jpg",
     guideImage: "/dic설명.jpg",
-    tagline: "Creative direction based image generation",
-    inputs: ["face", "outfit", "direction"],
   },
   {
     title: "REFRUN",
     href: "/refrun",
     image: "/home-refrun.jpg",
     guideImage: "/refrun설명.jpg",
-    tagline: "Reference-led image generation",
-    inputs: ["face", "outfit", "reference photo"],
   },
   {
     title: "FUSION",
     href: "/fusion",
     image: "/home-fusion.jpg",
     guideImage: "/fusion설명.jpg",
-    tagline: "Background and pose driven generation",
-    inputs: ["face", "outfit", "background", "pose"],
   },
 ];
-
-type Viewer = {
-  id: string;
-  email: string | null;
-  pointBalance: number;
-} | null;
 
 export default function HomePage() {
   const router = useRouter();
@@ -140,155 +134,81 @@ export default function HomePage() {
   };
 
   return (
-    <main className="min-h-screen bg-[#f7f7f5] text-[#73727c]">
-      <div className="mx-auto max-w-[1440px] px-5 pb-16 pt-6 sm:px-6 lg:px-10">
-        <header className="mb-12 border-b border-[#d9d7d2] pb-6">
-          <div className="flex flex-col gap-6 lg:flex-row lg:items-end lg:justify-between">
-            <div className="max-w-[920px]">
-              <h1 className="text-[34px] font-bold leading-[0.9] tracking-[-0.055em] text-[#6f6d78] sm:text-[52px] lg:text-[68px]">
-                SIGNATURE
-                <br />
-                AI STUDIO
-              </h1>
+    <main className="h-[100svh] overflow-hidden bg-[#f7f7f5] text-[#6f6d78]">
+      <div className="grid h-full grid-rows-[52px_minmax(0,1fr)]">
+        <header className="z-30 border-b border-[rgba(111,109,120,0.14)] bg-[rgba(247,247,245,0.88)] backdrop-blur-md">
+          <div className="flex h-[52px] items-center justify-between px-4 sm:px-6 lg:px-8">
+            <Link
+              href="/"
+              className="text-[14px] font-bold uppercase tracking-[-0.03em] text-[#6f6d78] sm:text-[18px]"
+            >
+              signature ai studio
+            </Link>
 
-              <div className="mt-5 max-w-[980px] space-y-3 text-[13px] leading-[1.7] text-[#7c7a84] sm:mt-6 sm:space-y-4 sm:text-[15px] sm:leading-[1.85] lg:text-[17px]">
-                <p>생성이 아닌, 조립.</p>
+            <div className="flex items-center gap-2 text-[11px] text-[#6f6d78] sm:gap-4 sm:text-[13px]">
+              {loading ? (
+                <div className="text-[#8b8993]">checking...</div>
+              ) : viewer ? (
+                <>
+                  <div className="text-[#6f6d78]">{viewer.pointBalance}P</div>
 
-                <p>
-                  빛, 질감, 공간의 레이어를 쌓아 하나의 씬(Scene)을 구성합니다.
-                </p>
+                  <Link href="/mypage" className="transition hover:opacity-70">
+                    mypage
+                  </Link>
 
-                <p>
-                  설계된 무드 안에서 최적의 컷을 추출하고, 선택된 비주얼은 다음
-                  작업의 기준이 됩니다.
-                </p>
+                  <Link href="/charge" className="transition hover:opacity-70">
+                    charge
+                  </Link>
 
-                <p>통제 가능한 브랜드 아이덴티티.</p>
-              </div>
-            </div>
-
-            <div className="flex flex-col gap-3 sm:min-w-[320px] sm:max-w-[420px]">
-              <div className="flex flex-wrap gap-2">
-                {loading ? (
-                  <div className="rounded-full border border-[#cfcbd2] px-4 py-2 text-[13px]">
-                    checking...
-                  </div>
-                ) : viewer ? (
-                  <>
-                    <div className="rounded-full border border-[#cfcbd2] px-4 py-2 text-[13px]">
-                      {viewer.email}
-                    </div>
-
-                    <div className="rounded-full border border-[#cfcbd2] px-4 py-2 text-[13px]">
-                      {viewer.pointBalance}P
-                    </div>
-
-                    <Link
-                      href="/mypage"
-                      className="rounded-full border border-[#cfcbd2] px-4 py-2 text-[13px] transition hover:bg-[#ece8ee]"
-                    >
-                      my page
-                    </Link>
-
-                    <Link
-                      href="/charge"
-                      className="rounded-full border border-[#cfcbd2] px-4 py-2 text-[13px] transition hover:bg-[#ece8ee]"
-                    >
-                      charge
-                    </Link>
-
-                    <button
-                      type="button"
-                      onClick={handleLogout}
-                      disabled={logoutLoading}
-                      className="rounded-full bg-[#6f6d78] px-4 py-2 text-[13px] text-white transition hover:opacity-90 disabled:opacity-50"
-                    >
-                      {logoutLoading ? "signing out..." : "logout"}
-                    </button>
-                  </>
-                ) : (
-                  <>
-                    <Link
-                      href="/signup"
-                      className="rounded-full border border-[#cfcbd2] px-4 py-2 text-[13px] transition hover:bg-[#ece8ee]"
-                    >
-                      sign up
-                    </Link>
-
-                    <Link
-                      href="/login"
-                      className="rounded-full bg-[#6f6d78] px-4 py-2 text-[13px] text-white transition hover:opacity-90"
-                    >
-                      login
-                    </Link>
-                  </>
-                )}
-              </div>
-
-              <div className="flex flex-wrap gap-4 text-[12px] uppercase tracking-[0.18em] text-[#8b8993]">
-                <a href="#dig" className="hover:text-[#6f6d78]">
-                  DIG
-                </a>
-                <a href="#refrun" className="hover:text-[#6f6d78]">
-                  REFRUN
-                </a>
-                <a href="#fusion" className="hover:text-[#6f6d78]">
-                  FUSION
-                </a>
-              </div>
+                  <button
+                    type="button"
+                    onClick={handleLogout}
+                    disabled={logoutLoading}
+                    className="transition hover:opacity-70 disabled:opacity-50"
+                  >
+                    {logoutLoading ? "signing out..." : "logout"}
+                  </button>
+                </>
+              ) : (
+                <Link href="/login" className="transition hover:opacity-70">
+                  login
+                </Link>
+              )}
             </div>
           </div>
         </header>
 
-        <section className="space-y-14">
-          {lines.map((line) => (
-            <section
-              key={line.title}
-              id={line.title.toLowerCase()}
-              className="grid gap-5 border-t border-[#d9d7d2] pt-6 sm:gap-6 lg:grid-cols-[1.02fr_0.98fr] lg:items-start"
+        <section className="min-h-0 overflow-y-auto snap-y snap-mandatory md:grid md:grid-cols-3 md:overflow-hidden md:snap-none">
+          {panels.map((panel) => (
+            <Link
+              key={panel.title}
+              href={panel.href}
+              className="group relative block h-[calc(100svh-52px)] shrink-0 snap-start overflow-hidden md:h-full md:min-h-0"
             >
-              <div className="order-2 flex flex-col justify-between lg:order-1 lg:min-h-[560px]">
-                <div>
-                  <div className="mb-3 text-[12px] uppercase tracking-[0.2em] text-[#8b8993]">
-                    production line
-                  </div>
+              <Image
+                src={panel.image}
+                alt={panel.title}
+                fill
+                priority
+                className="object-cover transition duration-500 group-hover:scale-[1.015]"
+              />
 
-                  <h2 className="text-[42px] font-bold leading-none tracking-[-0.05em] text-[#6f6d78] sm:text-[60px]">
-                    {line.title}
-                  </h2>
+              <div className="absolute inset-0 bg-black/5 transition duration-300 group-hover:bg-black/10" />
 
-                  <div className="mt-5 max-w-[420px]">
-                    <img
-                      src={line.guideImage}
-                      alt={`${line.title} guide`}
-                      className="w-full rounded-[18px] border border-[#d9d7d2]"
-                    />
-                  </div>
-                </div>
-
-                <div className="mt-8">
-                  <Link
-                    href={line.href}
-                    className="inline-flex rounded-full bg-[#6f6d78] px-5 py-3 text-[13px] uppercase tracking-[0.08em] text-white transition hover:opacity-90"
-                  >
-                    enter {line.title.toLowerCase()}
-                  </Link>
+              <div className="absolute left-4 top-4 z-10 sm:left-6 sm:top-6 lg:left-7 lg:top-7">
+                <div className="text-[16px] font-bold tracking-[0.08em] text-[#f7f7f5] drop-shadow-[0_2px_10px_rgba(0,0,0,0.28)] sm:text-[18px] lg:text-[20px]">
+                  {panel.title}
                 </div>
               </div>
 
-              <div className="order-1 lg:order-2">
-                <div className="relative overflow-hidden rounded-[24px] bg-[#ece8ee]">
-                  <div className="relative aspect-[4/5] w-full">
-                    <Image
-                      src={line.image}
-                      alt={line.title}
-                      fill
-                      className="object-cover"
-                    />
-                  </div>
-                </div>
+              <div className="absolute bottom-4 right-4 z-10 w-[160px] sm:bottom-6 sm:right-6 sm:w-[180px] lg:bottom-7 lg:right-7 lg:w-[200px] xl:w-[220px]">
+                <img
+                  src={panel.guideImage}
+                  alt={`${panel.title} guide`}
+                  className="w-full rounded-[10px] border border-[rgba(111,109,120,0.22)] bg-[rgba(247,247,245,0.88)] shadow-[0_14px_32px_rgba(0,0,0,0.16)]"
+                />
               </div>
-            </section>
+            </Link>
           ))}
         </section>
       </div>
