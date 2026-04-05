@@ -54,6 +54,8 @@ export type LockedVibe = {
   color_grading_and_texture?: string;
 };
 
+export type OutputRatio = "4:5" | "2:3" | "16:9";
+
 const buildFitPromptContext = (
   bodySpecs?: string
 ): { fitPromptContext: string; fitSummarySuffix: string } => {
@@ -317,6 +319,7 @@ export async function generateFusionImageWeb(args: {
   lockedVibe?: LockedVibe | null;
   shootingMode?: string;
   customPrompt?: string;
+  outputRatio?: OutputRatio;
 }): Promise<{ base64: string; summary: string }> {
   const {
     faceBase64s,
@@ -330,6 +333,7 @@ export async function generateFusionImageWeb(args: {
     lockedVibe,
     shootingMode = "default",
     customPrompt,
+    outputRatio = "4:5",
   } = args;
 
   const parts: any[] = [];
@@ -352,34 +356,26 @@ export async function generateFusionImageWeb(args: {
     });
 
     if (isMixMode) {
-      const itemCaption =
+      const caption =
         mixCaptions[index] || "No specific styling instruction provided.";
       parts.push({
-        text: `[Outfit Detail ${index + 1}: Extracted based on "${itemCaption}"]`,
+        text: `[Mix Item ${index + 1} Instruction: ${caption}]`,
       });
     }
   });
 
-  let fitSummary = lockedVibe
-    ? `🧬 FUSION [VIBE LOCK]`
-    : `🧬 FUSION [${shootingMode.toUpperCase()}]`;
-
-  if (shootingMode === "custom") {
-    fitSummary += ` (CUSTOM: ${customPrompt})`;
-  }
-
   const { fitPromptContext, fitSummarySuffix } =
     buildFitPromptContext(bodySpecs);
-  fitSummary += fitSummarySuffix;
+  const fitSummary = `${isMixMode ? "🧩 MIX" : "👕 OUTFIT"}${fitSummarySuffix}`;
 
   const modeDict: Record<string, string> = {
-    fuji: "Texture: Fujifilm 400H characteristic (cool greens, cyan shadows, high contrast cinematic feel).",
-    mono: "Texture: Ilford HP5 Plus (high-end monochrome, rich blacks, heavy grain). FORCE STRICT BLACK AND WHITE. NO COLOR.",
+    fuji: "Texture: Fujifilm 400H (Cool greens, cyan shadows, high contrast cinematic film).",
+    mono: "Texture: Ilford HP5 Plus (High-end monochrome, heavy grain, deep noir look). FORCE STRICT BLACK AND WHITE. NO COLOR.",
     studio:
-      "Texture: clean commercial high-key studio lighting. Sharp focus, zero grain, high-end digital clarity.",
-    raw: "Texture: unprocessed natural raw light. realistic exposure, zero film simulation.",
+      "Texture: Sharp high-key studio lighting. Zero grain, high-end digital clarity.",
+    raw: "Texture: Natural raw light. iPhone-style snapshot clarity, zero film simulation.",
     default:
-      "Texture: Kodak Portra 400 (warm skin tones, subtle analog grain, soft cinematic light).",
+      "Texture: Kodak Portra 400 (Warm skin tones, subtle analog grain, soft cinematic light).",
   };
 
   let textureAndColor = "";
@@ -466,7 +462,7 @@ ${fitPromptContext}
 - Render as a premium fashion editorial photograph.
 - Keep the image realistic and luxury-brand ready.
 - Avoid generic AI mannequin feel.
-- 3:4 vertical composition.
+- ${outputRatio} composition.
 - 2K quality.
 `;
 
@@ -477,7 +473,7 @@ ${fitPromptContext}
     },
     config: {
       imageConfig: {
-        aspectRatio: "3:4",
+        aspectRatio: outputRatio,
         imageSize: "2K",
       },
       safetySettings,

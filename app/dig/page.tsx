@@ -9,6 +9,8 @@ import FaceInputSection, {
   ModelGenerateOptions,
 } from "@/components/face-input-section";
 
+type OutputRatio = "4:5" | "2:3" | "16:9";
+
 type UploadItem = {
   file: File;
   preview: string;
@@ -205,6 +207,7 @@ export default function DigPage() {
   const [fitSpec, setFitSpec] = useState("");
   const [shootingMode, setShootingMode] = useState("default");
   const [customPrompt, setCustomPrompt] = useState("");
+  const [outputRatio, setOutputRatio] = useState<OutputRatio>("4:5");
   const [lockedVibe, setLockedVibe] = useState<LockedVibe | null>(null);
 
   const [loading, setLoading] = useState(false);
@@ -553,6 +556,7 @@ export default function DigPage() {
               direction,
               facePaths,
               outfitPaths,
+              outputRatio,
             }),
           });
 
@@ -684,7 +688,7 @@ export default function DigPage() {
             />
           </div>
 
-          <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+          <div className="grid grid-cols-1 md:grid-cols-5 gap-4">
             <div>
               <label className="block text-sm font-semibold mb-2">Count</label>
               <input
@@ -734,6 +738,21 @@ export default function DigPage() {
 
             <div>
               <label className="block text-sm font-semibold mb-2">
+                Output Ratio
+              </label>
+              <select
+                value={outputRatio}
+                onChange={(e) => setOutputRatio(e.target.value as OutputRatio)}
+                className="w-full border rounded-xl px-4 py-3"
+              >
+                <option value="4:5">4:5</option>
+                <option value="2:3">2:3</option>
+                <option value="16:9">16:9</option>
+              </select>
+            </div>
+
+            <div>
+              <label className="block text-sm font-semibold mb-2">
                 Custom Prompt
               </label>
               <input
@@ -757,6 +776,7 @@ export default function DigPage() {
               <div>총 예상 결과 수: {safeCount}장</div>
               <div>핏 보정: {fitSpec || "없음"}</div>
               <div>Shooting Mode: {shootingMode}</div>
+              <div>Output Ratio: {outputRatio}</div>
               <div>Vibe Lock: {lockedVibe ? "설정됨" : "없음"}</div>
               <div>실행 비용: {totalCost}P</div>
             </div>

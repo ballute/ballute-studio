@@ -3218,278 +3218,6 @@ body {
 }
 </file>
 
-<file path="components/face-input-section.tsx">
-"use client";
-
-import { useState } from "react";
-
-type FaceUploadItem = {
-  file: File;
-  preview: string;
-};
-
-export type ModelGenerateOptions = {
-  ethnicity: string;
-  gender: string;
-  age: string;
-  hairStyle: string;
-  skinTone: string;
-  eyeColor: string;
-  mood: string;
-  extraDetails: string;
-};
-
-type FaceInputSectionProps = {
-  items: FaceUploadItem[];
-  onAddFiles: (files: FileList | null) => void;
-  onRemoveItem: (index: number) => void;
-  onClearAll: () => void;
-  onGenerate: (options: ModelGenerateOptions) => void;
-  generating: boolean;
-  disabled?: boolean;
-};
-
-export default function FaceInputSection({
-  items,
-  onAddFiles,
-  onRemoveItem,
-  onClearAll,
-  onGenerate,
-  generating,
-  disabled = false,
-}: FaceInputSectionProps) {
-  const [mode, setMode] = useState<"generate" | "upload">("generate");
-
-  const [ethnicity, setEthnicity] = useState("East Asian");
-  const [gender, setGender] = useState("Male");
-  const [age, setAge] = useState("Early 20s");
-  const [hairStyle, setHairStyle] = useState("Short messy black hair, city boy style");
-  const [skinTone, setSkinTone] = useState("Light neutral skin tone");
-  const [eyeColor, setEyeColor] = useState("Dark brown");
-  const [mood, setMood] = useState("Calm and confident");
-  const [extraDetails, setExtraDetails] = useState("");
-
-  const handleGenerateClick = () => {
-    onGenerate({
-      ethnicity,
-      gender,
-      age,
-      hairStyle,
-      skinTone,
-      eyeColor,
-      mood,
-      extraDetails,
-    });
-  };
-
-  const inputClass =
-    "w-full border-b border-black/70 bg-transparent px-0 py-3 text-[16px] outline-none placeholder:text-gray-400";
-  const labelClass =
-    "mb-2 text-[14px] font-semibold uppercase tracking-[0.02em] text-gray-500";
-
-  return (
-    <div className="border rounded-2xl p-6 bg-white">
-      <div className="flex items-center gap-2 mb-2">
-        <h2 className="text-xl font-bold">모델 얼굴 입력</h2>
-        <span className="text-xs px-2 py-1 rounded-full bg-black text-white">
-          필수
-        </span>
-      </div>
-
-      <p className="text-sm text-gray-700 mb-5 leading-6">
-        기존 모델 이미지를 업로드하거나, 원하는 조건을 입력해서 가상 모델 얼굴
-        앵커를 생성할 수 있다.
-      </p>
-
-      <div className="mb-6 grid grid-cols-2 border rounded-xl overflow-hidden">
-        <button
-          type="button"
-          onClick={() => setMode("generate")}
-          className={`px-4 py-4 text-sm font-semibold ${
-            mode === "generate"
-              ? "bg-black text-white"
-              : "bg-white text-black"
-          }`}
-        >
-          GENERATE VIRTUAL MODEL
-        </button>
-
-        <button
-          type="button"
-          onClick={() => setMode("upload")}
-          className={`px-4 py-4 text-sm font-semibold ${
-            mode === "upload"
-              ? "bg-black text-white"
-              : "bg-white text-black"
-          }`}
-        >
-          UPLOAD EXISTING MODEL
-        </button>
-      </div>
-
-      {mode === "upload" ? (
-        <div>
-          <div className="flex flex-wrap gap-3 mb-4">
-            <label className="block cursor-pointer">
-              <div className="px-4 py-3 border-2 border-dashed rounded-xl text-sm text-gray-500 bg-white">
-                여러 장 추가 업로드
-              </div>
-              <input
-                type="file"
-                accept="image/*"
-                multiple
-                className="hidden"
-                onChange={(e) => onAddFiles(e.target.files)}
-                disabled={disabled || generating}
-              />
-            </label>
-
-            <button
-              type="button"
-              onClick={onClearAll}
-              disabled={disabled || generating}
-              className="px-4 py-3 border rounded-xl text-sm text-gray-700 bg-white disabled:opacity-60"
-            >
-              전체 삭제
-            </button>
-          </div>
-        </div>
-      ) : (
-        <div className="space-y-7">
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-x-8 gap-y-7">
-            <div>
-              <div className={labelClass}>ETHNICITY</div>
-              <input
-                value={ethnicity}
-                onChange={(e) => setEthnicity(e.target.value)}
-                className={inputClass}
-                placeholder="East Asian"
-              />
-            </div>
-
-            <div>
-              <div className={labelClass}>GENDER</div>
-              <input
-                value={gender}
-                onChange={(e) => setGender(e.target.value)}
-                className={inputClass}
-                placeholder="Male / Female / Androgynous"
-              />
-            </div>
-
-            <div>
-              <div className={labelClass}>AGE</div>
-              <input
-                value={age}
-                onChange={(e) => setAge(e.target.value)}
-                className={inputClass}
-                placeholder="Early 20s"
-              />
-            </div>
-
-            <div>
-              <div className={labelClass}>SKIN TONE</div>
-              <input
-                value={skinTone}
-                onChange={(e) => setSkinTone(e.target.value)}
-                className={inputClass}
-                placeholder="Light neutral skin tone"
-              />
-            </div>
-          </div>
-
-          <div>
-            <div className={labelClass}>HAIR STYLE</div>
-            <input
-              value={hairStyle}
-              onChange={(e) => setHairStyle(e.target.value)}
-              className={inputClass}
-              placeholder="Short messy black hair, city boy style"
-            />
-          </div>
-
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-x-8 gap-y-7">
-            <div>
-              <div className={labelClass}>EYE COLOR</div>
-              <input
-                value={eyeColor}
-                onChange={(e) => setEyeColor(e.target.value)}
-                className={inputClass}
-                placeholder="Dark brown"
-              />
-            </div>
-
-            <div>
-              <div className={labelClass}>MOOD</div>
-              <input
-                value={mood}
-                onChange={(e) => setMood(e.target.value)}
-                className={inputClass}
-                placeholder="Calm and confident"
-              />
-            </div>
-          </div>
-
-          <div>
-            <div className={labelClass}>ETC</div>
-            <textarea
-              value={extraDetails}
-              onChange={(e) => setExtraDetails(e.target.value)}
-              className="w-full border-b border-black/70 bg-transparent px-0 py-3 text-[16px] outline-none placeholder:text-gray-400 resize-none"
-              rows={4}
-              placeholder="예: soft straight brows, clean jawline, no facial hair, natural lips, balanced symmetry"
-            />
-          </div>
-
-          <button
-            type="button"
-            onClick={handleGenerateClick}
-            disabled={disabled || generating}
-            className="px-5 py-3 rounded-xl bg-black text-white text-sm disabled:opacity-60"
-          >
-            {generating ? "모델 생성중..." : "모델 생성 (30P)"}
-          </button>
-        </div>
-      )}
-
-      <div className="mt-6 text-sm text-gray-600">
-        현재 업로드 수: <b>{items.length}장</b>
-      </div>
-
-      {items.length > 0 ? (
-        <div className="grid grid-cols-2 md:grid-cols-3 gap-3 mt-4">
-          {items.map((item, index) => (
-            <div
-              key={`${item.file.name}-${index}`}
-              className="border rounded-xl p-2"
-            >
-              <img
-                src={item.preview}
-                alt={item.file.name}
-                className="w-full h-32 object-cover rounded-lg"
-              />
-              <div className="mt-2 text-xs text-gray-600 truncate">
-                {item.file.name}
-              </div>
-
-              <button
-                type="button"
-                onClick={() => onRemoveItem(index)}
-                className="mt-2 w-full bg-red-500 text-white text-xs py-2 rounded-lg"
-              >
-                이 사진 삭제
-              </button>
-            </div>
-          ))}
-        </div>
-      ) : (
-        <div className="mt-4 text-sm text-gray-400">아직 업로드 안 됨</div>
-      )}
-    </div>
-  );
-}
-</file>
-
 <file path="components/footer.tsx">
 import Link from "next/link";
 
@@ -5696,6 +5424,283 @@ export default function MyPage() {
 }
 </file>
 
+<file path="components/face-input-section.tsx">
+"use client";
+
+import { useState } from "react";
+
+type FaceUploadItem = {
+  file: File;
+  preview: string;
+};
+
+export type ModelGenerateOptions = {
+  ethnicity: string;
+  gender: string;
+  age: string;
+  hairStyle: string;
+  skinTone: string;
+  eyeColor: string;
+  mood: string;
+  extraDetails: string;
+};
+
+type FaceInputSectionProps = {
+  items: FaceUploadItem[];
+  onAddFiles: (files: FileList | null) => void;
+  onRemoveItem: (index: number) => void;
+  onClearAll: () => void;
+  onGenerate: (options: ModelGenerateOptions) => void;
+  generating: boolean;
+  disabled?: boolean;
+};
+
+export default function FaceInputSection({
+  items,
+  onAddFiles,
+  onRemoveItem,
+  onClearAll,
+  onGenerate,
+  generating,
+  disabled = false,
+}: FaceInputSectionProps) {
+  const [mode, setMode] = useState<"generate" | "upload">("upload");
+
+  const [ethnicity, setEthnicity] = useState("");
+  const [gender, setGender] = useState("");
+  const [age, setAge] = useState("");
+  const [hairStyle, setHairStyle] = useState("");
+  const [skinTone, setSkinTone] = useState("");
+  const [eyeColor, setEyeColor] = useState("");
+  const [mood, setMood] = useState("");
+  const [extraDetails, setExtraDetails] = useState("");
+
+  const handleGenerateClick = () => {
+    onGenerate({
+      ethnicity: ethnicity.trim() || "East Asian",
+      gender: gender.trim() || "Male",
+      age: age.trim() || "Early 20s",
+      hairStyle: hairStyle.trim() || "Short black hair",
+      skinTone: skinTone.trim() || "Light neutral skin tone",
+      eyeColor: eyeColor.trim() || "Dark brown",
+      mood: mood.trim() || "Calm and confident",
+      extraDetails,
+    });
+  };
+
+  const inputClass =
+    "w-full border-b border-black/70 bg-transparent px-0 py-2 text-[15px] outline-none placeholder:text-gray-400";
+  const labelClass =
+    "mb-1 text-[12px] font-semibold uppercase tracking-[0.03em] text-gray-500";
+
+  return (
+    <div className="border rounded-2xl p-6 bg-white">
+      <div className="flex items-center gap-2 mb-2">
+        <h2 className="text-xl font-bold">모델 얼굴 입력</h2>
+        <span className="text-xs px-2 py-1 rounded-full bg-black text-white">
+          필수
+        </span>
+      </div>
+
+      <p className="text-sm text-gray-700 mb-4 leading-6">
+        기존 모델 이미지를 업로드하거나, 원하는 조건을 입력해서 가상 모델 얼굴
+        앵커를 생성할 수 있다.
+      </p>
+
+      <div className="mb-5 flex rounded-full border border-black/40 p-1">
+        <button
+          type="button"
+          onClick={() => setMode("upload")}
+          className={`flex-1 rounded-full px-4 py-3 text-sm font-semibold transition ${
+            mode === "upload"
+              ? "bg-black text-white"
+              : "bg-white text-black hover:bg-gray-50"
+          }`}
+        >
+          UPLOAD EXISTING MODEL
+        </button>
+        <button
+          type="button"
+          onClick={() => setMode("generate")}
+          className={`flex-1 rounded-full px-4 py-3 text-sm font-semibold transition ${
+            mode === "generate"
+              ? "bg-black text-white"
+              : "bg-white text-black hover:bg-gray-50"
+          }`}
+        >
+          GENERATE VIRTUAL MODEL
+        </button>
+      </div>
+
+      {mode === "upload" ? (
+        <div>
+          <div className="flex gap-3 mb-4">
+            <label className="block cursor-pointer">
+              <div className="px-4 py-3 border-2 border-dashed rounded-xl text-sm text-gray-500">
+                여러 장 추가 업로드
+              </div>
+              <input
+                type="file"
+                accept="image/*"
+                multiple
+                className="hidden"
+                onChange={(e) => onAddFiles(e.target.files)}
+                disabled={disabled}
+              />
+            </label>
+
+            <button
+              type="button"
+              onClick={onClearAll}
+              className="px-4 py-3 border rounded-xl text-sm text-gray-700"
+              disabled={disabled}
+            >
+              전체 삭제
+            </button>
+          </div>
+
+          <div className="mt-2 text-sm text-gray-600">
+            현재 업로드 수: <b>{items.length}장</b>
+          </div>
+
+          {items.length > 0 ? (
+            <div className="grid grid-cols-2 md:grid-cols-3 gap-3 mt-4">
+              {items.map((item, index) => (
+                <div
+                  key={`${item.file.name}-${index}`}
+                  className="border rounded-xl p-2"
+                >
+                  <img
+                    src={item.preview}
+                    alt={item.file.name}
+                    className="w-full h-32 object-cover rounded-lg"
+                  />
+                  <div className="mt-2 text-xs text-gray-600 truncate">
+                    {item.file.name}
+                  </div>
+
+                  <button
+                    type="button"
+                    onClick={() => onRemoveItem(index)}
+                    className="mt-2 w-full bg-red-500 text-white text-xs py-2 rounded-lg"
+                    disabled={disabled}
+                  >
+                    이 사진 삭제
+                  </button>
+                </div>
+              ))}
+            </div>
+          ) : (
+            <div className="mt-4 text-sm text-gray-400">아직 업로드 안 됨</div>
+          )}
+        </div>
+      ) : (
+        <div className="space-y-5">
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-x-12 gap-y-5">
+            <div>
+              <div className={labelClass}>ETHNICITY</div>
+              <input
+                type="text"
+                value={ethnicity}
+                onChange={(e) => setEthnicity(e.target.value)}
+                placeholder="East Asian / Japanese / Korean"
+                className={inputClass}
+              />
+            </div>
+
+            <div>
+              <div className={labelClass}>GENDER</div>
+              <input
+                type="text"
+                value={gender}
+                onChange={(e) => setGender(e.target.value)}
+                placeholder="Male"
+                className={inputClass}
+              />
+            </div>
+
+            <div>
+              <div className={labelClass}>AGE</div>
+              <input
+                type="text"
+                value={age}
+                onChange={(e) => setAge(e.target.value)}
+                placeholder="Early 20s"
+                className={inputClass}
+              />
+            </div>
+
+            <div>
+              <div className={labelClass}>SKIN TONE</div>
+              <input
+                type="text"
+                value={skinTone}
+                onChange={(e) => setSkinTone(e.target.value)}
+                placeholder="Light neutral skin tone"
+                className={inputClass}
+              />
+            </div>
+
+            <div className="md:col-span-2">
+              <div className={labelClass}>HAIR STYLE</div>
+              <input
+                type="text"
+                value={hairStyle}
+                onChange={(e) => setHairStyle(e.target.value)}
+                placeholder="Short messy black hair, city boy style"
+                className={inputClass}
+              />
+            </div>
+
+            <div>
+              <div className={labelClass}>EYE COLOR</div>
+              <input
+                type="text"
+                value={eyeColor}
+                onChange={(e) => setEyeColor(e.target.value)}
+                placeholder="Dark brown"
+                className={inputClass}
+              />
+            </div>
+
+            <div>
+              <div className={labelClass}>MOOD</div>
+              <input
+                type="text"
+                value={mood}
+                onChange={(e) => setMood(e.target.value)}
+                placeholder="Calm and confident"
+                className={inputClass}
+              />
+            </div>
+
+            <div className="md:col-span-2">
+              <div className={labelClass}>ETC</div>
+              <textarea
+                value={extraDetails}
+                onChange={(e) => setExtraDetails(e.target.value)}
+                placeholder="soft straight brows, clean jawline, no facial hair, natural lips, balanced symmetry"
+                className="w-full border-b border-black/70 bg-transparent px-0 py-2 text-[15px] outline-none placeholder:text-gray-400 resize-none"
+                rows={3}
+              />
+            </div>
+          </div>
+
+          <button
+            type="button"
+            onClick={handleGenerateClick}
+            disabled={generating || disabled}
+            className="inline-flex rounded-2xl bg-black px-6 py-4 text-lg text-white disabled:opacity-60"
+          >
+            {generating ? "모델 생성중..." : "모델 생성 (30P)"}
+          </button>
+        </div>
+      )}
+    </div>
+  );
+}
+</file>
+
 <file path="package.json">
 {
   "name": "ballute-studio",
@@ -6249,7 +6254,12 @@ export default function FusionPage() {
       return;
     }
 
-    if (!faces.length || !outfits.length || !bgs.length || !poses.length) {
+    if (
+      faces.length === 0 ||
+      outfits.length === 0 ||
+      bgs.length === 0 ||
+      poses.length === 0
+    ) {
       alert("얼굴 / 의상 / BG / POSE는 최소 1장씩 필요하다.");
       return;
     }
@@ -6366,15 +6376,13 @@ export default function FusionPage() {
 
       setResultSlots(initialSlots);
 
+      let slotIndex = 0;
       for (let poseIndex = 0; poseIndex < poseBlueprints.length; poseIndex++) {
-        const poseBlueprint = poseBlueprints[poseIndex];
-
         for (
           let locationIndex = 0;
           locationIndex < locationPrompts.length;
           locationIndex++
         ) {
-          const slotIndex = poseIndex * locationPrompts.length + locationIndex;
           updateSlot(slotIndex, { status: "generating" });
 
           try {
@@ -6389,12 +6397,12 @@ export default function FusionPage() {
                 customPrompt,
                 outfitMode,
                 mixCaptions: uploadedOutfits.map((item) => item.caption || ""),
-                bgDNA,
-                poseBlueprint,
-                locationPrompt: locationPrompts[locationIndex],
                 lockedVibe,
                 facePaths,
                 outfitPaths,
+                bgDNA,
+                poseBlueprint: poseBlueprints[poseIndex],
+                locationPrompt: locationPrompts[locationIndex],
               }),
             });
 
@@ -6403,10 +6411,6 @@ export default function FusionPage() {
 
             if (!res.ok) {
               throw new Error(data?.error || raw || "FUSION 한 장 생성 실패");
-            }
-
-            if (!data?.result) {
-              throw new Error("FUSION 결과 응답이 비어 있습니다.");
             }
 
             updateSlot(slotIndex, {
@@ -6430,6 +6434,8 @@ export default function FusionPage() {
               `Pose ${poseIndex + 1} / Location ${locationIndex + 1} 오류`
             );
           }
+
+          slotIndex += 1;
         }
       }
 
@@ -6458,19 +6464,9 @@ export default function FusionPage() {
 
           <h1 className="text-4xl font-bold mb-3">FUSION</h1>
           <p className="text-gray-700 text-lg leading-8 max-w-4xl">
-            배경 DNA와 포즈 블루프린트를 결합해서 고급 editorial 결과를 만드는
-            생산 라인.
+            BG DNA와 POSE BLUEPRINT를 조합해 한 무드 안에서 다양한 결과를
+            만드는 생산 라인.
           </p>
-        </div>
-
-        <div className="mb-4 rounded-2xl border bg-[#fafaf8] p-4">
-          <div className="text-sm font-semibold text-black">현재 FUSION 세션</div>
-          <div className="mt-1 break-all text-xs text-gray-600">
-            {fusionSessionId || "세션 생성중..."}
-          </div>
-          <div className="mt-2 text-xs text-gray-500">
-            이번 실행에서 업로드되는 임시 파일은 이 세션 경로 기준으로 분리됩니다.
-          </div>
         </div>
 
         <div className="grid grid-cols-1 xl:grid-cols-2 gap-6 mb-6">
@@ -6535,7 +6531,7 @@ export default function FusionPage() {
           <UploadSection
             title="BG 업로드"
             required
-            description="공간, 톤, 질감, 라이팅 DNA를 추출할 기준 이미지."
+            description="환경 DNA를 추출할 배경 이미지."
             items={bgs}
             onAddFiles={(files) => appendFiles(setBgs, files)}
             onRemoveItem={(index) => removeItem(setBgs, index)}
@@ -6545,7 +6541,7 @@ export default function FusionPage() {
           <UploadSection
             title="POSE 업로드"
             required
-            description="포즈와 크롭, 카메라 감각을 추출할 기준 이미지."
+            description="포즈와 프레이밍을 추출할 기준 이미지."
             items={poses}
             onAddFiles={(files) => appendFiles(setPoses, files)}
             onRemoveItem={(index) => removeItem(setPoses, index)}
@@ -6556,7 +6552,7 @@ export default function FusionPage() {
         <div className="border rounded-2xl p-6 bg-white space-y-5">
           <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
             <div>
-              <label className="block text-sm font-semibold mb-2">장소 수</label>
+              <label className="block text-sm font-semibold mb-2">Count</label>
               <input
                 type="number"
                 min={1}
@@ -6623,7 +6619,7 @@ export default function FusionPage() {
               <div>BG: {bgs.length}장</div>
               <div>POSE: {poses.length}장</div>
               <div>의상 모드: {outfitMode}</div>
-              <div>장소 수: {safeCount}</div>
+              <div>Count: {safeCount}</div>
               <div>총 예상 결과 수: {expectedResultCount}장</div>
               <div>핏 보정: {fitSpec || "없음"}</div>
               <div>Shooting Mode: {shootingMode}</div>
@@ -6731,25 +6727,8 @@ export default function FusionPage() {
 
                       <div className="flex flex-wrap gap-2 mb-4">
                         <ShortTag
-                          label="무드"
-                          value={shorten(slot.result.bgDNA?.spatial_mood)}
-                        />
-                        <ShortTag
-                          label="장소"
+                          label="배경"
                           value={shorten(slot.result.locationPrompt)}
-                        />
-                        <ShortTag
-                          label="카메라"
-                          value={shorten(
-                            slot.result.bgDNA?.camera_feel ||
-                              slot.result.poseBlueprint?.camera_angle_and_crop
-                          )}
-                        />
-                        <ShortTag
-                          label="조명"
-                          value={shorten(
-                            slot.result.bgDNA?.lighting_and_exposure
-                          )}
                         />
                         <ShortTag
                           label="포즈"
@@ -6759,10 +6738,20 @@ export default function FusionPage() {
                           label="표정"
                           value={shorten(slot.result.poseBlueprint?.expression)}
                         />
+                        <ShortTag
+                          label="카메라"
+                          value={shorten(
+                            slot.result.poseBlueprint?.camera_angle_and_crop
+                          )}
+                        />
+                        <ShortTag
+                          label="무드"
+                          value={shorten(slot.result.bgDNA?.spatial_mood)}
+                        />
                       </div>
 
                       <div className="text-sm text-gray-700 mb-4">
-                        <b>요약:</b> {slot.result.summary}
+                        <b>요약:</b> {slot.result.summary || "-"}
                       </div>
 
                       <button
@@ -6986,7 +6975,6 @@ export default function RefRunPage() {
   const [references, setReferences] = useState<UploadItem[]>([]);
 
   const [outfitMode, setOutfitMode] = useState<"outfit" | "mix">("outfit");
-
   const [fitSpec, setFitSpec] = useState("");
   const [shootingMode, setShootingMode] = useState("default");
   const [customPrompt, setCustomPrompt] = useState("");
@@ -7257,20 +7245,19 @@ export default function RefRunPage() {
         .map((item) => item.storagePath)
         .filter((v): v is string => Boolean(v));
 
-      if (!facePaths.length || !outfitPaths.length) {
-        throw new Error("얼굴 또는 의상 업로드 경로 확보 실패");
+      const referencePaths = uploadedReferences
+        .map((item) => item.storagePath)
+        .filter((v): v is string => Boolean(v));
+
+      if (!facePaths.length || !outfitPaths.length || !referencePaths.length) {
+        throw new Error("얼굴 / 의상 / 레퍼런스 업로드 경로 확보 실패");
       }
 
       setStatusMessage(`포인트 차감중... (${totalCost}P)`);
-      await spendPoints(
-        totalCost,
-        `REFRUN 실행 (${references.length}개 레퍼런스 × ${safeCount}장)`
-      );
-
-      setStatusMessage("REFRUN 시작...");
+      await spendPoints(totalCost, `REFRUN 실행 (${totalResults}장)`);
 
       const initialSlots: ResultSlot[] = [];
-      uploadedReferences.forEach((_, refIndex) => {
+      for (let refIndex = 0; refIndex < referencePaths.length; refIndex++) {
         for (let cutIndex = 0; cutIndex < safeCount; cutIndex++) {
           initialSlots.push({
             status: "waiting",
@@ -7279,21 +7266,16 @@ export default function RefRunPage() {
             cutIndex,
           });
         }
-      });
-
+      }
       setResultSlots(initialSlots);
 
-      for (let refIndex = 0; refIndex < uploadedReferences.length; refIndex++) {
-        const referenceItem = uploadedReferences[refIndex];
-        const referencePath = referenceItem.storagePath;
+      setStatusMessage("REFRUN 생성 시작...");
 
-        if (!referencePath) {
-          throw new Error("레퍼런스 업로드 경로 확보 실패");
-        }
+      for (let refIndex = 0; refIndex < referencePaths.length; refIndex++) {
+        const referencePath = referencePaths[refIndex];
 
         for (let cutIndex = 0; cutIndex < safeCount; cutIndex++) {
           const slotIndex = refIndex * safeCount + cutIndex;
-
           updateSlot(slotIndex, { status: "generating" });
 
           try {
@@ -7375,16 +7357,6 @@ export default function RefRunPage() {
           </p>
         </div>
 
-        <div className="mb-4 rounded-2xl border bg-[#fafaf8] p-4">
-          <div className="text-sm font-semibold text-black">현재 REFRUN 세션</div>
-          <div className="mt-1 break-all text-xs text-gray-600">
-            {refRunSessionId || "세션 생성중..."}
-          </div>
-          <div className="mt-2 text-xs text-gray-500">
-            이번 실행에서 업로드되는 임시 파일은 이 세션 경로 기준으로 분리됩니다.
-          </div>
-        </div>
-
         <div className="grid grid-cols-1 xl:grid-cols-3 gap-6 mb-6">
           <FaceInputSection
             items={faces}
@@ -7445,7 +7417,7 @@ export default function RefRunPage() {
           <UploadSection
             title="레퍼런스 업로드"
             required
-            description="구도, 무드, 사진 문법을 따라갈 기준 이미지."
+            description="구도, 무드, 사진 문법을 따라갈 기준 레퍼런스 이미지."
             items={references}
             onAddFiles={(files) => appendFiles(setReferences, files)}
             onRemoveItem={(index) => removeItem(setReferences, index)}
@@ -7457,7 +7429,7 @@ export default function RefRunPage() {
           <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
             <div>
               <label className="block text-sm font-semibold mb-2">
-                레퍼런스당 생성 수
+                Reference당 생성 수
               </label>
               <input
                 type="number"
@@ -7500,7 +7472,6 @@ export default function RefRunPage() {
                 <option value="studio">studio</option>
                 <option value="raw">raw</option>
                 <option value="custom">custom</option>
-                <option value="dig_original">dig_original</option>
               </select>
             </div>
 
@@ -7523,13 +7494,12 @@ export default function RefRunPage() {
             <div className="text-sm text-gray-700 space-y-1">
               <div>얼굴: {faces.length}장</div>
               <div>의상: {outfits.length}장</div>
-              <div>의상 모드: {outfitMode}</div>
               <div>레퍼런스: {references.length}장</div>
-              <div>레퍼런스당 생성 수: {safeCount}</div>
+              <div>의상 모드: {outfitMode}</div>
+              <div>Reference당 생성 수: {safeCount}</div>
               <div>총 예상 결과 수: {totalResults}장</div>
               <div>핏 보정: {fitSpec || "없음"}</div>
               <div>Shooting Mode: {shootingMode}</div>
-              <div>Custom Prompt: {customPrompt || "없음"}</div>
               <div>실행 비용: {totalCost}P</div>
             </div>
           </div>
@@ -7539,7 +7509,7 @@ export default function RefRunPage() {
               <div>
                 <div className="text-sm font-semibold text-black">포인트 충전</div>
                 <div className="mt-1 text-sm text-gray-600">
-                  REFRUN은 레퍼런스 수와 생성 수에 따라 포인트가 빠르게 차감될 수 있습니다.
+                  REFRUN 실행 전 포인트를 미리 충전해 두시면 작업이 끊기지 않습니다.
                 </div>
               </div>
 
@@ -7557,7 +7527,7 @@ export default function RefRunPage() {
             disabled={loading || modelGenerating || !refRunSessionId}
             className="w-full bg-black text-white py-5 rounded-2xl text-xl disabled:opacity-60"
           >
-            {loading ? "REFRUN 준비중..." : "REFRUN 실행하기"}
+            {loading ? "REFRUN 준비중..." : `REFRUN 실행하기 (${totalCost}P)`}
           </button>
         </div>
 
@@ -7576,7 +7546,7 @@ export default function RefRunPage() {
               {resultSlots.map((slot, index) => (
                 <div key={index} className="border rounded-2xl p-5 bg-white">
                   <div className="font-semibold mb-3">
-                    Ref #{slot.referenceIndex + 1} · Cut #{slot.cutIndex + 1}
+                    Ref {slot.referenceIndex + 1} / Cut {slot.cutIndex + 1}
                   </div>
 
                   {slot.status === "waiting" && (
@@ -7625,12 +7595,18 @@ export default function RefRunPage() {
                           )}
                         />
                         <ShortTag
+                          label="조명"
+                          value={shorten(
+                            slot.result.direction.lighting_and_exposure
+                          )}
+                        />
+                        <ShortTag
                           label="무드"
                           value={shorten(slot.result.direction.overall_mood)}
                         />
                       </div>
 
-                      <div className="text-sm text-gray-700 mb-4">
+                      <div className="text-sm text-gray-700">
                         <b>요약:</b> {slot.result.summary}
                       </div>
                     </>
@@ -8148,13 +8124,12 @@ export default function DigPage() {
 
       const directionsRes = await fetch("/api/dig/directions", {
         method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
-          moodQuery,
-          count: safeCount,
-        }),
+        body: (() => {
+          const formData = new FormData();
+          formData.append("moodQuery", moodQuery);
+          formData.append("count", String(safeCount));
+          return formData;
+        })(),
       });
 
       const directionsRaw = await directionsRes.text();
@@ -8260,16 +8235,6 @@ export default function DigPage() {
             무드 키워드를 리서치해서 여러 크리에이티브 디렉션을 만들고, 각
             디렉션마다 한 컷씩 생성하는 생산 라인.
           </p>
-        </div>
-
-        <div className="mb-4 rounded-2xl border bg-[#fafaf8] p-4">
-          <div className="text-sm font-semibold text-black">현재 DIG 세션</div>
-          <div className="mt-1 break-all text-xs text-gray-600">
-            {digSessionId || "세션 생성중..."}
-          </div>
-          <div className="mt-2 text-xs text-gray-500">
-            이번 실행에서 업로드되는 임시 파일은 이 세션 경로 기준으로 분리됩니다.
-          </div>
         </div>
 
         <div className="grid grid-cols-1 xl:grid-cols-2 gap-6 mb-6">
@@ -8578,38 +8543,32 @@ import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { supabase } from "@/lib/supabase";
 
-const lines = [
+type Viewer = {
+  id: string;
+  email: string | null;
+  pointBalance: number;
+} | null;
+
+const panels = [
   {
     title: "DIG",
     href: "/dig",
     image: "/home-dig.jpg",
     guideImage: "/dic설명.jpg",
-    tagline: "Creative direction based image generation",
-    inputs: ["face", "outfit", "direction"],
   },
   {
     title: "REFRUN",
     href: "/refrun",
     image: "/home-refrun.jpg",
     guideImage: "/refrun설명.jpg",
-    tagline: "Reference-led image generation",
-    inputs: ["face", "outfit", "reference photo"],
   },
   {
     title: "FUSION",
     href: "/fusion",
     image: "/home-fusion.jpg",
     guideImage: "/fusion설명.jpg",
-    tagline: "Background and pose driven generation",
-    inputs: ["face", "outfit", "background", "pose"],
   },
 ];
-
-type Viewer = {
-  id: string;
-  email: string | null;
-  pointBalance: number;
-} | null;
 
 export default function HomePage() {
   const router = useRouter();
@@ -8712,155 +8671,81 @@ export default function HomePage() {
   };
 
   return (
-    <main className="min-h-screen bg-[#f7f7f5] text-[#73727c]">
-      <div className="mx-auto max-w-[1440px] px-5 pb-16 pt-6 sm:px-6 lg:px-10">
-        <header className="mb-12 border-b border-[#d9d7d2] pb-6">
-          <div className="flex flex-col gap-6 lg:flex-row lg:items-end lg:justify-between">
-            <div className="max-w-[920px]">
-              <h1 className="text-[34px] font-bold leading-[0.9] tracking-[-0.055em] text-[#6f6d78] sm:text-[52px] lg:text-[68px]">
-                SIGNATURE
-                <br />
-                AI STUDIO
-              </h1>
+    <main className="h-[100svh] overflow-hidden bg-[#f7f7f5] text-[#6f6d78]">
+      <div className="grid h-full grid-rows-[52px_minmax(0,1fr)]">
+        <header className="z-30 border-b border-[rgba(111,109,120,0.14)] bg-[rgba(247,247,245,0.88)] backdrop-blur-md">
+          <div className="flex h-[52px] items-center justify-between px-4 sm:px-6 lg:px-8">
+            <Link
+              href="/"
+              className="text-[14px] font-bold uppercase tracking-[-0.03em] text-[#6f6d78] sm:text-[18px]"
+            >
+              signature ai studio
+            </Link>
 
-              <div className="mt-5 max-w-[980px] space-y-3 text-[13px] leading-[1.7] text-[#7c7a84] sm:mt-6 sm:space-y-4 sm:text-[15px] sm:leading-[1.85] lg:text-[17px]">
-                <p>생성이 아닌, 조립.</p>
+            <div className="flex items-center gap-2 text-[11px] text-[#6f6d78] sm:gap-4 sm:text-[13px]">
+              {loading ? (
+                <div className="text-[#8b8993]">checking...</div>
+              ) : viewer ? (
+                <>
+                  <div className="text-[#6f6d78]">{viewer.pointBalance}P</div>
 
-                <p>
-                  빛, 질감, 공간의 레이어를 쌓아 하나의 씬(Scene)을 구성합니다.
-                </p>
+                  <Link href="/mypage" className="transition hover:opacity-70">
+                    mypage
+                  </Link>
 
-                <p>
-                  설계된 무드 안에서 최적의 컷을 추출하고, 선택된 비주얼은 다음
-                  작업의 기준이 됩니다.
-                </p>
+                  <Link href="/charge" className="transition hover:opacity-70">
+                    charge
+                  </Link>
 
-                <p>통제 가능한 브랜드 아이덴티티.</p>
-              </div>
-            </div>
-
-            <div className="flex flex-col gap-3 sm:min-w-[320px] sm:max-w-[420px]">
-              <div className="flex flex-wrap gap-2">
-                {loading ? (
-                  <div className="rounded-full border border-[#cfcbd2] px-4 py-2 text-[13px]">
-                    checking...
-                  </div>
-                ) : viewer ? (
-                  <>
-                    <div className="rounded-full border border-[#cfcbd2] px-4 py-2 text-[13px]">
-                      {viewer.email}
-                    </div>
-
-                    <div className="rounded-full border border-[#cfcbd2] px-4 py-2 text-[13px]">
-                      {viewer.pointBalance}P
-                    </div>
-
-                    <Link
-                      href="/mypage"
-                      className="rounded-full border border-[#cfcbd2] px-4 py-2 text-[13px] transition hover:bg-[#ece8ee]"
-                    >
-                      my page
-                    </Link>
-
-                    <Link
-                      href="/charge"
-                      className="rounded-full border border-[#cfcbd2] px-4 py-2 text-[13px] transition hover:bg-[#ece8ee]"
-                    >
-                      charge
-                    </Link>
-
-                    <button
-                      type="button"
-                      onClick={handleLogout}
-                      disabled={logoutLoading}
-                      className="rounded-full bg-[#6f6d78] px-4 py-2 text-[13px] text-white transition hover:opacity-90 disabled:opacity-50"
-                    >
-                      {logoutLoading ? "signing out..." : "logout"}
-                    </button>
-                  </>
-                ) : (
-                  <>
-                    <Link
-                      href="/signup"
-                      className="rounded-full border border-[#cfcbd2] px-4 py-2 text-[13px] transition hover:bg-[#ece8ee]"
-                    >
-                      sign up
-                    </Link>
-
-                    <Link
-                      href="/login"
-                      className="rounded-full bg-[#6f6d78] px-4 py-2 text-[13px] text-white transition hover:opacity-90"
-                    >
-                      login
-                    </Link>
-                  </>
-                )}
-              </div>
-
-              <div className="flex flex-wrap gap-4 text-[12px] uppercase tracking-[0.18em] text-[#8b8993]">
-                <a href="#dig" className="hover:text-[#6f6d78]">
-                  DIG
-                </a>
-                <a href="#refrun" className="hover:text-[#6f6d78]">
-                  REFRUN
-                </a>
-                <a href="#fusion" className="hover:text-[#6f6d78]">
-                  FUSION
-                </a>
-              </div>
+                  <button
+                    type="button"
+                    onClick={handleLogout}
+                    disabled={logoutLoading}
+                    className="transition hover:opacity-70 disabled:opacity-50"
+                  >
+                    {logoutLoading ? "signing out..." : "logout"}
+                  </button>
+                </>
+              ) : (
+                <Link href="/login" className="transition hover:opacity-70">
+                  login
+                </Link>
+              )}
             </div>
           </div>
         </header>
 
-        <section className="space-y-14">
-          {lines.map((line) => (
-            <section
-              key={line.title}
-              id={line.title.toLowerCase()}
-              className="grid gap-5 border-t border-[#d9d7d2] pt-6 sm:gap-6 lg:grid-cols-[1.02fr_0.98fr] lg:items-start"
+        <section className="min-h-0 overflow-y-auto snap-y snap-mandatory md:grid md:grid-cols-3 md:overflow-hidden md:snap-none">
+          {panels.map((panel) => (
+            <Link
+              key={panel.title}
+              href={panel.href}
+              className="group relative block h-[calc(100svh-52px)] shrink-0 snap-start overflow-hidden md:h-full md:min-h-0"
             >
-              <div className="order-2 flex flex-col justify-between lg:order-1 lg:min-h-[560px]">
-                <div>
-                  <div className="mb-3 text-[12px] uppercase tracking-[0.2em] text-[#8b8993]">
-                    production line
-                  </div>
+              <Image
+                src={panel.image}
+                alt={panel.title}
+                fill
+                priority
+                className="object-cover transition duration-500 group-hover:scale-[1.015]"
+              />
 
-                  <h2 className="text-[42px] font-bold leading-none tracking-[-0.05em] text-[#6f6d78] sm:text-[60px]">
-                    {line.title}
-                  </h2>
+              <div className="absolute inset-0 bg-black/5 transition duration-300 group-hover:bg-black/10" />
 
-                  <div className="mt-5 max-w-[420px]">
-                    <img
-                      src={line.guideImage}
-                      alt={`${line.title} guide`}
-                      className="w-full rounded-[18px] border border-[#d9d7d2]"
-                    />
-                  </div>
-                </div>
-
-                <div className="mt-8">
-                  <Link
-                    href={line.href}
-                    className="inline-flex rounded-full bg-[#6f6d78] px-5 py-3 text-[13px] uppercase tracking-[0.08em] text-white transition hover:opacity-90"
-                  >
-                    enter {line.title.toLowerCase()}
-                  </Link>
+              <div className="absolute left-4 top-4 z-10 sm:left-6 sm:top-6 lg:left-7 lg:top-7">
+                <div className="text-[16px] font-bold tracking-[0.08em] text-[#f7f7f5] drop-shadow-[0_2px_10px_rgba(0,0,0,0.28)] sm:text-[18px] lg:text-[20px]">
+                  {panel.title}
                 </div>
               </div>
 
-              <div className="order-1 lg:order-2">
-                <div className="relative overflow-hidden rounded-[24px] bg-[#ece8ee]">
-                  <div className="relative aspect-[4/5] w-full">
-                    <Image
-                      src={line.image}
-                      alt={line.title}
-                      fill
-                      className="object-cover"
-                    />
-                  </div>
-                </div>
+              <div className="absolute bottom-4 right-4 z-10 w-[160px] sm:bottom-6 sm:right-6 sm:w-[180px] lg:bottom-7 lg:right-7 lg:w-[200px] xl:w-[220px]">
+                <img
+                  src={panel.guideImage}
+                  alt={`${panel.title} guide`}
+                  className="w-full rounded-[10px] border border-[rgba(111,109,120,0.22)] bg-[rgba(247,247,245,0.88)] shadow-[0_14px_32px_rgba(0,0,0,0.16)]"
+                />
               </div>
-            </section>
+            </Link>
           ))}
         </section>
       </div>

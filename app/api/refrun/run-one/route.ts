@@ -76,6 +76,7 @@ type JsonRefRunBody = {
   facePaths?: string[];
   outfitPaths?: string[];
   referencePath?: string;
+  outputRatio?: "4:5" | "2:3" | "16:9"; // ✅ 추가
 };
 
 async function readJsonBody(req: Request): Promise<JsonRefRunBody | null> {
@@ -105,6 +106,7 @@ export async function POST(req: Request) {
     let faceBase64s: string[] = [];
     let outfitBase64s: string[] = [];
     let referenceBase64 = "";
+    let outputRatio: "4:5" | "2:3" | "16:9" = "4:5"; // ✅ 추가
 
     if (jsonBody) {
       fitSpec = jsonBody.fitSpec || "";
@@ -114,6 +116,8 @@ export async function POST(req: Request) {
       mixCaptions = Array.isArray(jsonBody.mixCaptions)
         ? jsonBody.mixCaptions
         : [];
+
+      outputRatio = jsonBody.outputRatio || "4:5"; // ✅ 추가
 
       const facePaths = Array.isArray(jsonBody.facePaths)
         ? jsonBody.facePaths
@@ -162,6 +166,10 @@ export async function POST(req: Request) {
       customPrompt = (formData.get("customPrompt") as string) || "";
       outfitMode = (formData.get("outfitMode") as string) || "outfit";
       const mixCaptionsRaw = (formData.get("mixCaptions") as string) || "[]";
+      const outputRatioRaw =
+        (formData.get("outputRatio") as string) || "4:5"; // ✅ 추가
+
+      outputRatio = outputRatioRaw as "4:5" | "2:3" | "16:9"; // ✅ 추가
 
       const faceFiles = formData.getAll("faces") as File[];
       const outfitFiles = formData.getAll("outfits") as File[];
@@ -213,6 +221,7 @@ export async function POST(req: Request) {
       customPrompt: shootingMode === "custom" ? customPrompt : undefined,
       isMixMode: outfitMode === "mix",
       mixCaptions,
+      outputRatio, // ✅ 핵심 추가
     });
 
     return NextResponse.json({

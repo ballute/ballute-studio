@@ -41,6 +41,8 @@ export type LockedVibe = {
   color_grading_and_texture?: string;
 };
 
+export type OutputRatio = "4:5" | "2:3" | "16:9";
+
 const buildFitPromptContext = (
   bodySpecs?: string
 ): { fitPromptContext: string; fitSummarySuffix: string } => {
@@ -180,6 +182,7 @@ export async function generateDigImageWeb(args: {
   lockedVibe?: LockedVibe | null;
   isMixMode?: boolean;
   mixCaptions?: string[];
+  outputRatio?: OutputRatio;
 }): Promise<{ base64: string; summary: string }> {
   const {
     faceBase64s,
@@ -191,6 +194,7 @@ export async function generateDigImageWeb(args: {
     lockedVibe,
     isMixMode = false,
     mixCaptions = [],
+    outputRatio = "4:5",
   } = args;
 
   if (!faceBase64s.length) {
@@ -221,7 +225,8 @@ export async function generateDigImageWeb(args: {
     });
 
     if (isMixMode) {
-      const caption = mixCaptions[index] || "No specific styling instruction provided.";
+      const caption =
+        mixCaptions[index] || "No specific styling instruction provided.";
       parts.push({
         text: `[Mix Item ${index + 1} Instruction: ${caption}]`,
       });
@@ -306,7 +311,7 @@ ${outfitInstruction}
 - LIGHTING: ${lightingText}
 - Render as a real premium fashion photograph.
 - Avoid generic AI 3D / plastic skin look.
-- 3:4 vertical composition.
+- ${outputRatio} composition.
 - Output should feel like a luxury editorial lookbook image.
 `;
 
@@ -317,7 +322,7 @@ ${outfitInstruction}
     },
     config: {
       imageConfig: {
-        aspectRatio: "3:4",
+        aspectRatio: outputRatio,
         imageSize: "2K",
       },
       safetySettings,

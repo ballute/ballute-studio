@@ -78,6 +78,7 @@ type JsonGenerateBody = {
   mixCaptions?: string[];
   facePaths?: string[];
   outfitPaths?: string[];
+  outputRatio?: "4:5" | "2:3" | "16:9"; // ✅ 추가
 };
 
 async function readJsonBody(req: Request): Promise<JsonGenerateBody | null> {
@@ -107,6 +108,7 @@ export async function POST(req: Request) {
     let mixCaptions: string[] = [];
     let faceBase64s: string[] = [];
     let outfitBase64s: string[] = [];
+    let outputRatio: "4:5" | "2:3" | "16:9" = "4:5"; // ✅ 추가
 
     if (jsonBody) {
       fitSpec = jsonBody.fitSpec || "";
@@ -118,6 +120,8 @@ export async function POST(req: Request) {
       mixCaptions = Array.isArray(jsonBody.mixCaptions)
         ? jsonBody.mixCaptions
         : [];
+
+      outputRatio = jsonBody.outputRatio || "4:5"; // ✅ 추가
 
       const facePaths = Array.isArray(jsonBody.facePaths)
         ? jsonBody.facePaths
@@ -166,6 +170,10 @@ export async function POST(req: Request) {
       const lockedVibeRaw = (formData.get("lockedVibe") as string) || "";
       const directionRaw = (formData.get("direction") as string) || "";
       const mixCaptionsRaw = (formData.get("mixCaptions") as string) || "[]";
+      const outputRatioRaw =
+        (formData.get("outputRatio") as string) || "4:5"; // ✅ 추가
+
+      outputRatio = outputRatioRaw as "4:5" | "2:3" | "16:9"; // ✅ 추가
 
       const faceFiles = formData.getAll("faces") as File[];
       const outfitFiles = formData.getAll("outfits") as File[];
@@ -218,6 +226,7 @@ export async function POST(req: Request) {
       lockedVibe,
       isMixMode: outfitMode === "mix",
       mixCaptions,
+      outputRatio, // ✅ 핵심 추가
     });
 
     return NextResponse.json({

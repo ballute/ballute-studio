@@ -37,6 +37,8 @@ export type RefRunDirection = {
   overall_mood: string;
 };
 
+export type OutputRatio = "4:5" | "2:3" | "16:9";
+
 const buildFitPromptContext = (
   bodySpecs?: string
 ): { fitPromptContext: string; fitSummarySuffix: string } => {
@@ -168,6 +170,7 @@ export async function generateRefRunImageWeb(args: {
   customPrompt?: string;
   isMixMode?: boolean;
   mixCaptions?: string[];
+  outputRatio?: OutputRatio;
 }): Promise<{ base64: string; summary: string }> {
   const {
     faceBase64s,
@@ -178,6 +181,7 @@ export async function generateRefRunImageWeb(args: {
     customPrompt,
     isMixMode = false,
     mixCaptions = [],
+    outputRatio = "4:5",
   } = args;
 
   if (!faceBase64s.length) {
@@ -279,11 +283,11 @@ ${outfitInstruction}
 
 [TECHNICAL EXECUTION]
 - ${textureAndColor}
-- Respect the reference image's visual grammar exactly.
-- Render as a real premium fashion photograph.
-- Avoid generic AI 3D / plastic skin look.
-- 3:4 vertical composition.
-- 2K quality.
+- Replicate the photographic language of the reference.
+- Ignore the original reference clothing and accessories.
+- Prioritize atmospheric realism over digital sharpness.
+- ${outputRatio} composition.
+- Output 2K museum quality.
 `;
 
   const response = await ai.models.generateContent({
@@ -293,7 +297,7 @@ ${outfitInstruction}
     },
     config: {
       imageConfig: {
-        aspectRatio: "3:4",
+        aspectRatio: outputRatio,
         imageSize: "2K",
       },
       safetySettings,
@@ -311,6 +315,6 @@ ${outfitInstruction}
 
   return {
     base64: imageBase64,
-    summary: `${fitSummary} + REFRUN`,
+    summary: fitSummary,
   };
 }

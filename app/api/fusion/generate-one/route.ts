@@ -81,6 +81,7 @@ type JsonGenerateBody = {
   lockedVibe?: LockedVibe | null;
   facePaths?: string[];
   outfitPaths?: string[];
+  outputRatio?: "4:5" | "2:3" | "16:9"; // ✅ 추가
 };
 
 async function readJsonBody(req: Request): Promise<JsonGenerateBody | null> {
@@ -112,6 +113,7 @@ export async function POST(req: Request) {
     let lockedVibe: LockedVibe | null = null;
     let faceBase64s: string[] = [];
     let outfitBase64s: string[] = [];
+    let outputRatio: "4:5" | "2:3" | "16:9" = "4:5"; // ✅ 추가
 
     if (jsonBody) {
       fitSpec = jsonBody.fitSpec || "";
@@ -125,6 +127,8 @@ export async function POST(req: Request) {
       poseBlueprint = (jsonBody.poseBlueprint || {}) as PoseBlueprint;
       locationPrompt = (jsonBody.locationPrompt || "").trim();
       lockedVibe = (jsonBody.lockedVibe || null) as LockedVibe | null;
+
+      outputRatio = jsonBody.outputRatio || "4:5"; // ✅ 추가
 
       const facePaths = Array.isArray(jsonBody.facePaths)
         ? jsonBody.facePaths
@@ -168,6 +172,10 @@ export async function POST(req: Request) {
       const poseBlueprintRaw = (formData.get("poseBlueprint") as string) || "{}";
       locationPrompt = ((formData.get("locationPrompt") as string) || "").trim();
       const lockedVibeRaw = (formData.get("lockedVibe") as string) || "";
+      const outputRatioRaw =
+        (formData.get("outputRatio") as string) || "4:5"; // ✅ 추가
+
+      outputRatio = outputRatioRaw as "4:5" | "2:3" | "16:9"; // ✅ 추가
 
       const faceFiles = formData.getAll("faces") as File[];
       const outfitFiles = formData.getAll("outfits") as File[];
@@ -219,6 +227,7 @@ export async function POST(req: Request) {
       lockedVibe,
       shootingMode,
       customPrompt: shootingMode === "custom" ? customPrompt : undefined,
+      outputRatio, // ✅ 핵심 추가
     });
 
     return NextResponse.json({
