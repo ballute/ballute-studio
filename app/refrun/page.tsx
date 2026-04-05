@@ -9,8 +9,6 @@ import FaceInputSection, {
   ModelGenerateOptions,
 } from "@/components/face-input-section";
 
-type OutputRatio = "4:5" | "2:3" | "16:9";
-
 type UploadItem = {
   file: File;
   preview: string;
@@ -200,7 +198,6 @@ export default function RefRunPage() {
   const [fitSpec, setFitSpec] = useState("");
   const [shootingMode, setShootingMode] = useState("default");
   const [customPrompt, setCustomPrompt] = useState("");
-  const [outputRatio, setOutputRatio] = useState<OutputRatio>("4:5");
   const [perReferenceCount, setPerReferenceCount] = useState(2);
 
   const [loading, setLoading] = useState(false);
@@ -380,6 +377,37 @@ export default function RefRunPage() {
     }
   };
 
+
+
+  const resetUploadedStorageState = () => {
+    setFaces((prev) =>
+      prev.map((item) => ({
+        ...item,
+        storagePath: undefined,
+        uploaded: false,
+        expiresAt: undefined,
+      }))
+    );
+
+    setOutfits((prev) =>
+      prev.map((item) => ({
+        ...item,
+        storagePath: undefined,
+        uploaded: false,
+        expiresAt: undefined,
+      }))
+    );
+
+    setReferences((prev) =>
+      prev.map((item) => ({
+        ...item,
+        storagePath: undefined,
+        uploaded: false,
+        expiresAt: undefined,
+      }))
+    );
+  };
+
   const handleGenerateModel = async (options: ModelGenerateOptions) => {
     try {
       setModelGenerating(true);
@@ -516,7 +544,6 @@ export default function RefRunPage() {
                 facePaths,
                 outfitPaths,
                 referencePath,
-                outputRatio,
               }),
             });
 
@@ -553,6 +580,7 @@ export default function RefRunPage() {
 
       setStatusMessage("임시 파일 정리중...");
       await cleanupRefRunSession();
+      resetUploadedStorageState();
       setStatusMessage("REFRUN 완료");
     } catch (error) {
       const message =
@@ -650,7 +678,7 @@ export default function RefRunPage() {
         </div>
 
         <div className="border rounded-2xl p-6 bg-white space-y-5">
-          <div className="grid grid-cols-1 md:grid-cols-5 gap-4">
+          <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
             <div>
               <label className="block text-sm font-semibold mb-2">
                 Reference당 생성 수
@@ -701,21 +729,6 @@ export default function RefRunPage() {
 
             <div>
               <label className="block text-sm font-semibold mb-2">
-                Output Ratio
-              </label>
-              <select
-                value={outputRatio}
-                onChange={(e) => setOutputRatio(e.target.value as OutputRatio)}
-                className="w-full border rounded-xl px-4 py-3"
-              >
-                <option value="4:5">4:5</option>
-                <option value="2:3">2:3</option>
-                <option value="16:9">16:9</option>
-              </select>
-            </div>
-
-            <div>
-              <label className="block text-sm font-semibold mb-2">
                 Custom Prompt
               </label>
               <input
@@ -739,7 +752,6 @@ export default function RefRunPage() {
               <div>총 예상 결과 수: {totalResults}장</div>
               <div>핏 보정: {fitSpec || "없음"}</div>
               <div>Shooting Mode: {shootingMode}</div>
-              <div>Output Ratio: {outputRatio}</div>
               <div>실행 비용: {totalCost}P</div>
             </div>
           </div>
