@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { AnimatePresence, motion } from "framer-motion";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 
 type MaterialAsset = {
   src: string;
@@ -229,16 +229,28 @@ function FinalCard({
 function Panel({
   panel,
   loopCount,
+  isMobile,
+  isActive,
 }: {
   panel: PanelItem;
   loopCount: number;
+  isMobile: boolean;
+  isActive: boolean;
 }) {
   const [phase, setPhase] = useState(0);
   const [finished, setFinished] = useState(false);
+  const hasStartedRef = useRef(false);
   const lastMaterialPhase = 3;
   const finalPhase = lastMaterialPhase + 1;
 
   useEffect(() => {
+    const shouldStart = !isMobile || isActive;
+    if (!shouldStart || hasStartedRef.current) {
+      return;
+    }
+
+    hasStartedRef.current = true;
+
     let cancelled = false;
     const timers: number[] = [];
 
@@ -274,7 +286,7 @@ function Panel({
       cancelled = true;
       timers.forEach((timer) => window.clearTimeout(timer));
     };
-  }, [finalPhase, loopCount]);
+  }, [finalPhase, isActive, isMobile, loopCount]);
 
   const clarity = finished ? 1 : Math.min(phase / finalPhase, 1);
   const sharpOpacity = 0.08 + clarity * 0.92;
@@ -389,6 +401,8 @@ export default function HomeHeroAnimation() {
   const [isMobile, setIsMobile] = useState(() =>
     typeof window !== "undefined" ? window.matchMedia("(max-width: 767px)").matches : false,
   );
+  const [activeIndex, setActiveIndex] = useState(0);
+  const containerRef = useRef<HTMLElement | null>(null);
 
   useEffect(() => {
     if (typeof window === "undefined") return;
@@ -404,12 +418,44 @@ export default function HomeHeroAnimation() {
     return () => mediaQuery.removeEventListener("change", update);
   }, []);
 
+  useEffect(() => {
+    if (!isMobile) {
+      return;
+    }
+
+    const element = containerRef.current;
+    if (!element) return;
+
+    const updateActiveIndex = () => {
+      const nextIndex = Math.round(element.scrollLeft / Math.max(element.clientWidth, 1));
+      setActiveIndex(Math.max(0, Math.min(panels.length - 1, nextIndex)));
+    };
+
+    updateActiveIndex();
+    element.addEventListener("scroll", updateActiveIndex, { passive: true });
+    window.addEventListener("resize", updateActiveIndex);
+
+    return () => {
+      element.removeEventListener("scroll", updateActiveIndex);
+      window.removeEventListener("resize", updateActiveIndex);
+    };
+  }, [isMobile]);
+
   const loopCount = isMobile ? MOBILE_LOOPS : DESKTOP_LOOPS;
 
   return (
-    <section className="flex h-full min-h-0 snap-x snap-mandatory overflow-x-auto overflow-y-hidden scroll-smooth touch-pan-x md:grid md:grid-cols-3 md:overflow-hidden md:snap-none">
-      {panels.map((panel) => (
-        <Panel key={panel.title} panel={panel} loopCount={loopCount} />
+    <section
+      ref={containerRef}
+      className="flex h-full min-h-0 snap-x snap-mandatory overflow-x-auto overflow-y-hidden scroll-smooth touch-pan-x md:grid md:grid-cols-3 md:overflow-hidden md:snap-none"
+    >
+      {panels.map((panel, index) => (
+        <Panel
+          key={panel.title}
+          panel={panel}
+          loopCount={loopCount}
+          isMobile={isMobile}
+          isActive={!isMobile || activeIndex === index}
+        />
       ))}
     </section>
   );
