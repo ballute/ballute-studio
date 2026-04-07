@@ -1,37 +1,16 @@
 "use client";
 
-import Image from "next/image";
 import Link from "next/link";
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { supabase } from "@/lib/supabase";
+import HomeHeroAnimation from "@/components/home-hero-animation";
 
 type Viewer = {
   id: string;
   email: string | null;
   pointBalance: number;
 } | null;
-
-const panels = [
-  {
-    title: "DIG",
-    href: "/dig",
-    image: "/home-dig.jpg",
-    guideImage: "/dic설명.jpg",
-  },
-  {
-    title: "REFRUN",
-    href: "/refrun",
-    image: "/home-refrun.jpg",
-    guideImage: "/refrun설명.jpg",
-  },
-  {
-    title: "FUSION",
-    href: "/fusion",
-    image: "/home-fusion.jpg",
-    guideImage: "/fusion설명.jpg",
-  },
-];
 
 export default function HomePage() {
   const router = useRouter();
@@ -178,39 +157,7 @@ export default function HomePage() {
           </div>
         </header>
 
-        <section className="min-h-0 overflow-y-auto snap-y snap-mandatory md:grid md:grid-cols-3 md:overflow-hidden md:snap-none">
-          {panels.map((panel) => (
-            <Link
-              key={panel.title}
-              href={panel.href}
-              className="group relative block h-[calc(100svh-52px)] shrink-0 snap-start overflow-hidden md:h-full md:min-h-0"
-            >
-              <Image
-                src={panel.image}
-                alt={panel.title}
-                fill
-                priority
-                className="object-cover transition duration-500 group-hover:scale-[1.015]"
-              />
-
-              <div className="absolute inset-0 bg-black/5 transition duration-300 group-hover:bg-black/10" />
-
-              <div className="absolute left-4 top-4 z-10 sm:left-6 sm:top-6 lg:left-7 lg:top-7">
-                <div className="text-[16px] font-bold tracking-[0.08em] text-[#f7f7f5] drop-shadow-[0_2px_10px_rgba(0,0,0,0.28)] sm:text-[18px] lg:text-[20px]">
-                  {panel.title}
-                </div>
-              </div>
-
-              <div className="absolute bottom-4 right-4 z-10 w-[160px] sm:bottom-6 sm:right-6 sm:w-[180px] lg:bottom-7 lg:right-7 lg:w-[200px] xl:w-[220px]">
-                <img
-                  src={panel.guideImage}
-                  alt={`${panel.title} guide`}
-                  className="w-full rounded-[10px] border border-[rgba(111,109,120,0.22)] bg-[rgba(247,247,245,0.88)] shadow-[0_14px_32px_rgba(0,0,0,0.16)]"
-                />
-              </div>
-            </Link>
-          ))}
-        </section>
+        <HomeHeroAnimation />
       </div>
     </main>
   );
