@@ -10,6 +10,7 @@ import {
   ApiError,
   assertTempAssetOwnership,
   authenticateApiRequest,
+  ensureGenerationSlotActive,
   ensureUserHasPoints,
 } from "@/lib/server-api";
 
@@ -73,6 +74,7 @@ async function storagePathToBase64(path: string) {
 }
 
 type JsonPrepareBody = {
+  batchId?: string;
   count?: number | string;
   bgPaths?: string[];
   posePaths?: string[];
@@ -100,10 +102,12 @@ export async function POST(req: Request) {
     const jsonBody = await readJsonBody(req);
 
     let count = 4;
+    let batchId = "";
     let bgBase64s: string[] = [];
     let poseBase64s: string[] = [];
 
     if (jsonBody) {
+      batchId = (jsonBody.batchId || "").trim();
       count = clampCount(jsonBody.count, 4);
 
       const bgPaths = Array.isArray(jsonBody.bgPaths) ? jsonBody.bgPaths : [];
@@ -125,6 +129,7 @@ export async function POST(req: Request) {
     } else {
       const formData = await req.formData();
 
+      batchId = ((formData.get("batchId") as string) || "").trim();
       count = clampCount(formData.get("count"), 4);
 
       const bgFiles = formData.getAll("bgs") as File[];
@@ -140,6 +145,8 @@ export async function POST(req: Request) {
       bgBase64s = await Promise.all(bgFiles.map(fileToBase64));
       poseBase64s = await Promise.all(poseFiles.map(fileToBase64));
     }
+
+    await ensureGenerationSlotActive(user.id, batchId, "fusion");
 
     const bgDNA = await analyzeBackgroundDNAFromBase64s(bgBase64s);
     const locationPrompts = await searchLocationPrompts(bgDNA, count);

@@ -3,6 +3,7 @@ import { generateCreativeDirectionsWeb } from "@/lib/gemini-dig";
 import {
   ApiError,
   authenticateApiRequest,
+  ensureGenerationSlotActive,
   ensureUserHasPoints,
 } from "@/lib/server-api";
 
@@ -17,6 +18,7 @@ export async function POST(req: Request) {
 
     const moodQuery = (formData.get("moodQuery") as string) || "";
     const countRaw = (formData.get("count") as string) || "4";
+    const batchId = ((formData.get("batchId") as string) || "").trim();
     const count = Math.max(1, Math.min(8, Number(countRaw) || 4));
 
     if (!moodQuery.trim()) {
@@ -25,6 +27,8 @@ export async function POST(req: Request) {
         { status: 400 }
       );
     }
+
+    await ensureGenerationSlotActive(user.id, batchId, "dig");
 
     const directions = await generateCreativeDirectionsWeb(moodQuery, count);
 

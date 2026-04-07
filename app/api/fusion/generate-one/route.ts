@@ -11,6 +11,7 @@ import {
   ApiError,
   assertTempAssetOwnership,
   authenticateApiRequest,
+  ensureGenerationSlotActive,
   ensureUserHasPoints,
   spendUserPoints,
 } from "@/lib/server-api";
@@ -78,6 +79,7 @@ function safeJsonParse<T>(raw: string, fallback: T): T {
 }
 
 type JsonGenerateBody = {
+  batchId?: string;
   fitSpec?: string;
   shootingMode?: string;
   customPrompt?: string;
@@ -117,6 +119,7 @@ export async function POST(req: Request) {
     let shootingMode = "default";
     let customPrompt = "";
     let outfitMode = "outfit";
+    let batchId = "";
     let mixCaptions: string[] = [];
     let bgDNA = {} as BackgroundDNA;
     let poseBlueprint = {} as PoseBlueprint;
@@ -127,6 +130,7 @@ export async function POST(req: Request) {
     let outputRatio: "4:5" | "2:3" | "16:9" = "4:5"; // ✅ 추가
 
     if (jsonBody) {
+      batchId = (jsonBody.batchId || "").trim();
       fitSpec = jsonBody.fitSpec || "";
       shootingMode = jsonBody.shootingMode || "default";
       customPrompt = jsonBody.customPrompt || "";
@@ -176,6 +180,7 @@ export async function POST(req: Request) {
     } else {
       const formData = await req.formData();
 
+      batchId = ((formData.get("batchId") as string) || "").trim();
       fitSpec = (formData.get("fitSpec") as string) || "";
       shootingMode = (formData.get("shootingMode") as string) || "default";
       customPrompt = (formData.get("customPrompt") as string) || "";
@@ -227,6 +232,8 @@ export async function POST(req: Request) {
         ? safeJsonParse<LockedVibe | null>(lockedVibeRaw, null)
         : null;
     }
+
+    await ensureGenerationSlotActive(user.id, batchId, "fusion");
 
     const generated = await generateFusionImageWeb({
       faceBase64s,

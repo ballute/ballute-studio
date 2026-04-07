@@ -4,6 +4,10 @@ import { useEffect, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { makeSessionId, uploadTempAssets } from "@/lib/storage";
+import {
+  releaseGenerationBatch,
+  waitForGenerationBatch,
+} from "@/lib/generation-batch";
 import { getAccessToken } from "@/lib/supabase";
 import FaceInputSection, {
   ModelGenerateOptions,
@@ -488,6 +492,8 @@ export default function RefRunPage() {
       return;
     }
 
+    const batchId = refRunSessionId;
+
     if (faces.length === 0 || outfits.length === 0 || references.length === 0) {
       alert("얼굴 / 의상 / 레퍼런스는 최소 1장씩 필요하다.");
       return;
@@ -505,7 +511,19 @@ export default function RefRunPage() {
 
     try {
       setLoading(true);
-      setStatusMessage("서버 요청 준비중...");
+
+      await waitForGenerationBatch({
+        batchId,
+        mode: "refrun",
+        onQueued: (position) => {
+          setStatusMessage(
+            `현재 작업량이 많아 대기 중입니다. 대기 순번 ${position}번. 이 탭을 닫거나 다른 페이지로 이동하지 말아 주세요.`
+          );
+        },
+        onActive: () => {
+          setStatusMessage("대기가 끝나 작업을 시작합니다.");
+        },
+      });
 
       const accessToken = await getAccessToken();
 
@@ -567,6 +585,7 @@ export default function RefRunPage() {
                 Authorization: `Bearer ${accessToken}`,
               },
               body: JSON.stringify({
+                batchId,
                 fitSpec,
                 shootingMode,
                 customPrompt,
@@ -657,6 +676,7 @@ export default function RefRunPage() {
         error instanceof Error ? error.message : "알 수 없는 REFRUN 오류";
       handlePointFailure(message);
     } finally {
+      await releaseGenerationBatch(batchId);
       setLoading(false);
     }
   };

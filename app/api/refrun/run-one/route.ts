@@ -9,6 +9,7 @@ import {
   ApiError,
   assertTempAssetOwnership,
   authenticateApiRequest,
+  ensureGenerationSlotActive,
   ensureUserHasPoints,
   spendUserPoints,
 } from "@/lib/server-api";
@@ -76,6 +77,7 @@ function safeJsonParse<T>(raw: string, fallback: T): T {
 }
 
 type JsonRefRunBody = {
+  batchId?: string;
   fitSpec?: string;
   shootingMode?: string;
   customPrompt?: string;
@@ -112,6 +114,7 @@ export async function POST(req: Request) {
     let shootingMode = "default";
     let customPrompt = "";
     let outfitMode = "outfit";
+    let batchId = "";
     let mixCaptions: string[] = [];
 
     let faceBase64s: string[] = [];
@@ -120,6 +123,7 @@ export async function POST(req: Request) {
     let outputRatio: "4:5" | "2:3" | "16:9" = "4:5"; // ✅ 추가
 
     if (jsonBody) {
+      batchId = (jsonBody.batchId || "").trim();
       fitSpec = jsonBody.fitSpec || "";
       shootingMode = jsonBody.shootingMode || "default";
       customPrompt = jsonBody.customPrompt || "";
@@ -178,6 +182,7 @@ export async function POST(req: Request) {
     } else {
       const formData = await req.formData();
 
+      batchId = ((formData.get("batchId") as string) || "").trim();
       fitSpec = (formData.get("fitSpec") as string) || "";
       shootingMode = (formData.get("shootingMode") as string) || "default";
       customPrompt = (formData.get("customPrompt") as string) || "";
@@ -226,6 +231,8 @@ export async function POST(req: Request) {
       outfitBase64s = await Promise.all(outfitFiles.map(fileToBase64));
       referenceBase64 = await fileToBase64(referenceFile);
     }
+
+    await ensureGenerationSlotActive(user.id, batchId, "refrun");
 
     const analyzed = await analyzeReferenceWeb(referenceBase64);
 

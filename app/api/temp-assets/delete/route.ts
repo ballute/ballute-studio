@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
+import { releaseGenerationSlot } from "@/lib/server-api";
 
 const TEMP_INPUT_BUCKET = "temp-inputs";
 
@@ -152,6 +153,8 @@ export async function POST(req: NextRequest) {
     );
 
     if (allPaths.length === 0) {
+      await releaseGenerationSlot(user.id, sessionId);
+
       return NextResponse.json({
         success: true,
         removed: 0,
@@ -173,6 +176,8 @@ export async function POST(req: NextRequest) {
 
       removedPaths.push(...paths);
     }
+
+    await releaseGenerationSlot(user.id, sessionId);
 
     return NextResponse.json({
       success: true,
