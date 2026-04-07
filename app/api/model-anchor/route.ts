@@ -1,9 +1,16 @@
 import { NextRequest, NextResponse } from "next/server";
 import { GoogleGenAI } from "@google/genai";
+import {
+  ApiError,
+  authenticateApiRequest,
+  ensureUserHasPoints,
+  spendUserPoints,
+} from "@/lib/server-api";
 
 const ai = new GoogleGenAI({
   apiKey: process.env.GEMINI_API_KEY!,
 });
+const MODEL_GENERATE_COST = 30;
 
 function detectMimeType(base64?: string) {
   if (!base64) return "image/jpeg";
@@ -14,6 +21,9 @@ function detectMimeType(base64?: string) {
 
 export async function POST(req: NextRequest) {
   try {
+    const user = await authenticateApiRequest(req);
+    await ensureUserHasPoints(user.id, MODEL_GENERATE_COST);
+
     const body = await req.json();
 
     const ethnicity = body.ethnicity || "East Asian";
@@ -89,9 +99,12 @@ OUTPUT RULE:
         const mimeType =
           part.inlineData.mimeType || detectMimeType(imageBase64);
 
+        await spendUserPoints(user.id, MODEL_GENERATE_COST, "MODEL GENERATE");
+
         return NextResponse.json({
           imageBase64,
           mimeType,
+          chargedPoints: MODEL_GENERATE_COST,
         });
       }
     }
@@ -99,6 +112,11 @@ OUTPUT RULE:
     throw new Error("No image was generated.");
   } catch (error) {
     console.error("model-anchor route error:", error);
+
+    if (error instanceof ApiError) {
+      return NextResponse.json({ error: error.message }, { status: error.status });
+    }
+
     return NextResponse.json({ error: "모델 생성 실패" }, { status: 500 });
   }
 }

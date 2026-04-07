@@ -1,8 +1,18 @@
 import { NextResponse } from "next/server";
 import { generateCreativeDirectionsWeb } from "@/lib/gemini-dig";
+import {
+  ApiError,
+  authenticateApiRequest,
+  ensureUserHasPoints,
+} from "@/lib/server-api";
+
+const DIG_COST_PER_IMAGE = 50;
 
 export async function POST(req: Request) {
   try {
+    const user = await authenticateApiRequest(req);
+    await ensureUserHasPoints(user.id, DIG_COST_PER_IMAGE);
+
     const formData = await req.formData();
 
     const moodQuery = (formData.get("moodQuery") as string) || "";
@@ -24,6 +34,10 @@ export async function POST(req: Request) {
     });
   } catch (error) {
     console.error("DIG_DIRECTIONS_ERROR:", error);
+
+    if (error instanceof ApiError) {
+      return NextResponse.json({ error: error.message }, { status: error.status });
+    }
 
     const message =
       error instanceof Error ? error.message : "알 수 없는 directions 오류";

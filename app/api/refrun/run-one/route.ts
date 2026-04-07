@@ -5,8 +5,16 @@ import {
   analyzeReferenceWeb,
   generateRefRunImageWeb,
 } from "@/lib/gemini-refrun";
+import {
+  ApiError,
+  assertTempAssetOwnership,
+  authenticateApiRequest,
+  ensureUserHasPoints,
+  spendUserPoints,
+} from "@/lib/server-api";
 
 const TEMP_INPUT_BUCKET = "temp-inputs";
+const REFRUN_COST_PER_IMAGE = 50;
 
 function stripBucketPrefix(path: string) {
   if (!path) return path;
@@ -95,6 +103,9 @@ async function readJsonBody(req: Request): Promise<JsonRefRunBody | null> {
 
 export async function POST(req: Request) {
   try {
+    const user = await authenticateApiRequest(req);
+    await ensureUserHasPoints(user.id, REFRUN_COST_PER_IMAGE);
+
     const jsonBody = await readJsonBody(req);
 
     let fitSpec = "";
@@ -154,6 +165,12 @@ export async function POST(req: Request) {
           { status: 400 }
         );
       }
+
+      assertTempAssetOwnership(user.id, [
+        ...facePaths,
+        ...outfitPaths,
+        referencePath,
+      ]);
 
       faceBase64s = await Promise.all(facePaths.map(storagePathToBase64));
       outfitBase64s = await Promise.all(outfitPaths.map(storagePathToBase64));
@@ -224,8 +241,11 @@ export async function POST(req: Request) {
       outputRatio, // ✅ 핵심 추가
     });
 
+    await spendUserPoints(user.id, REFRUN_COST_PER_IMAGE, "REFRUN GENERATE");
+
     return NextResponse.json({
       success: true,
+      chargedPoints: REFRUN_COST_PER_IMAGE,
       result: {
         image: generated.base64,
         summary: generated.summary,
@@ -234,6 +254,10 @@ export async function POST(req: Request) {
     });
   } catch (error) {
     console.error("REFRUN_RUN_ONE_ERROR:", error);
+
+    if (error instanceof ApiError) {
+      return NextResponse.json({ error: error.message }, { status: error.status });
+    }
 
     const message =
       error instanceof Error ? error.message : "알 수 없는 REFRUN 오류";

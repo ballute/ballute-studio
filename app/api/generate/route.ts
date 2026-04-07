@@ -1,9 +1,20 @@
 import { NextResponse } from "next/server";
 import { fileToBase64 } from "@/lib/utils";
 import { generateLookbookWeb } from "@/lib/gemini-web";
+import {
+  ApiError,
+  authenticateApiRequest,
+  ensureUserHasPoints,
+  spendUserPoints,
+} from "@/lib/server-api";
+
+const LOOKBOOK_GENERATE_COST = 50;
 
 export async function POST(req: Request) {
   try {
+    const user = await authenticateApiRequest(req);
+    await ensureUserHasPoints(user.id, LOOKBOOK_GENERATE_COST);
+
     const formData = await req.formData();
 
     const projectName = formData.get("projectName") as string;
@@ -57,12 +68,19 @@ Type: ${projectType}
       poseBase64,
     });
 
+    await spendUserPoints(user.id, LOOKBOOK_GENERATE_COST, "LOOKBOOK GENERATE");
+
     return NextResponse.json({
       success: true,
+      chargedPoints: LOOKBOOK_GENERATE_COST,
       image: imageBase64,
     });
   } catch (error) {
     console.error(error);
+
+    if (error instanceof ApiError) {
+      return NextResponse.json({ error: error.message }, { status: error.status });
+    }
 
     return NextResponse.json(
       { error: "이미지 생성 실패" },

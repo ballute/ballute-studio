@@ -1119,349 +1119,6 @@ export default function TermsPage() {
 }
 </file>
 
-<file path="lib/gemini-dig.ts">
-import { GoogleGenAI, HarmCategory, HarmBlockThreshold } from "@google/genai";
-
-const ai = new GoogleGenAI({
-  apiKey: process.env.GEMINI_API_KEY!,
-});
-
-const safetySettings = [
-  {
-    category: HarmCategory.HARM_CATEGORY_HARASSMENT,
-    threshold: HarmBlockThreshold.BLOCK_ONLY_HIGH,
-  },
-  {
-    category: HarmCategory.HARM_CATEGORY_HATE_SPEECH,
-    threshold: HarmBlockThreshold.BLOCK_ONLY_HIGH,
-  },
-  {
-    category: HarmCategory.HARM_CATEGORY_SEXUALLY_EXPLICIT,
-    threshold: HarmBlockThreshold.BLOCK_ONLY_HIGH,
-  },
-  {
-    category: HarmCategory.HARM_CATEGORY_DANGEROUS_CONTENT,
-    threshold: HarmBlockThreshold.BLOCK_ONLY_HIGH,
-  },
-];
-
-export type DigDirection = {
-  background: string;
-  pose: string;
-  expression: string;
-  mood: string;
-  photography_technique: string;
-};
-
-export type LockedVibe = {
-  background?: string;
-  pose?: string;
-  expression?: string;
-  overall_mood?: string;
-  camera_angle_and_crop?: string;
-  lighting_and_exposure?: string;
-  color_grading_and_texture?: string;
-};
-
-const buildFitPromptContext = (
-  bodySpecs?: string
-): { fitPromptContext: string; fitSummarySuffix: string } => {
-  if (!bodySpecs) {
-    return {
-      fitPromptContext:
-        "- AUTO-FIT MODE: Replicate the garment's silhouette, fit, length, and drape exactly.",
-      fitSummarySuffix: "",
-    };
-  }
-
-  const specMatch = bodySpecs.match(/(\d+)\/(\d+)\s+(\d+)\/(\d+)/);
-  if (!specMatch) {
-    return {
-      fitPromptContext:
-        "- AUTO-FIT MODE: Replicate the garment's silhouette, fit, length, and drape exactly.",
-      fitSummarySuffix: "",
-    };
-  }
-
-  const h1 = parseInt(specMatch[1], 10);
-  const w1 = parseInt(specMatch[2], 10);
-  const h2 = parseInt(specMatch[3], 10);
-  const w2 = parseInt(specMatch[4], 10);
-
-  const hDiff = h2 - h1;
-  const wDiff = w2 - w1;
-
-  let hDesc = "";
-  let wDesc = "";
-  let lengthEffect = "";
-  let widthEffect = "";
-
-  if (hDiff >= 4) {
-    hDesc = "taller";
-    lengthEffect =
-      "Because the body is taller, sleeves expose more wrist and the garment sits naturally higher.";
-  } else if (hDiff <= -4) {
-    hDesc = "shorter";
-    lengthEffect =
-      "Because the body is shorter, sleeves cover more of the hands and the garment falls lower.";
-  }
-
-  if (wDiff >= 4) {
-    wDesc = "broader/heavier";
-    widthEffect =
-      "Because the body is thicker, the fixed garment fits tighter and drapes less.";
-  } else if (wDiff <= -4) {
-    wDesc = "slimmer/lighter";
-    widthEffect =
-      "Because the body is thinner, the fixed garment fits looser and drapes more.";
-  }
-
-  let bodyChange = [hDesc, wDesc].filter(Boolean).join(" and ");
-  if (!bodyChange) {
-    bodyChange = "similar proportions";
-    lengthEffect = "Maintain the original vertical fit.";
-    widthEffect = "Maintain the original width and drape.";
-  }
-
-  return {
-    fitPromptContext: `
-- FIT CALIBRATION (FIXED GARMENT PARADIGM):
-  * CRITICAL RULE: The physical size, pattern, and design of the garment are 100% FIXED.
-  * DO NOT redesign, resize, or alter the garment itself.
-  * THE BODY CHANGE: The target model is visually ${bodyChange}.
-  * THE VISUAL EFFECT:
-    1. ${lengthEffect}
-    2. ${widthEffect}
-  * Render the natural physical result of this new body wearing the exact same fixed-size garment.
-`,
-    fitSummarySuffix: ` + 📏 핏 보정: Body ${bodyChange}`,
-  };
-};
-
-export async function generateCreativeDirectionsWeb(
-  moodQuery: string,
-  count: number
-): Promise<DigDirection[]> {
-  const systemPrompt = `You are the Creative Director for 'Ballute'.
-Research visuals of '${moodQuery}' using Google Search.
-Extract ONLY these 5 editorial elements for ${count} photoshoot directions:
-1. background
-2. pose
-3. expression
-4. mood
-5. photography_technique
-
-CRITICAL RULE:
-- Embrace the unpredictability of research.
-- Include texture / film / digital look when relevant.
-- Return ONLY valid JSON array.
-Format:
-[
-  {
-    "background": "...",
-    "pose": "...",
-    "expression": "...",
-    "mood": "...",
-    "photography_technique": "..."
-  }
-]`;
-
-  const response = await ai.models.generateContent({
-    model: "gemini-3-flash-preview",
-    contents: {
-      parts: [{ text: systemPrompt }],
-    },
-    // @ts-ignore
-    tools: [{ googleSearch: {} }],
-  });
-
-  const rawText = response.candidates?.[0]?.content?.parts?.[0]?.text || "";
-  const jsonStart = rawText.indexOf("[");
-  const jsonEnd = rawText.lastIndexOf("]") + 1;
-
-  if (jsonStart === -1 || jsonEnd === 0) {
-    throw new Error("DIG 리서치 결과를 JSON으로 파싱하지 못했다.");
-  }
-
-  const parsed = JSON.parse(rawText.substring(jsonStart, jsonEnd));
-
-  if (!Array.isArray(parsed) || parsed.length === 0) {
-    throw new Error("DIG 리서치 결과가 비어 있다.");
-  }
-
-  return parsed.slice(0, count);
-}
-
-export async function generateDigImageWeb(args: {
-  faceBase64s: string[];
-  outfitBase64s: string[];
-  dirSet: DigDirection;
-  bodySpecs?: string;
-  shootingMode?: string;
-  customPrompt?: string;
-  lockedVibe?: LockedVibe | null;
-  isMixMode?: boolean;
-  mixCaptions?: string[];
-}): Promise<{ base64: string; summary: string }> {
-  const {
-    faceBase64s,
-    outfitBase64s,
-    dirSet,
-    bodySpecs,
-    shootingMode = "default",
-    customPrompt,
-    lockedVibe,
-    isMixMode = false,
-    mixCaptions = [],
-  } = args;
-
-  if (!faceBase64s.length) {
-    throw new Error("얼굴 이미지가 없다.");
-  }
-
-  if (!outfitBase64s.length) {
-    throw new Error("의상 이미지가 없다.");
-  }
-
-  const parts: any[] = [];
-
-  for (const faceBase64 of faceBase64s) {
-    parts.push({
-      inlineData: {
-        data: faceBase64,
-        mimeType: "image/jpeg",
-      },
-    });
-  }
-
-  outfitBase64s.forEach((outfitBase64, index) => {
-    parts.push({
-      inlineData: {
-        data: outfitBase64,
-        mimeType: "image/jpeg",
-      },
-    });
-
-    if (isMixMode) {
-      const caption = mixCaptions[index] || "No specific styling instruction provided.";
-      parts.push({
-        text: `[Mix Item ${index + 1} Instruction: ${caption}]`,
-      });
-    }
-  });
-
-  const faceContext =
-    faceBase64s.length === 1
-      ? "Use the single face reference precisely."
-      : "3D FACE ID ENGINE ACTIVE. Maintain the exact identity consistently across all results.";
-
-  const { fitPromptContext, fitSummarySuffix } =
-    buildFitPromptContext(bodySpecs);
-
-  const modeDict: Record<string, string> = {
-    fuji: "Texture: Fujifilm 400H (cool greens, cyan shadows, high contrast cinematic film).",
-    mono: "Texture: Ilford HP5 Plus. Force strict black and white. No color.",
-    studio:
-      "Texture: clean commercial high-key studio lighting. Zero grain. High-end digital clarity.",
-    raw: "Texture: natural raw light. Minimal grading. Realistic exposure.",
-    default:
-      "Texture: Kodak Portra 400 (warm skin tones, subtle analog grain, soft cinematic light).",
-  };
-
-  let textureAndColor = modeDict.default;
-
-  if (lockedVibe?.color_grading_and_texture) {
-    textureAndColor = lockedVibe.color_grading_and_texture;
-  } else if (shootingMode === "custom" && customPrompt) {
-    textureAndColor = `Texture & Photography Style: ${customPrompt}`;
-  } else if (shootingMode !== "default" && modeDict[shootingMode]) {
-    textureAndColor = modeDict[shootingMode];
-  }
-
-  const backgroundText = lockedVibe?.background || dirSet.background;
-  const poseText = lockedVibe?.pose || dirSet.pose;
-  const expressionText = lockedVibe?.expression || dirSet.expression;
-  const moodText = lockedVibe?.overall_mood || dirSet.mood;
-  const cameraText =
-    lockedVibe?.camera_angle_and_crop || dirSet.photography_technique;
-  const lightingText =
-    lockedVibe?.lighting_and_exposure || dirSet.photography_technique;
-
-  const modeSummary = isMixMode ? "🧩 MIX" : "👕 OUTFIT";
-  const vibeSummary = lockedVibe ? " + 🔒 VIBE LOCK" : "";
-  const fitSummary = `${modeSummary}${vibeSummary}${fitSummarySuffix}`;
-
-  const outfitInstruction = isMixMode
-    ? `
-[MIX MODE]
-- Use only the uploaded outfit items.
-- Respect each item instruction exactly.
-- Preserve layer order and item hierarchy.
-- Do not invent extra garments.
-`
-    : `
-[OUTFIT MODE]
-- Reconstruct the exact uploaded outfit references.
-- Preserve pattern, material read, silhouette, drape, and key construction details.
-- Do not invent extra garments.
-`;
-
-  const prompt = `
-Task: Exact Aesthetic Replication & High-End Fashion Try-On.
-
-[IDENTITY]
-- ${faceContext}
-
-${fitPromptContext}
-
-${outfitInstruction}
-
-[EDITORIAL ART DIRECTION]
-- BACKGROUND: ${backgroundText}
-- POSE: ${poseText}
-- EXPRESSION: ${expressionText}
-- OVERALL MOOD: ${moodText}
-
-[TECHNICAL EXECUTION]
-- ${textureAndColor}
-- CAMERA / PHOTOGRAPHY: ${cameraText}
-- LIGHTING: ${lightingText}
-- Render as a real premium fashion photograph.
-- Avoid generic AI 3D / plastic skin look.
-- 3:4 vertical composition.
-- Output should feel like a luxury editorial lookbook image.
-`;
-
-  const response = await ai.models.generateContent({
-    model: "gemini-3.1-flash-image-preview",
-    contents: {
-      parts: [...parts, { text: prompt }],
-    },
-    config: {
-      imageConfig: {
-        aspectRatio: "3:4",
-        imageSize: "2K",
-      },
-      safetySettings,
-    },
-  });
-
-  const imageBase64 =
-    response.candidates?.[0]?.content?.parts?.find(
-      (part: any) => part.inlineData
-    )?.inlineData?.data || null;
-
-  if (!imageBase64) {
-    throw new Error("DIG 이미지 생성 결과가 비어 있다.");
-  }
-
-  return {
-    base64: imageBase64,
-    summary: fitSummary,
-  };
-}
-</file>
-
 <file path="lib/gemini-web.ts">
 import { GoogleGenAI } from "@google/genai";
 
@@ -1987,248 +1644,6 @@ Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/bui
 }
 </file>
 
-<file path="app/api/dig/generate-one/route.ts">
-import { NextResponse } from "next/server";
-import { createClient } from "@supabase/supabase-js";
-import { fileToBase64 } from "@/lib/utils";
-import {
-  generateDigImageWeb,
-  LockedVibe,
-  DigDirection,
-} from "@/lib/gemini-dig";
-
-const TEMP_INPUT_BUCKET = "temp-inputs";
-
-function stripBucketPrefix(path: string) {
-  if (!path) return path;
-  const prefix = `${TEMP_INPUT_BUCKET}/`;
-  return path.startsWith(prefix) ? path.slice(prefix.length) : path;
-}
-
-function arrayBufferToBase64(buffer: ArrayBuffer) {
-  return Buffer.from(buffer).toString("base64");
-}
-
-function getStorageAdmin() {
-  const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
-  const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
-
-  if (!url || !serviceRoleKey) {
-    throw new Error(
-      "Supabase Storage 서버 설정이 없습니다. NEXT_PUBLIC_SUPABASE_URL / SUPABASE_SERVICE_ROLE_KEY를 확인하세요."
-    );
-  }
-
-  return createClient(url, serviceRoleKey, {
-    auth: {
-      persistSession: false,
-      autoRefreshToken: false,
-    },
-  });
-}
-
-async function storagePathToBase64(path: string) {
-  const cleanedPath = stripBucketPrefix(path);
-
-  if (!cleanedPath) {
-    throw new Error("스토리지 경로가 비어 있습니다.");
-  }
-
-  const supabaseAdmin = getStorageAdmin();
-
-  const { data, error } = await supabaseAdmin.storage
-    .from(TEMP_INPUT_BUCKET)
-    .download(cleanedPath);
-
-  if (error || !data) {
-    throw new Error(
-      `스토리지 파일 읽기 실패: ${cleanedPath} / ${error?.message || "unknown"}`
-    );
-  }
-
-  const buffer = await data.arrayBuffer();
-  return arrayBufferToBase64(buffer);
-}
-
-function safeJsonParse<T>(raw: string, fallback: T): T {
-  try {
-    return JSON.parse(raw) as T;
-  } catch {
-    return fallback;
-  }
-}
-
-type JsonGenerateBody = {
-  fitSpec?: string;
-  shootingMode?: string;
-  customPrompt?: string;
-  outfitMode?: string;
-  lockedVibe?: LockedVibe | null;
-  direction?: DigDirection;
-  mixCaptions?: string[];
-  facePaths?: string[];
-  outfitPaths?: string[];
-};
-
-async function readJsonBody(req: Request): Promise<JsonGenerateBody | null> {
-  const contentType = req.headers.get("content-type") || "";
-
-  if (!contentType.includes("application/json")) {
-    return null;
-  }
-
-  try {
-    return (await req.json()) as JsonGenerateBody;
-  } catch {
-    return null;
-  }
-}
-
-export async function POST(req: Request) {
-  try {
-    const jsonBody = await readJsonBody(req);
-
-    let fitSpec = "";
-    let shootingMode = "default";
-    let customPrompt = "";
-    let outfitMode = "outfit";
-    let lockedVibe: LockedVibe | null = null;
-    let direction = {} as DigDirection;
-    let mixCaptions: string[] = [];
-    let faceBase64s: string[] = [];
-    let outfitBase64s: string[] = [];
-
-    if (jsonBody) {
-      fitSpec = jsonBody.fitSpec || "";
-      shootingMode = jsonBody.shootingMode || "default";
-      customPrompt = jsonBody.customPrompt || "";
-      outfitMode = jsonBody.outfitMode || "outfit";
-      lockedVibe = (jsonBody.lockedVibe || null) as LockedVibe | null;
-      direction = (jsonBody.direction || {}) as DigDirection;
-      mixCaptions = Array.isArray(jsonBody.mixCaptions)
-        ? jsonBody.mixCaptions
-        : [];
-
-      const facePaths = Array.isArray(jsonBody.facePaths)
-        ? jsonBody.facePaths
-        : [];
-      const outfitPaths = Array.isArray(jsonBody.outfitPaths)
-        ? jsonBody.outfitPaths
-        : [];
-
-      if (!direction?.background && !direction?.mood) {
-        return NextResponse.json(
-          { error: "direction 정보가 필요하다." },
-          { status: 400 }
-        );
-      }
-
-      if (!facePaths.length) {
-        return NextResponse.json(
-          { error: "얼굴 스토리지 경로는 최소 1개 필요하다." },
-          { status: 400 }
-        );
-      }
-
-      if (!outfitPaths.length) {
-        return NextResponse.json(
-          { error: "의상 스토리지 경로는 최소 1개 필요하다." },
-          { status: 400 }
-        );
-      }
-
-      if (outfitMode === "mix" && mixCaptions.length !== outfitPaths.length) {
-        return NextResponse.json(
-          { error: "MIX 설명 수와 의상 이미지 수가 맞지 않는다." },
-          { status: 400 }
-        );
-      }
-
-      faceBase64s = await Promise.all(facePaths.map(storagePathToBase64));
-      outfitBase64s = await Promise.all(outfitPaths.map(storagePathToBase64));
-    } else {
-      const formData = await req.formData();
-
-      fitSpec = (formData.get("fitSpec") as string) || "";
-      shootingMode = (formData.get("shootingMode") as string) || "default";
-      customPrompt = (formData.get("customPrompt") as string) || "";
-      outfitMode = (formData.get("outfitMode") as string) || "outfit";
-      const lockedVibeRaw = (formData.get("lockedVibe") as string) || "";
-      const directionRaw = (formData.get("direction") as string) || "";
-      const mixCaptionsRaw = (formData.get("mixCaptions") as string) || "[]";
-
-      const faceFiles = formData.getAll("faces") as File[];
-      const outfitFiles = formData.getAll("outfits") as File[];
-
-      if (!directionRaw) {
-        return NextResponse.json(
-          { error: "direction 정보가 필요하다." },
-          { status: 400 }
-        );
-      }
-
-      if (!faceFiles.length) {
-        return NextResponse.json(
-          { error: "얼굴 이미지는 최소 1장 필요하다." },
-          { status: 400 }
-        );
-      }
-
-      if (!outfitFiles.length) {
-        return NextResponse.json(
-          { error: "의상 이미지는 최소 1장 필요하다." },
-          { status: 400 }
-        );
-      }
-
-      direction = safeJsonParse<DigDirection>(directionRaw, {} as DigDirection);
-      mixCaptions = safeJsonParse<string[]>(mixCaptionsRaw, []);
-      lockedVibe = lockedVibeRaw
-        ? safeJsonParse<LockedVibe | null>(lockedVibeRaw, null)
-        : null;
-
-      if (outfitMode === "mix" && mixCaptions.length !== outfitFiles.length) {
-        return NextResponse.json(
-          { error: "MIX 설명 수와 의상 이미지 수가 맞지 않는다." },
-          { status: 400 }
-        );
-      }
-
-      faceBase64s = await Promise.all(faceFiles.map(fileToBase64));
-      outfitBase64s = await Promise.all(outfitFiles.map(fileToBase64));
-    }
-
-    const generated = await generateDigImageWeb({
-      faceBase64s,
-      outfitBase64s,
-      dirSet: direction,
-      bodySpecs: fitSpec,
-      shootingMode,
-      customPrompt: shootingMode === "custom" ? customPrompt : undefined,
-      lockedVibe,
-      isMixMode: outfitMode === "mix",
-      mixCaptions,
-    });
-
-    return NextResponse.json({
-      success: true,
-      result: {
-        image: generated.base64,
-        summary: generated.summary,
-        direction,
-      },
-    });
-  } catch (error) {
-    console.error("DIG_GENERATE_ONE_ERROR:", error);
-
-    const message =
-      error instanceof Error ? error.message : "알 수 없는 generate-one 오류";
-
-    return NextResponse.json({ error: message }, { status: 500 });
-  }
-}
-</file>
-
 <file path="app/api/dig/route.ts">
 import { NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
@@ -2465,251 +1880,6 @@ export async function POST(req: Request) {
 
     const message =
       error instanceof Error ? error.message : "알 수 없는 generate-one 오류";
-
-    return NextResponse.json({ error: message }, { status: 500 });
-  }
-}
-</file>
-
-<file path="app/api/fusion/generate-one/route.ts">
-import { NextResponse } from "next/server";
-import { createClient } from "@supabase/supabase-js";
-import { fileToBase64 } from "@/lib/utils";
-import {
-  generateFusionImageWeb,
-  BackgroundDNA,
-  PoseBlueprint,
-  LockedVibe,
-} from "@/lib/gemini-fusion";
-
-const TEMP_INPUT_BUCKET = "temp-inputs";
-
-function stripBucketPrefix(path: string) {
-  if (!path) return path;
-  const prefix = `${TEMP_INPUT_BUCKET}/`;
-  return path.startsWith(prefix) ? path.slice(prefix.length) : path;
-}
-
-function arrayBufferToBase64(buffer: ArrayBuffer) {
-  return Buffer.from(buffer).toString("base64");
-}
-
-function getStorageAdmin() {
-  const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
-  const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
-
-  if (!url || !serviceRoleKey) {
-    throw new Error(
-      "Supabase Storage 서버 설정이 없습니다. NEXT_PUBLIC_SUPABASE_URL / SUPABASE_SERVICE_ROLE_KEY를 확인하세요."
-    );
-  }
-
-  return createClient(url, serviceRoleKey, {
-    auth: {
-      persistSession: false,
-      autoRefreshToken: false,
-    },
-  });
-}
-
-async function storagePathToBase64(path: string) {
-  const cleanedPath = stripBucketPrefix(path);
-
-  if (!cleanedPath) {
-    throw new Error("스토리지 경로가 비어 있습니다.");
-  }
-
-  const supabaseAdmin = getStorageAdmin();
-
-  const { data, error } = await supabaseAdmin.storage
-    .from(TEMP_INPUT_BUCKET)
-    .download(cleanedPath);
-
-  if (error || !data) {
-    throw new Error(
-      `스토리지 파일 읽기 실패: ${cleanedPath} / ${error?.message || "unknown"}`
-    );
-  }
-
-  const buffer = await data.arrayBuffer();
-  return arrayBufferToBase64(buffer);
-}
-
-function safeJsonParse<T>(raw: string, fallback: T): T {
-  try {
-    return JSON.parse(raw) as T;
-  } catch {
-    return fallback;
-  }
-}
-
-type JsonGenerateBody = {
-  fitSpec?: string;
-  shootingMode?: string;
-  customPrompt?: string;
-  outfitMode?: string;
-  mixCaptions?: string[];
-  bgDNA?: BackgroundDNA;
-  poseBlueprint?: PoseBlueprint;
-  locationPrompt?: string;
-  lockedVibe?: LockedVibe | null;
-  facePaths?: string[];
-  outfitPaths?: string[];
-};
-
-async function readJsonBody(req: Request): Promise<JsonGenerateBody | null> {
-  const contentType = req.headers.get("content-type") || "";
-
-  if (!contentType.includes("application/json")) {
-    return null;
-  }
-
-  try {
-    return (await req.json()) as JsonGenerateBody;
-  } catch {
-    return null;
-  }
-}
-
-export async function POST(req: Request) {
-  try {
-    const jsonBody = await readJsonBody(req);
-
-    let fitSpec = "";
-    let shootingMode = "default";
-    let customPrompt = "";
-    let outfitMode = "outfit";
-    let mixCaptions: string[] = [];
-    let bgDNA = {} as BackgroundDNA;
-    let poseBlueprint = {} as PoseBlueprint;
-    let locationPrompt = "";
-    let lockedVibe: LockedVibe | null = null;
-    let faceBase64s: string[] = [];
-    let outfitBase64s: string[] = [];
-
-    if (jsonBody) {
-      fitSpec = jsonBody.fitSpec || "";
-      shootingMode = jsonBody.shootingMode || "default";
-      customPrompt = jsonBody.customPrompt || "";
-      outfitMode = jsonBody.outfitMode || "outfit";
-      mixCaptions = Array.isArray(jsonBody.mixCaptions)
-        ? jsonBody.mixCaptions
-        : [];
-      bgDNA = (jsonBody.bgDNA || {}) as BackgroundDNA;
-      poseBlueprint = (jsonBody.poseBlueprint || {}) as PoseBlueprint;
-      locationPrompt = (jsonBody.locationPrompt || "").trim();
-      lockedVibe = (jsonBody.lockedVibe || null) as LockedVibe | null;
-
-      const facePaths = Array.isArray(jsonBody.facePaths)
-        ? jsonBody.facePaths
-        : [];
-      const outfitPaths = Array.isArray(jsonBody.outfitPaths)
-        ? jsonBody.outfitPaths
-        : [];
-
-      if (!facePaths.length) {
-        return NextResponse.json(
-          { error: "얼굴 스토리지 경로는 최소 1개 필요하다." },
-          { status: 400 }
-        );
-      }
-
-      if (!outfitPaths.length) {
-        return NextResponse.json(
-          { error: "의상 스토리지 경로는 최소 1개 필요하다." },
-          { status: 400 }
-        );
-      }
-
-      if (!locationPrompt) {
-        return NextResponse.json(
-          { error: "로케이션 프롬프트가 필요하다." },
-          { status: 400 }
-        );
-      }
-
-      faceBase64s = await Promise.all(facePaths.map(storagePathToBase64));
-      outfitBase64s = await Promise.all(outfitPaths.map(storagePathToBase64));
-    } else {
-      const formData = await req.formData();
-
-      fitSpec = (formData.get("fitSpec") as string) || "";
-      shootingMode = (formData.get("shootingMode") as string) || "default";
-      customPrompt = (formData.get("customPrompt") as string) || "";
-      outfitMode = (formData.get("outfitMode") as string) || "outfit";
-      const mixCaptionsRaw = (formData.get("mixCaptions") as string) || "[]";
-      const bgDNARaw = (formData.get("bgDNA") as string) || "{}";
-      const poseBlueprintRaw = (formData.get("poseBlueprint") as string) || "{}";
-      locationPrompt = ((formData.get("locationPrompt") as string) || "").trim();
-      const lockedVibeRaw = (formData.get("lockedVibe") as string) || "";
-
-      const faceFiles = formData.getAll("faces") as File[];
-      const outfitFiles = formData.getAll("outfits") as File[];
-
-      if (!faceFiles.length) {
-        return NextResponse.json(
-          { error: "얼굴 이미지는 최소 1장 필요하다." },
-          { status: 400 }
-        );
-      }
-
-      if (!outfitFiles.length) {
-        return NextResponse.json(
-          { error: "의상 이미지는 최소 1장 필요하다." },
-          { status: 400 }
-        );
-      }
-
-      if (!locationPrompt) {
-        return NextResponse.json(
-          { error: "로케이션 프롬프트가 필요하다." },
-          { status: 400 }
-        );
-      }
-
-      faceBase64s = await Promise.all(faceFiles.map(fileToBase64));
-      outfitBase64s = await Promise.all(outfitFiles.map(fileToBase64));
-
-      mixCaptions = safeJsonParse<string[]>(mixCaptionsRaw, []);
-      bgDNA = safeJsonParse<BackgroundDNA>(bgDNARaw, {} as BackgroundDNA);
-      poseBlueprint = safeJsonParse<PoseBlueprint>(
-        poseBlueprintRaw,
-        {} as PoseBlueprint
-      );
-      lockedVibe = lockedVibeRaw
-        ? safeJsonParse<LockedVibe | null>(lockedVibeRaw, null)
-        : null;
-    }
-
-    const generated = await generateFusionImageWeb({
-      faceBase64s,
-      outfitBase64s,
-      poseBlueprint,
-      targetLocationText: locationPrompt,
-      bgDNA,
-      bodySpecs: fitSpec,
-      isMixMode: outfitMode === "mix",
-      mixCaptions,
-      lockedVibe,
-      shootingMode,
-      customPrompt: shootingMode === "custom" ? customPrompt : undefined,
-    });
-
-    return NextResponse.json({
-      success: true,
-      result: {
-        image: generated.base64,
-        summary: generated.summary,
-        locationPrompt,
-        poseBlueprint,
-        bgDNA,
-      },
-    });
-  } catch (error) {
-    console.error("FUSION_GENERATE_ONE_ERROR:", error);
-
-    const message =
-      error instanceof Error ? error.message : "알 수 없는 FUSION 생성 오류";
 
     return NextResponse.json({ error: message }, { status: 500 });
   }
@@ -3251,12 +2421,8 @@ export default function Footer() {
 }
 </file>
 
-<file path="lib/gemini-fusion.ts">
-import {
-  GoogleGenAI,
-  HarmCategory,
-  HarmBlockThreshold,
-} from "@google/genai";
+<file path="lib/gemini-dig.ts">
+import { GoogleGenAI, HarmCategory, HarmBlockThreshold } from "@google/genai";
 
 const ai = new GoogleGenAI({
   apiKey: process.env.GEMINI_API_KEY!,
@@ -3281,21 +2447,12 @@ const safetySettings = [
   },
 ];
 
-export type BackgroundDNA = {
-  environment_type?: string;
-  architectural_language?: string;
-  lighting_and_exposure?: string;
-  color_grading_and_texture?: string;
-  spatial_mood?: string;
-  camera_feel?: string;
-  do_not_copy?: string[];
-};
-
-export type PoseBlueprint = {
-  pose?: string;
-  expression?: string;
-  camera_angle_and_crop?: string;
-  body_attitude?: string;
+export type DigDirection = {
+  background: string;
+  pose: string;
+  expression: string;
+  mood: string;
+  photography_technique: string;
 };
 
 export type LockedVibe = {
@@ -3308,491 +2465,7 @@ export type LockedVibe = {
   color_grading_and_texture?: string;
 };
 
-const buildFitPromptContext = (
-  bodySpecs?: string
-): { fitPromptContext: string; fitSummarySuffix: string } => {
-  if (!bodySpecs) {
-    return {
-      fitPromptContext:
-        "- AUTO-FIT MODE: Replicate the garment's silhouette, fit, length, and drape EXACTLY.",
-      fitSummarySuffix: "",
-    };
-  }
-
-  const specMatch = bodySpecs.match(/(\d+)\/(\d+)\s+(\d+)\/(\d+)/);
-  if (!specMatch) {
-    return {
-      fitPromptContext:
-        "- AUTO-FIT MODE: Replicate the garment's silhouette, fit, length, and drape EXACTLY.",
-      fitSummarySuffix: "",
-    };
-  }
-
-  const h1 = parseInt(specMatch[1], 10);
-  const w1 = parseInt(specMatch[2], 10);
-  const h2 = parseInt(specMatch[3], 10);
-  const w2 = parseInt(specMatch[4], 10);
-
-  const hDiff = h2 - h1;
-  const wDiff = w2 - w1;
-
-  let hDesc = "";
-  let wDesc = "";
-  let lengthEffect = "";
-  let widthEffect = "";
-
-  if (hDiff >= 4) {
-    hDesc = "taller";
-    lengthEffect =
-      "Because the body is taller/longer, the fixed garment sits naturally higher. Sleeves expose more wrist and pants break higher.";
-  } else if (hDiff <= -4) {
-    hDesc = "shorter";
-    lengthEffect =
-      "Because the body is shorter, the fixed garment falls lower. Sleeves cover more hands and pants stack more.";
-  }
-
-  if (wDiff >= 4) {
-    wDesc = "broader/heavier";
-    widthEffect =
-      "Because the body is thicker, the fixed garment fits tighter with reduced drape.";
-  } else if (wDiff <= -4) {
-    wDesc = "slimmer/lighter";
-    widthEffect =
-      "Because the body is thinner, the fixed garment fits looser with more drape.";
-  }
-
-  let bodyChange = [hDesc, wDesc].filter(Boolean).join(" and ");
-  if (!bodyChange) {
-    bodyChange = "similar proportions";
-    lengthEffect = "Maintain original vertical fit.";
-    widthEffect = "Maintain original width and drape.";
-  }
-
-  return {
-    fitPromptContext: `
-- FIT CALIBRATION (FIXED GARMENT PARADIGM):
-  * The garment size and design are fixed.
-  * Do NOT redesign or resize the garment itself.
-  * The target body is visually ${bodyChange}.
-  * Visual effect:
-    1. ${lengthEffect}
-    2. ${widthEffect}
-`,
-    fitSummarySuffix: ` + 📏 핏 보정: Body ${bodyChange}`,
-  };
-};
-
-export async function analyzeBackgroundDNAFromBase64s(
-  bgBase64s: string[]
-): Promise<BackgroundDNA> {
-  const analyses: any[] = [];
-
-  for (const base64 of bgBase64s) {
-    const response = await ai.models.generateContent({
-      model: "gemini-3-flash-preview",
-      contents: {
-        parts: [
-          {
-            inlineData: {
-              data: base64,
-              mimeType: "image/jpeg",
-            },
-          },
-          {
-            text: `Analyze this location/environment image for fashion lookbook worldbuilding.
-
-Return ONLY raw JSON with:
-{
-  "environment_type": "what kind of place this is",
-  "architectural_language": "materials, shapes, structural language",
-  "lighting_and_exposure": "light quality and exposure character",
-  "color_grading_and_texture": "color cast, grain, texture, surface feeling",
-  "spatial_mood": "psychological feel of the place",
-  "camera_feel": "what kind of framing / distance this world suggests",
-  "key_non_repeatable_elements": ["specific one-off details that should NOT be copied literally"]
-}
-
-Focus on environmental DNA only. No people, no clothes.`,
-          },
-        ],
-      },
-      config: {
-        safetySettings,
-      },
-    });
-
-    let text = response.candidates?.[0]?.content?.parts?.[0]?.text || "{}";
-    const jsonStart = text.indexOf("{");
-    const jsonEnd = text.lastIndexOf("}") + 1;
-
-    if (jsonStart !== -1 && jsonEnd !== -1) {
-      text = text.substring(jsonStart, jsonEnd);
-    }
-
-    analyses.push(JSON.parse(text));
-  }
-
-  const summaryResp = await ai.models.generateContent({
-    model: "gemini-3-flash-preview",
-    contents: {
-      parts: [
-        {
-          text: `You are merging multiple environment analyses into one unified background DNA for a fashion lookbook engine.
-
-Input analyses:
-${JSON.stringify(analyses, null, 2)}
-
-Return ONLY raw JSON:
-{
-  "environment_type": "...",
-  "architectural_language": "...",
-  "lighting_and_exposure": "...",
-  "color_grading_and_texture": "...",
-  "spatial_mood": "...",
-  "camera_feel": "...",
-  "do_not_copy": ["specific literal geometry/details to avoid repeating"]
-}
-
-Goal:
-- keep shared DNA
-- remove one-off literal geometry
-- produce a reusable neighborhood/world description`,
-        },
-      ],
-    },
-    config: {
-      safetySettings,
-    },
-  });
-
-  let summaryText =
-    summaryResp.candidates?.[0]?.content?.parts?.[0]?.text || "{}";
-  const sumStart = summaryText.indexOf("{");
-  const sumEnd = summaryText.lastIndexOf("}") + 1;
-
-  if (sumStart !== -1 && sumEnd !== -1) {
-    summaryText = summaryText.substring(sumStart, sumEnd);
-  }
-
-  return JSON.parse(summaryText);
-}
-
-export async function analyzePoseBlueprintFromBase64(
-  poseBase64: string
-): Promise<PoseBlueprint> {
-  const response = await ai.models.generateContent({
-    model: "gemini-3-flash-preview",
-    contents: {
-      parts: [
-        {
-          inlineData: {
-            data: poseBase64,
-            mimeType: "image/jpeg",
-          },
-        },
-        {
-          text: `Analyze this pose reference image as a HIGH-END FASHION EDITORIAL POSE.
-
-IMPORTANT:
-Do NOT reduce the pose into only dry skeletal coordinates.
-Read it like a fashion photographer for a luxury brand.
-
-Return ONLY raw JSON:
-{
-  "pose": "body posture, weight balance, arm/leg attitude",
-  "expression": "facial expression and gaze direction",
-  "camera_angle_and_crop": "camera angle / crop feeling",
-  "body_attitude": "editorial attitude / emotion carried by the body"
-}`,
-        },
-      ],
-    },
-    config: {
-      safetySettings,
-    },
-  });
-
-  let text = response.candidates?.[0]?.content?.parts?.[0]?.text || "{}";
-  const jsonStart = text.indexOf("{");
-  const jsonEnd = text.lastIndexOf("}") + 1;
-
-  if (jsonStart !== -1 && jsonEnd !== -1) {
-    text = text.substring(jsonStart, jsonEnd);
-  }
-
-  return JSON.parse(text);
-}
-
-export async function searchLocationPrompts(
-  bgDNA: BackgroundDNA,
-  count: number
-): Promise<string[]> {
-  const systemPrompt = `Background DNA (Material & Lighting World):
-${JSON.stringify(bgDNA, null, 2)}
-
-TASK:
-Generate EXACTLY ${count} spatially distinct location prompts based strictly on the provided Background DNA.
-
-CRITICAL DIVERSITY RULE:
-If generating multiple locations, each prompt must focus on a DIFFERENT structural element or camera perspective while keeping the core DNA identical.
-
-Return ONLY a valid JSON array of strings containing EXACTLY ${count} elements.
-Format: ["location description 1", "location description 2", ...]`;
-
-  const response = await ai.models.generateContent({
-    model: "gemini-3-flash-preview",
-    contents: { parts: [{ text: systemPrompt }] },
-    config: {
-      safetySettings,
-    },
-  });
-
-  const rawText = response.candidates?.[0]?.content?.parts?.[0]?.text || "[]";
-  const jsonStart = rawText.indexOf("[");
-  const jsonEnd = rawText.lastIndexOf("]") + 1;
-
-  if (jsonStart === -1 || jsonEnd === 0) {
-    throw new Error("로케이션 프롬프트 JSON 파싱 실패");
-  }
-
-  const result = JSON.parse(rawText.substring(jsonStart, jsonEnd));
-  return Array.isArray(result) ? result.slice(0, count) : [];
-}
-
-export async function generateFusionImageWeb(args: {
-  faceBase64s: string[];
-  outfitBase64s: string[];
-  poseBlueprint: PoseBlueprint;
-  targetLocationText: string;
-  bgDNA: BackgroundDNA;
-  bodySpecs?: string;
-  isMixMode?: boolean;
-  mixCaptions?: string[];
-  lockedVibe?: LockedVibe | null;
-  shootingMode?: string;
-  customPrompt?: string;
-}): Promise<{ base64: string; summary: string }> {
-  const {
-    faceBase64s,
-    outfitBase64s,
-    poseBlueprint,
-    targetLocationText,
-    bgDNA,
-    bodySpecs,
-    isMixMode = false,
-    mixCaptions = [],
-    lockedVibe,
-    shootingMode = "default",
-    customPrompt,
-  } = args;
-
-  const parts: any[] = [];
-
-  faceBase64s.forEach((faceBase64) => {
-    parts.push({
-      inlineData: {
-        data: faceBase64,
-        mimeType: "image/jpeg",
-      },
-    });
-  });
-
-  outfitBase64s.forEach((outfitBase64, index) => {
-    parts.push({
-      inlineData: {
-        data: outfitBase64,
-        mimeType: "image/jpeg",
-      },
-    });
-
-    if (isMixMode) {
-      const itemCaption =
-        mixCaptions[index] || "No specific styling instruction provided.";
-      parts.push({
-        text: `[Outfit Detail ${index + 1}: Extracted based on "${itemCaption}"]`,
-      });
-    }
-  });
-
-  let fitSummary = lockedVibe
-    ? `🧬 FUSION [VIBE LOCK]`
-    : `🧬 FUSION [${shootingMode.toUpperCase()}]`;
-
-  if (shootingMode === "custom") {
-    fitSummary += ` (CUSTOM: ${customPrompt})`;
-  }
-
-  const { fitPromptContext, fitSummarySuffix } =
-    buildFitPromptContext(bodySpecs);
-  fitSummary += fitSummarySuffix;
-
-  const modeDict: Record<string, string> = {
-    fuji: "Texture: Fujifilm 400H characteristic (cool greens, cyan shadows, high contrast cinematic feel).",
-    mono: "Texture: Ilford HP5 Plus (high-end monochrome, rich blacks, heavy grain). FORCE STRICT BLACK AND WHITE. NO COLOR.",
-    studio:
-      "Texture: clean commercial high-key studio lighting. Sharp focus, zero grain, high-end digital clarity.",
-    raw: "Texture: unprocessed natural raw light. realistic exposure, zero film simulation.",
-    default:
-      "Texture: Kodak Portra 400 (warm skin tones, subtle analog grain, soft cinematic light).",
-  };
-
-  let textureAndColor = "";
-  if (lockedVibe?.color_grading_and_texture) {
-    textureAndColor = lockedVibe.color_grading_and_texture;
-  } else if (shootingMode === "custom" && customPrompt) {
-    textureAndColor = `Texture & Photography Style: ${customPrompt}`;
-  } else if (shootingMode !== "default") {
-    textureAndColor = modeDict[shootingMode];
-  } else {
-    textureAndColor =
-      bgDNA?.color_grading_and_texture || modeDict["default"];
-  }
-
-  const lightingStyle =
-    lockedVibe?.lighting_and_exposure ||
-    bgDNA?.lighting_and_exposure ||
-    "Soft editorial natural lighting.";
-
-  const moodStyle =
-    lockedVibe?.overall_mood ||
-    bgDNA?.spatial_mood ||
-    "High-end restrained editorial mood.";
-
-  const cameraFeel =
-    lockedVibe?.camera_angle_and_crop ||
-    poseBlueprint?.camera_angle_and_crop ||
-    bgDNA?.camera_feel ||
-    "Editorial framing with natural negative space.";
-
-  const finalPose = lockedVibe?.pose || poseBlueprint?.pose || "";
-  const finalExpression =
-    lockedVibe?.expression || poseBlueprint?.expression || "";
-  const finalBackground = lockedVibe?.background || targetLocationText;
-  const finalBodyAttitude = poseBlueprint?.body_attitude || "";
-
-  const prompt = `
-Task: Create a premium FUSION fashion editorial image.
-
-[IDENTITY]
-- Maintain exact identity from face references.
-
-[OUTFIT]
-- Reconstruct the exact outfit from the uploaded outfit images.
-- ${
-    isMixMode
-      ? "This is MIX mode. Respect each item detail text exactly."
-      : "This is standard outfit mode."
-  }
-
-${fitPromptContext}
-
-[BACKGROUND WORLD]
-- Environment type: ${bgDNA?.environment_type || ""}
-- Architectural language: ${bgDNA?.architectural_language || ""}
-- Lighting DNA: ${lightingStyle}
-- Color / texture DNA: ${textureAndColor}
-- Mood DNA: ${moodStyle}
-- Target location: ${finalBackground}
-
-[POSE / ATTITUDE]
-- Pose: ${finalPose}
-- Expression: ${finalExpression}
-- Body attitude: ${finalBodyAttitude}
-
-[PHOTO GRAMMAR]
-- Camera framing / crop: ${cameraFeel}
-
-[CRITICAL CAMERA PRIORITY]
-- The camera framing MUST follow the pose reference first.
-- Maintain the same crop level and framing feel from the pose reference.
-- Do NOT widen the frame just to show more background.
-- Background/location is for environmental DNA only, not for deciding crop width.
-- If pose reference suggests upper-body, chest-up, waist-up, or medium framing, preserve that exact framing logic.
-- If pose reference suggests full-body, preserve full-body.
-- Pose reference has higher priority than background camera feel.
-
-[BACKGROUND CONTROL]
-- The location should inherit the background DNA, but literal geometry must not be copied.
-- Build a different place within the same neighborhood/world.
-- Avoid repeating one-off windows, doors, corners, or exact facade layout from the background references.
-
-[OUTPUT RULE]
-- Render as a premium fashion editorial photograph.
-- Keep the image realistic and luxury-brand ready.
-- Avoid generic AI mannequin feel.
-- 3:4 vertical composition.
-- 2K quality.
-`;
-
-  const response = await ai.models.generateContent({
-    model: "gemini-3.1-flash-image-preview",
-    contents: {
-      parts: [...parts, { text: prompt }],
-    },
-    config: {
-      imageConfig: {
-        aspectRatio: "3:4",
-        imageSize: "2K",
-      },
-      safetySettings,
-    },
-  });
-
-  const imageBase64 =
-    response.candidates?.[0]?.content?.parts?.find(
-      (part: any) => part.inlineData
-    )?.inlineData?.data || null;
-
-  if (!imageBase64) {
-    throw new Error("FUSION 이미지 생성 결과가 비어 있다.");
-  }
-
-  return {
-    base64: imageBase64,
-    summary: `${fitSummary} + FUSION`,
-  };
-}
-</file>
-
-<file path="lib/gemini-refrun.ts">
-import {
-  GoogleGenAI,
-  HarmCategory,
-  HarmBlockThreshold,
-} from "@google/genai";
-
-const ai = new GoogleGenAI({
-  apiKey: process.env.GEMINI_API_KEY!,
-});
-
-const safetySettings = [
-  {
-    category: HarmCategory.HARM_CATEGORY_HARASSMENT,
-    threshold: HarmBlockThreshold.BLOCK_ONLY_HIGH,
-  },
-  {
-    category: HarmCategory.HARM_CATEGORY_HATE_SPEECH,
-    threshold: HarmBlockThreshold.BLOCK_ONLY_HIGH,
-  },
-  {
-    category: HarmCategory.HARM_CATEGORY_SEXUALLY_EXPLICIT,
-    threshold: HarmBlockThreshold.BLOCK_ONLY_HIGH,
-  },
-  {
-    category: HarmCategory.HARM_CATEGORY_DANGEROUS_CONTENT,
-    threshold: HarmBlockThreshold.BLOCK_ONLY_HIGH,
-  },
-];
-
-export type RefRunDirection = {
-  background: string;
-  pose: string;
-  expression: string;
-  camera_angle_and_crop: string;
-  lighting_and_exposure: string;
-  color_grading_and_texture: string;
-  overall_mood: string;
-};
+export type OutputRatio = "4:5" | "2:3" | "16:9";
 
 const buildFitPromptContext = (
   bodySpecs?: string
@@ -3830,101 +2503,110 @@ const buildFitPromptContext = (
   if (hDiff >= 4) {
     hDesc = "taller";
     lengthEffect =
-      "Because the body is taller, sleeves expose more wrist and the garment sits slightly higher on the body.";
+      "Because the body is taller, sleeves expose more wrist and the garment sits naturally higher.";
   } else if (hDiff <= -4) {
     hDesc = "shorter";
     lengthEffect =
-      "Because the body is shorter, sleeves cover more of the hands and the garment falls lower on the body.";
+      "Because the body is shorter, sleeves cover more of the hands and the garment falls lower.";
   }
 
   if (wDiff >= 4) {
     wDesc = "broader/heavier";
     widthEffect =
-      "Because the body is thicker, the fixed garment fits tighter. Fabric stretches closer to the body, reducing drape.";
+      "Because the body is thicker, the fixed garment fits tighter and drapes less.";
   } else if (wDiff <= -4) {
     wDesc = "slimmer/lighter";
     widthEffect =
-      "Because the body is thinner, the fixed garment fits much looser. More drape, excess fabric, resulting in a baggier silhouette.";
+      "Because the body is thinner, the fixed garment fits looser and drapes more.";
   }
 
   let bodyChange = [hDesc, wDesc].filter(Boolean).join(" and ");
   if (!bodyChange) {
     bodyChange = "similar proportions";
-    lengthEffect = "Maintain exact original vertical fit.";
-    widthEffect = "Maintain exact original drape and width.";
+    lengthEffect = "Maintain the original vertical fit.";
+    widthEffect = "Maintain the original width and drape.";
   }
 
   return {
     fitPromptContext: `
 - FIT CALIBRATION (FIXED GARMENT PARADIGM):
   * CRITICAL RULE: The physical size, pattern, and design of the garment are 100% FIXED.
-  * DO NOT alter, redesign, shrink, or enlarge the clothing item itself.
-  * THE BODY CHANGE: The target model inside the clothes is visually ${bodyChange} than the original model.
+  * DO NOT redesign, resize, or alter the garment itself.
+  * THE BODY CHANGE: The target model is visually ${bodyChange}.
   * THE VISUAL EFFECT:
     1. ${lengthEffect}
     2. ${widthEffect}
-  * DIRECTIVE: Render the natural, physical result of this specific new body wearing the exact same fixed-size garment. Maintain believable human anatomy.
+  * Render the natural physical result of this new body wearing the exact same fixed-size garment.
 `,
-    fitSummarySuffix: ` + 📏 핏 보정: Body ${bodyChange || "유사"}`,
+    fitSummarySuffix: ` + 📏 핏 보정: Body ${bodyChange}`,
   };
 };
 
-export async function analyzeReferenceWeb(
-  referenceBase64: string
-): Promise<RefRunDirection> {
-  const parts = [
-    {
-      inlineData: {
-        data: referenceBase64,
-        mimeType: "image/jpeg",
-      },
-    },
-  ];
+export async function generateCreativeDirectionsWeb(
+  moodQuery: string,
+  count: number
+): Promise<DigDirection[]> {
+  const systemPrompt = `You are the Creative Director for 'Ballute'.
+Research visuals of '${moodQuery}' using Google Search.
+Extract ONLY these 5 editorial elements for ${count} photoshoot directions:
+1. background
+2. pose
+3. expression
+4. mood
+5. photography_technique
 
-  const systemPrompt = `Analyze the provided reference fashion photograph meticulously.
-Extract the exact visual structure, aesthetic, and mood.
-
-CRITICAL RULE (NEGATIVE CONSTRAINT):
-Ignore all details regarding clothing or accessories worn by the model.
-
-Return ONLY raw JSON with:
-{
-  "background": "describe the environment and set design",
-  "pose": "describe the subject's posture, limb positioning, and attitude",
-  "expression": "describe the facial expression and gaze direction",
-  "camera_angle_and_crop": "camera angle and crop",
-  "lighting_and_exposure": "lighting setup and exposure character",
-  "color_grading_and_texture": "color grading and texture",
-  "overall_mood": "overall mood"
-}`;
+CRITICAL RULE:
+- Embrace the unpredictability of research.
+- Include texture / film / digital look when relevant.
+- Return ONLY valid JSON array.
+Format:
+[
+  {
+    "background": "...",
+    "pose": "...",
+    "expression": "...",
+    "mood": "...",
+    "photography_technique": "..."
+  }
+]`;
 
   const response = await ai.models.generateContent({
     model: "gemini-3-flash-preview",
     contents: {
-      parts: [...parts, { text: systemPrompt }],
+      parts: [{ text: systemPrompt }],
     },
+    // @ts-ignore
+    tools: [{ googleSearch: {} }],
   });
 
-  let text = response.candidates?.[0]?.content?.parts?.[0]?.text || "{}";
-  const jsonStart = text.indexOf("{");
-  const jsonEnd = text.lastIndexOf("}") + 1;
+  const rawText = response.candidates?.[0]?.content?.parts?.[0]?.text || "";
+  const jsonStart = rawText.indexOf("[");
+  const jsonEnd = rawText.lastIndexOf("]") + 1;
 
-  if (jsonStart !== -1 && jsonEnd !== -1) {
-    text = text.substring(jsonStart, jsonEnd);
+  if (jsonStart === -1 || jsonEnd === 0) {
+    throw new Error("DIG 리서치 결과를 JSON으로 파싱하지 못했다.");
   }
 
-  return JSON.parse(text);
+  const parsed = JSON.parse(rawText.substring(jsonStart, jsonEnd));
+
+  if (!Array.isArray(parsed) || parsed.length === 0) {
+    throw new Error("DIG 리서치 결과가 비어 있다.");
+  }
+
+  return parsed.slice(0, count);
 }
 
-export async function generateRefRunImageWeb(args: {
+export async function generateDigImageWeb(args: {
   faceBase64s: string[];
   outfitBase64s: string[];
-  dirSet: RefRunDirection;
+  dirSet: DigDirection;
   bodySpecs?: string;
   shootingMode?: string;
   customPrompt?: string;
+  lockedVibe?: LockedVibe | null;
   isMixMode?: boolean;
   mixCaptions?: string[];
+  outputRatio?: OutputRatio;
 }): Promise<{ base64: string; summary: string }> {
   const {
     faceBase64s,
@@ -3933,8 +2615,10 @@ export async function generateRefRunImageWeb(args: {
     bodySpecs,
     shootingMode = "default",
     customPrompt,
+    lockedVibe,
     isMixMode = false,
     mixCaptions = [],
+    outputRatio = "4:5",
   } = args;
 
   if (!faceBase64s.length) {
@@ -3947,14 +2631,14 @@ export async function generateRefRunImageWeb(args: {
 
   const parts: any[] = [];
 
-  faceBase64s.forEach((faceBase64) => {
+  for (const faceBase64 of faceBase64s) {
     parts.push({
       inlineData: {
         data: faceBase64,
         mimeType: "image/jpeg",
       },
     });
-  });
+  }
 
   outfitBase64s.forEach((outfitBase64, index) => {
     parts.push({
@@ -3975,30 +2659,44 @@ export async function generateRefRunImageWeb(args: {
 
   const faceContext =
     faceBase64s.length === 1
-      ? "Use face reference."
-      : "3D FACE ID ENGINE ACTIVE to maintain identity.";
+      ? "Use the single face reference precisely."
+      : "3D FACE ID ENGINE ACTIVE. Maintain the exact identity consistently across all results.";
 
   const { fitPromptContext, fitSummarySuffix } =
     buildFitPromptContext(bodySpecs);
 
   const modeDict: Record<string, string> = {
-    fuji: "Texture: Fujifilm 400H (Cool greens, cyan shadows, high contrast cinematic film).",
-    mono: "Texture: Ilford HP5 Plus (High-end monochrome, heavy grain, deep noir look). FORCE STRICT BLACK AND WHITE. NO COLOR.",
+    fuji: "Texture: Fujifilm 400H (cool greens, cyan shadows, high contrast cinematic film).",
+    mono: "Texture: Ilford HP5 Plus. Force strict black and white. No color.",
     studio:
-      "Texture: Sharp high-key studio lighting. Zero grain, high-end digital clarity.",
-    raw: "Texture: Natural raw light. iPhone-style snapshot clarity, zero film simulation.",
+      "Texture: clean commercial high-key studio lighting. Zero grain. High-end digital clarity.",
+    raw: "Texture: natural raw light. Minimal grading. Realistic exposure.",
     default:
-      "Texture: Kodak Portra 400 (Warm skin tones, subtle analog grain, soft cinematic light).",
+      "Texture: Kodak Portra 400 (warm skin tones, subtle analog grain, soft cinematic light).",
   };
 
   let textureAndColor = modeDict.default;
-  if (shootingMode === "custom" && customPrompt) {
+
+  if (lockedVibe?.color_grading_and_texture) {
+    textureAndColor = lockedVibe.color_grading_and_texture;
+  } else if (shootingMode === "custom" && customPrompt) {
     textureAndColor = `Texture & Photography Style: ${customPrompt}`;
-  } else if (modeDict[shootingMode]) {
+  } else if (shootingMode !== "default" && modeDict[shootingMode]) {
     textureAndColor = modeDict[shootingMode];
   }
 
-  const fitSummary = `${isMixMode ? "🧩 MIX" : "👕 OUTFIT"}${fitSummarySuffix}`;
+  const backgroundText = lockedVibe?.background || dirSet.background;
+  const poseText = lockedVibe?.pose || dirSet.pose;
+  const expressionText = lockedVibe?.expression || dirSet.expression;
+  const moodText = lockedVibe?.overall_mood || dirSet.mood;
+  const cameraText =
+    lockedVibe?.camera_angle_and_crop || dirSet.photography_technique;
+  const lightingText =
+    lockedVibe?.lighting_and_exposure || dirSet.photography_technique;
+
+  const modeSummary = isMixMode ? "🧩 MIX" : "👕 OUTFIT";
+  const vibeSummary = lockedVibe ? " + 🔒 VIBE LOCK" : "";
+  const fitSummary = `${modeSummary}${vibeSummary}${fitSummarySuffix}`;
 
   const outfitInstruction = isMixMode
     ? `
@@ -4016,7 +2714,7 @@ export async function generateRefRunImageWeb(args: {
 `;
 
   const prompt = `
-Task: Exact Reference-Run Fashion Editorial Generation.
+Task: Exact Aesthetic Replication & High-End Fashion Try-On.
 
 [IDENTITY]
 - ${faceContext}
@@ -4025,22 +2723,20 @@ ${fitPromptContext}
 
 ${outfitInstruction}
 
-[REFERENCE STRUCTURE]
-- BACKGROUND: ${dirSet.background}
-- POSE: ${dirSet.pose}
-- EXPRESSION: ${dirSet.expression}
-- CAMERA / CROP: ${dirSet.camera_angle_and_crop}
-- LIGHTING / EXPOSURE: ${dirSet.lighting_and_exposure}
-- COLOR / TEXTURE: ${dirSet.color_grading_and_texture}
-- OVERALL MOOD: ${dirSet.overall_mood}
+[EDITORIAL ART DIRECTION]
+- BACKGROUND: ${backgroundText}
+- POSE: ${poseText}
+- EXPRESSION: ${expressionText}
+- OVERALL MOOD: ${moodText}
 
 [TECHNICAL EXECUTION]
 - ${textureAndColor}
-- Respect the reference image's visual grammar exactly.
+- CAMERA / PHOTOGRAPHY: ${cameraText}
+- LIGHTING: ${lightingText}
 - Render as a real premium fashion photograph.
 - Avoid generic AI 3D / plastic skin look.
-- 3:4 vertical composition.
-- 2K quality.
+- ${outputRatio} composition.
+- Output should feel like a luxury editorial lookbook image.
 `;
 
   const response = await ai.models.generateContent({
@@ -4050,7 +2746,7 @@ ${outfitInstruction}
     },
     config: {
       imageConfig: {
-        aspectRatio: "3:4",
+        aspectRatio: outputRatio,
         imageSize: "2K",
       },
       safetySettings,
@@ -4063,12 +2759,12 @@ ${outfitInstruction}
     )?.inlineData?.data || null;
 
   if (!imageBase64) {
-    throw new Error("REFRUN 이미지 생성 결과가 비어 있다.");
+    throw new Error("DIG 이미지 생성 결과가 비어 있다.");
   }
 
   return {
     base64: imageBase64,
-    summary: `${fitSummary} + REFRUN`,
+    summary: fitSummary,
   };
 }
 </file>
@@ -4381,6 +3077,511 @@ export default function EditorPage() {
 }
 </file>
 
+<file path="app/api/dig/generate-one/route.ts">
+import { NextResponse } from "next/server";
+import { createClient } from "@supabase/supabase-js";
+import { fileToBase64 } from "@/lib/utils";
+import {
+  generateDigImageWeb,
+  LockedVibe,
+  DigDirection,
+} from "@/lib/gemini-dig";
+
+const TEMP_INPUT_BUCKET = "temp-inputs";
+
+function stripBucketPrefix(path: string) {
+  if (!path) return path;
+  const prefix = `${TEMP_INPUT_BUCKET}/`;
+  return path.startsWith(prefix) ? path.slice(prefix.length) : path;
+}
+
+function arrayBufferToBase64(buffer: ArrayBuffer) {
+  return Buffer.from(buffer).toString("base64");
+}
+
+function getStorageAdmin() {
+  const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
+  const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
+
+  if (!url || !serviceRoleKey) {
+    throw new Error(
+      "Supabase Storage 서버 설정이 없습니다. NEXT_PUBLIC_SUPABASE_URL / SUPABASE_SERVICE_ROLE_KEY를 확인하세요."
+    );
+  }
+
+  return createClient(url, serviceRoleKey, {
+    auth: {
+      persistSession: false,
+      autoRefreshToken: false,
+    },
+  });
+}
+
+async function storagePathToBase64(path: string) {
+  const cleanedPath = stripBucketPrefix(path);
+
+  if (!cleanedPath) {
+    throw new Error("스토리지 경로가 비어 있습니다.");
+  }
+
+  const supabaseAdmin = getStorageAdmin();
+
+  const { data, error } = await supabaseAdmin.storage
+    .from(TEMP_INPUT_BUCKET)
+    .download(cleanedPath);
+
+  if (error || !data) {
+    throw new Error(
+      `스토리지 파일 읽기 실패: ${cleanedPath} / ${error?.message || "unknown"}`
+    );
+  }
+
+  const buffer = await data.arrayBuffer();
+  return arrayBufferToBase64(buffer);
+}
+
+function safeJsonParse<T>(raw: string, fallback: T): T {
+  try {
+    return JSON.parse(raw) as T;
+  } catch {
+    return fallback;
+  }
+}
+
+type JsonGenerateBody = {
+  fitSpec?: string;
+  shootingMode?: string;
+  customPrompt?: string;
+  outfitMode?: string;
+  lockedVibe?: LockedVibe | null;
+  direction?: DigDirection;
+  mixCaptions?: string[];
+  facePaths?: string[];
+  outfitPaths?: string[];
+  outputRatio?: "4:5" | "2:3" | "16:9"; // ✅ 추가
+};
+
+async function readJsonBody(req: Request): Promise<JsonGenerateBody | null> {
+  const contentType = req.headers.get("content-type") || "";
+
+  if (!contentType.includes("application/json")) {
+    return null;
+  }
+
+  try {
+    return (await req.json()) as JsonGenerateBody;
+  } catch {
+    return null;
+  }
+}
+
+export async function POST(req: Request) {
+  try {
+    const jsonBody = await readJsonBody(req);
+
+    let fitSpec = "";
+    let shootingMode = "default";
+    let customPrompt = "";
+    let outfitMode = "outfit";
+    let lockedVibe: LockedVibe | null = null;
+    let direction = {} as DigDirection;
+    let mixCaptions: string[] = [];
+    let faceBase64s: string[] = [];
+    let outfitBase64s: string[] = [];
+    let outputRatio: "4:5" | "2:3" | "16:9" = "4:5"; // ✅ 추가
+
+    if (jsonBody) {
+      fitSpec = jsonBody.fitSpec || "";
+      shootingMode = jsonBody.shootingMode || "default";
+      customPrompt = jsonBody.customPrompt || "";
+      outfitMode = jsonBody.outfitMode || "outfit";
+      lockedVibe = (jsonBody.lockedVibe || null) as LockedVibe | null;
+      direction = (jsonBody.direction || {}) as DigDirection;
+      mixCaptions = Array.isArray(jsonBody.mixCaptions)
+        ? jsonBody.mixCaptions
+        : [];
+
+      outputRatio = jsonBody.outputRatio || "4:5"; // ✅ 추가
+
+      const facePaths = Array.isArray(jsonBody.facePaths)
+        ? jsonBody.facePaths
+        : [];
+      const outfitPaths = Array.isArray(jsonBody.outfitPaths)
+        ? jsonBody.outfitPaths
+        : [];
+
+      if (!direction?.background && !direction?.mood) {
+        return NextResponse.json(
+          { error: "direction 정보가 필요하다." },
+          { status: 400 }
+        );
+      }
+
+      if (!facePaths.length) {
+        return NextResponse.json(
+          { error: "얼굴 스토리지 경로는 최소 1개 필요하다." },
+          { status: 400 }
+        );
+      }
+
+      if (!outfitPaths.length) {
+        return NextResponse.json(
+          { error: "의상 스토리지 경로는 최소 1개 필요하다." },
+          { status: 400 }
+        );
+      }
+
+      if (outfitMode === "mix" && mixCaptions.length !== outfitPaths.length) {
+        return NextResponse.json(
+          { error: "MIX 설명 수와 의상 이미지 수가 맞지 않는다." },
+          { status: 400 }
+        );
+      }
+
+      faceBase64s = await Promise.all(facePaths.map(storagePathToBase64));
+      outfitBase64s = await Promise.all(outfitPaths.map(storagePathToBase64));
+    } else {
+      const formData = await req.formData();
+
+      fitSpec = (formData.get("fitSpec") as string) || "";
+      shootingMode = (formData.get("shootingMode") as string) || "default";
+      customPrompt = (formData.get("customPrompt") as string) || "";
+      outfitMode = (formData.get("outfitMode") as string) || "outfit";
+      const lockedVibeRaw = (formData.get("lockedVibe") as string) || "";
+      const directionRaw = (formData.get("direction") as string) || "";
+      const mixCaptionsRaw = (formData.get("mixCaptions") as string) || "[]";
+      const outputRatioRaw =
+        (formData.get("outputRatio") as string) || "4:5"; // ✅ 추가
+
+      outputRatio = outputRatioRaw as "4:5" | "2:3" | "16:9"; // ✅ 추가
+
+      const faceFiles = formData.getAll("faces") as File[];
+      const outfitFiles = formData.getAll("outfits") as File[];
+
+      if (!directionRaw) {
+        return NextResponse.json(
+          { error: "direction 정보가 필요하다." },
+          { status: 400 }
+        );
+      }
+
+      if (!faceFiles.length) {
+        return NextResponse.json(
+          { error: "얼굴 이미지는 최소 1장 필요하다." },
+          { status: 400 }
+        );
+      }
+
+      if (!outfitFiles.length) {
+        return NextResponse.json(
+          { error: "의상 이미지는 최소 1장 필요하다." },
+          { status: 400 }
+        );
+      }
+
+      direction = safeJsonParse<DigDirection>(directionRaw, {} as DigDirection);
+      mixCaptions = safeJsonParse<string[]>(mixCaptionsRaw, []);
+      lockedVibe = lockedVibeRaw
+        ? safeJsonParse<LockedVibe | null>(lockedVibeRaw, null)
+        : null;
+
+      if (outfitMode === "mix" && mixCaptions.length !== outfitFiles.length) {
+        return NextResponse.json(
+          { error: "MIX 설명 수와 의상 이미지 수가 맞지 않는다." },
+          { status: 400 }
+        );
+      }
+
+      faceBase64s = await Promise.all(faceFiles.map(fileToBase64));
+      outfitBase64s = await Promise.all(outfitFiles.map(fileToBase64));
+    }
+
+    const generated = await generateDigImageWeb({
+      faceBase64s,
+      outfitBase64s,
+      dirSet: direction,
+      bodySpecs: fitSpec,
+      shootingMode,
+      customPrompt: shootingMode === "custom" ? customPrompt : undefined,
+      lockedVibe,
+      isMixMode: outfitMode === "mix",
+      mixCaptions,
+      outputRatio, // ✅ 핵심 추가
+    });
+
+    return NextResponse.json({
+      success: true,
+      result: {
+        image: generated.base64,
+        summary: generated.summary,
+        direction,
+      },
+    });
+  } catch (error) {
+    console.error("DIG_GENERATE_ONE_ERROR:", error);
+
+    const message =
+      error instanceof Error ? error.message : "알 수 없는 generate-one 오류";
+
+    return NextResponse.json({ error: message }, { status: 500 });
+  }
+}
+</file>
+
+<file path="app/api/fusion/generate-one/route.ts">
+import { NextResponse } from "next/server";
+import { createClient } from "@supabase/supabase-js";
+import { fileToBase64 } from "@/lib/utils";
+import {
+  generateFusionImageWeb,
+  BackgroundDNA,
+  PoseBlueprint,
+  LockedVibe,
+} from "@/lib/gemini-fusion";
+
+const TEMP_INPUT_BUCKET = "temp-inputs";
+
+function stripBucketPrefix(path: string) {
+  if (!path) return path;
+  const prefix = `${TEMP_INPUT_BUCKET}/`;
+  return path.startsWith(prefix) ? path.slice(prefix.length) : path;
+}
+
+function arrayBufferToBase64(buffer: ArrayBuffer) {
+  return Buffer.from(buffer).toString("base64");
+}
+
+function getStorageAdmin() {
+  const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
+  const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
+
+  if (!url || !serviceRoleKey) {
+    throw new Error(
+      "Supabase Storage 서버 설정이 없습니다. NEXT_PUBLIC_SUPABASE_URL / SUPABASE_SERVICE_ROLE_KEY를 확인하세요."
+    );
+  }
+
+  return createClient(url, serviceRoleKey, {
+    auth: {
+      persistSession: false,
+      autoRefreshToken: false,
+    },
+  });
+}
+
+async function storagePathToBase64(path: string) {
+  const cleanedPath = stripBucketPrefix(path);
+
+  if (!cleanedPath) {
+    throw new Error("스토리지 경로가 비어 있습니다.");
+  }
+
+  const supabaseAdmin = getStorageAdmin();
+
+  const { data, error } = await supabaseAdmin.storage
+    .from(TEMP_INPUT_BUCKET)
+    .download(cleanedPath);
+
+  if (error || !data) {
+    throw new Error(
+      `스토리지 파일 읽기 실패: ${cleanedPath} / ${error?.message || "unknown"}`
+    );
+  }
+
+  const buffer = await data.arrayBuffer();
+  return arrayBufferToBase64(buffer);
+}
+
+function safeJsonParse<T>(raw: string, fallback: T): T {
+  try {
+    return JSON.parse(raw) as T;
+  } catch {
+    return fallback;
+  }
+}
+
+type JsonGenerateBody = {
+  fitSpec?: string;
+  shootingMode?: string;
+  customPrompt?: string;
+  outfitMode?: string;
+  mixCaptions?: string[];
+  bgDNA?: BackgroundDNA;
+  poseBlueprint?: PoseBlueprint;
+  locationPrompt?: string;
+  lockedVibe?: LockedVibe | null;
+  facePaths?: string[];
+  outfitPaths?: string[];
+  outputRatio?: "4:5" | "2:3" | "16:9"; // ✅ 추가
+};
+
+async function readJsonBody(req: Request): Promise<JsonGenerateBody | null> {
+  const contentType = req.headers.get("content-type") || "";
+
+  if (!contentType.includes("application/json")) {
+    return null;
+  }
+
+  try {
+    return (await req.json()) as JsonGenerateBody;
+  } catch {
+    return null;
+  }
+}
+
+export async function POST(req: Request) {
+  try {
+    const jsonBody = await readJsonBody(req);
+
+    let fitSpec = "";
+    let shootingMode = "default";
+    let customPrompt = "";
+    let outfitMode = "outfit";
+    let mixCaptions: string[] = [];
+    let bgDNA = {} as BackgroundDNA;
+    let poseBlueprint = {} as PoseBlueprint;
+    let locationPrompt = "";
+    let lockedVibe: LockedVibe | null = null;
+    let faceBase64s: string[] = [];
+    let outfitBase64s: string[] = [];
+    let outputRatio: "4:5" | "2:3" | "16:9" = "4:5"; // ✅ 추가
+
+    if (jsonBody) {
+      fitSpec = jsonBody.fitSpec || "";
+      shootingMode = jsonBody.shootingMode || "default";
+      customPrompt = jsonBody.customPrompt || "";
+      outfitMode = jsonBody.outfitMode || "outfit";
+      mixCaptions = Array.isArray(jsonBody.mixCaptions)
+        ? jsonBody.mixCaptions
+        : [];
+      bgDNA = (jsonBody.bgDNA || {}) as BackgroundDNA;
+      poseBlueprint = (jsonBody.poseBlueprint || {}) as PoseBlueprint;
+      locationPrompt = (jsonBody.locationPrompt || "").trim();
+      lockedVibe = (jsonBody.lockedVibe || null) as LockedVibe | null;
+
+      outputRatio = jsonBody.outputRatio || "4:5"; // ✅ 추가
+
+      const facePaths = Array.isArray(jsonBody.facePaths)
+        ? jsonBody.facePaths
+        : [];
+      const outfitPaths = Array.isArray(jsonBody.outfitPaths)
+        ? jsonBody.outfitPaths
+        : [];
+
+      if (!facePaths.length) {
+        return NextResponse.json(
+          { error: "얼굴 스토리지 경로는 최소 1개 필요하다." },
+          { status: 400 }
+        );
+      }
+
+      if (!outfitPaths.length) {
+        return NextResponse.json(
+          { error: "의상 스토리지 경로는 최소 1개 필요하다." },
+          { status: 400 }
+        );
+      }
+
+      if (!locationPrompt) {
+        return NextResponse.json(
+          { error: "로케이션 프롬프트가 필요하다." },
+          { status: 400 }
+        );
+      }
+
+      faceBase64s = await Promise.all(facePaths.map(storagePathToBase64));
+      outfitBase64s = await Promise.all(outfitPaths.map(storagePathToBase64));
+    } else {
+      const formData = await req.formData();
+
+      fitSpec = (formData.get("fitSpec") as string) || "";
+      shootingMode = (formData.get("shootingMode") as string) || "default";
+      customPrompt = (formData.get("customPrompt") as string) || "";
+      outfitMode = (formData.get("outfitMode") as string) || "outfit";
+      const mixCaptionsRaw = (formData.get("mixCaptions") as string) || "[]";
+      const bgDNARaw = (formData.get("bgDNA") as string) || "{}";
+      const poseBlueprintRaw = (formData.get("poseBlueprint") as string) || "{}";
+      locationPrompt = ((formData.get("locationPrompt") as string) || "").trim();
+      const lockedVibeRaw = (formData.get("lockedVibe") as string) || "";
+      const outputRatioRaw =
+        (formData.get("outputRatio") as string) || "4:5"; // ✅ 추가
+
+      outputRatio = outputRatioRaw as "4:5" | "2:3" | "16:9"; // ✅ 추가
+
+      const faceFiles = formData.getAll("faces") as File[];
+      const outfitFiles = formData.getAll("outfits") as File[];
+
+      if (!faceFiles.length) {
+        return NextResponse.json(
+          { error: "얼굴 이미지는 최소 1장 필요하다." },
+          { status: 400 }
+        );
+      }
+
+      if (!outfitFiles.length) {
+        return NextResponse.json(
+          { error: "의상 이미지는 최소 1장 필요하다." },
+          { status: 400 }
+        );
+      }
+
+      if (!locationPrompt) {
+        return NextResponse.json(
+          { error: "로케이션 프롬프트가 필요하다." },
+          { status: 400 }
+        );
+      }
+
+      faceBase64s = await Promise.all(faceFiles.map(fileToBase64));
+      outfitBase64s = await Promise.all(outfitFiles.map(fileToBase64));
+
+      mixCaptions = safeJsonParse<string[]>(mixCaptionsRaw, []);
+      bgDNA = safeJsonParse<BackgroundDNA>(bgDNARaw, {} as BackgroundDNA);
+      poseBlueprint = safeJsonParse<PoseBlueprint>(
+        poseBlueprintRaw,
+        {} as PoseBlueprint
+      );
+      lockedVibe = lockedVibeRaw
+        ? safeJsonParse<LockedVibe | null>(lockedVibeRaw, null)
+        : null;
+    }
+
+    const generated = await generateFusionImageWeb({
+      faceBase64s,
+      outfitBase64s,
+      poseBlueprint,
+      targetLocationText: locationPrompt,
+      bgDNA,
+      bodySpecs: fitSpec,
+      isMixMode: outfitMode === "mix",
+      mixCaptions,
+      lockedVibe,
+      shootingMode,
+      customPrompt: shootingMode === "custom" ? customPrompt : undefined,
+      outputRatio, // ✅ 핵심 추가
+    });
+
+    return NextResponse.json({
+      success: true,
+      result: {
+        image: generated.base64,
+        summary: generated.summary,
+        locationPrompt,
+        poseBlueprint,
+        bgDNA,
+      },
+    });
+  } catch (error) {
+    console.error("FUSION_GENERATE_ONE_ERROR:", error);
+
+    const message =
+      error instanceof Error ? error.message : "알 수 없는 FUSION 생성 오류";
+
+    return NextResponse.json({ error: message }, { status: 500 });
+  }
+}
+</file>
+
 <file path="app/api/model-anchor/route.ts">
 import { NextRequest, NextResponse } from "next/server";
 import { GoogleGenAI } from "@google/genai";
@@ -4484,243 +3685,6 @@ OUTPUT RULE:
   } catch (error) {
     console.error("model-anchor route error:", error);
     return NextResponse.json({ error: "모델 생성 실패" }, { status: 500 });
-  }
-}
-</file>
-
-<file path="app/api/refrun/run-one/route.ts">
-import { NextResponse } from "next/server";
-import { createClient } from "@supabase/supabase-js";
-import { fileToBase64 } from "@/lib/utils";
-import {
-  analyzeReferenceWeb,
-  generateRefRunImageWeb,
-} from "@/lib/gemini-refrun";
-
-const TEMP_INPUT_BUCKET = "temp-inputs";
-
-function stripBucketPrefix(path: string) {
-  if (!path) return path;
-  const prefix = `${TEMP_INPUT_BUCKET}/`;
-  return path.startsWith(prefix) ? path.slice(prefix.length) : path;
-}
-
-function arrayBufferToBase64(buffer: ArrayBuffer) {
-  return Buffer.from(buffer).toString("base64");
-}
-
-function getStorageAdmin() {
-  const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
-  const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
-
-  if (!url || !serviceRoleKey) {
-    throw new Error(
-      "Supabase Storage 서버 설정이 없습니다. NEXT_PUBLIC_SUPABASE_URL / SUPABASE_SERVICE_ROLE_KEY를 확인하세요."
-    );
-  }
-
-  return createClient(url, serviceRoleKey, {
-    auth: {
-      persistSession: false,
-      autoRefreshToken: false,
-    },
-  });
-}
-
-async function storagePathToBase64(path: string) {
-  const cleanedPath = stripBucketPrefix(path);
-
-  if (!cleanedPath) {
-    throw new Error("스토리지 경로가 비어 있습니다.");
-  }
-
-  const supabaseAdmin = getStorageAdmin();
-
-  const { data, error } = await supabaseAdmin.storage
-    .from(TEMP_INPUT_BUCKET)
-    .download(cleanedPath);
-
-  if (error || !data) {
-    throw new Error(
-      `스토리지 파일 읽기 실패: ${cleanedPath} / ${error?.message || "unknown"}`
-    );
-  }
-
-  const buffer = await data.arrayBuffer();
-  return arrayBufferToBase64(buffer);
-}
-
-function safeJsonParse<T>(raw: string, fallback: T): T {
-  try {
-    return JSON.parse(raw) as T;
-  } catch {
-    return fallback;
-  }
-}
-
-type JsonRefRunBody = {
-  fitSpec?: string;
-  shootingMode?: string;
-  customPrompt?: string;
-  outfitMode?: string;
-  mixCaptions?: string[];
-  facePaths?: string[];
-  outfitPaths?: string[];
-  referencePath?: string;
-};
-
-async function readJsonBody(req: Request): Promise<JsonRefRunBody | null> {
-  const contentType = req.headers.get("content-type") || "";
-
-  if (!contentType.includes("application/json")) {
-    return null;
-  }
-
-  try {
-    return (await req.json()) as JsonRefRunBody;
-  } catch {
-    return null;
-  }
-}
-
-export async function POST(req: Request) {
-  try {
-    const jsonBody = await readJsonBody(req);
-
-    let fitSpec = "";
-    let shootingMode = "default";
-    let customPrompt = "";
-    let outfitMode = "outfit";
-    let mixCaptions: string[] = [];
-
-    let faceBase64s: string[] = [];
-    let outfitBase64s: string[] = [];
-    let referenceBase64 = "";
-
-    if (jsonBody) {
-      fitSpec = jsonBody.fitSpec || "";
-      shootingMode = jsonBody.shootingMode || "default";
-      customPrompt = jsonBody.customPrompt || "";
-      outfitMode = jsonBody.outfitMode || "outfit";
-      mixCaptions = Array.isArray(jsonBody.mixCaptions)
-        ? jsonBody.mixCaptions
-        : [];
-
-      const facePaths = Array.isArray(jsonBody.facePaths)
-        ? jsonBody.facePaths
-        : [];
-      const outfitPaths = Array.isArray(jsonBody.outfitPaths)
-        ? jsonBody.outfitPaths
-        : [];
-      const referencePath = (jsonBody.referencePath || "").trim();
-
-      if (!facePaths.length) {
-        return NextResponse.json(
-          { error: "얼굴 스토리지 경로는 최소 1개 필요하다." },
-          { status: 400 }
-        );
-      }
-
-      if (!outfitPaths.length) {
-        return NextResponse.json(
-          { error: "의상 스토리지 경로는 최소 1개 필요하다." },
-          { status: 400 }
-        );
-      }
-
-      if (!referencePath) {
-        return NextResponse.json(
-          { error: "레퍼런스 스토리지 경로는 최소 1개 필요하다." },
-          { status: 400 }
-        );
-      }
-
-      if (outfitMode === "mix" && mixCaptions.length !== outfitPaths.length) {
-        return NextResponse.json(
-          { error: "MIX 설명 수와 의상 이미지 수가 맞지 않는다." },
-          { status: 400 }
-        );
-      }
-
-      faceBase64s = await Promise.all(facePaths.map(storagePathToBase64));
-      outfitBase64s = await Promise.all(outfitPaths.map(storagePathToBase64));
-      referenceBase64 = await storagePathToBase64(referencePath);
-    } else {
-      const formData = await req.formData();
-
-      fitSpec = (formData.get("fitSpec") as string) || "";
-      shootingMode = (formData.get("shootingMode") as string) || "default";
-      customPrompt = (formData.get("customPrompt") as string) || "";
-      outfitMode = (formData.get("outfitMode") as string) || "outfit";
-      const mixCaptionsRaw = (formData.get("mixCaptions") as string) || "[]";
-
-      const faceFiles = formData.getAll("faces") as File[];
-      const outfitFiles = formData.getAll("outfits") as File[];
-      const referenceFile = formData.get("reference") as File | null;
-
-      if (!faceFiles.length) {
-        return NextResponse.json(
-          { error: "얼굴 이미지는 최소 1장 필요하다." },
-          { status: 400 }
-        );
-      }
-
-      if (!outfitFiles.length) {
-        return NextResponse.json(
-          { error: "의상 이미지는 최소 1장 필요하다." },
-          { status: 400 }
-        );
-      }
-
-      if (!referenceFile) {
-        return NextResponse.json(
-          { error: "레퍼런스 이미지는 최소 1장 필요하다." },
-          { status: 400 }
-        );
-      }
-
-      mixCaptions = safeJsonParse<string[]>(mixCaptionsRaw, []);
-
-      if (outfitMode === "mix" && mixCaptions.length !== outfitFiles.length) {
-        return NextResponse.json(
-          { error: "MIX 설명 수와 의상 이미지 수가 맞지 않는다." },
-          { status: 400 }
-        );
-      }
-
-      faceBase64s = await Promise.all(faceFiles.map(fileToBase64));
-      outfitBase64s = await Promise.all(outfitFiles.map(fileToBase64));
-      referenceBase64 = await fileToBase64(referenceFile);
-    }
-
-    const analyzed = await analyzeReferenceWeb(referenceBase64);
-
-    const generated = await generateRefRunImageWeb({
-      faceBase64s,
-      outfitBase64s,
-      dirSet: analyzed,
-      bodySpecs: fitSpec,
-      shootingMode,
-      customPrompt: shootingMode === "custom" ? customPrompt : undefined,
-      isMixMode: outfitMode === "mix",
-      mixCaptions,
-    });
-
-    return NextResponse.json({
-      success: true,
-      result: {
-        image: generated.base64,
-        summary: generated.summary,
-        direction: analyzed,
-      },
-    });
-  } catch (error) {
-    console.error("REFRUN_RUN_ONE_ERROR:", error);
-
-    const message =
-      error instanceof Error ? error.message : "알 수 없는 REFRUN 오류";
-
-    return NextResponse.json({ error: message }, { status: 500 });
   }
 }
 </file>
@@ -5701,6 +4665,828 @@ export default function FaceInputSection({
 }
 </file>
 
+<file path="lib/gemini-fusion.ts">
+import {
+  GoogleGenAI,
+  HarmCategory,
+  HarmBlockThreshold,
+} from "@google/genai";
+
+const ai = new GoogleGenAI({
+  apiKey: process.env.GEMINI_API_KEY!,
+});
+
+const safetySettings = [
+  {
+    category: HarmCategory.HARM_CATEGORY_HARASSMENT,
+    threshold: HarmBlockThreshold.BLOCK_ONLY_HIGH,
+  },
+  {
+    category: HarmCategory.HARM_CATEGORY_HATE_SPEECH,
+    threshold: HarmBlockThreshold.BLOCK_ONLY_HIGH,
+  },
+  {
+    category: HarmCategory.HARM_CATEGORY_SEXUALLY_EXPLICIT,
+    threshold: HarmBlockThreshold.BLOCK_ONLY_HIGH,
+  },
+  {
+    category: HarmCategory.HARM_CATEGORY_DANGEROUS_CONTENT,
+    threshold: HarmBlockThreshold.BLOCK_ONLY_HIGH,
+  },
+];
+
+export type BackgroundDNA = {
+  environment_type?: string;
+  architectural_language?: string;
+  lighting_and_exposure?: string;
+  color_grading_and_texture?: string;
+  spatial_mood?: string;
+  camera_feel?: string;
+  do_not_copy?: string[];
+};
+
+export type PoseBlueprint = {
+  pose?: string;
+  expression?: string;
+  camera_angle_and_crop?: string;
+  body_attitude?: string;
+};
+
+export type LockedVibe = {
+  background?: string;
+  pose?: string;
+  expression?: string;
+  overall_mood?: string;
+  camera_angle_and_crop?: string;
+  lighting_and_exposure?: string;
+  color_grading_and_texture?: string;
+};
+
+export type OutputRatio = "4:5" | "2:3" | "16:9";
+
+const buildFitPromptContext = (
+  bodySpecs?: string
+): { fitPromptContext: string; fitSummarySuffix: string } => {
+  if (!bodySpecs) {
+    return {
+      fitPromptContext:
+        "- AUTO-FIT MODE: Replicate the garment's silhouette, fit, length, and drape EXACTLY.",
+      fitSummarySuffix: "",
+    };
+  }
+
+  const specMatch = bodySpecs.match(/(\d+)\/(\d+)\s+(\d+)\/(\d+)/);
+  if (!specMatch) {
+    return {
+      fitPromptContext:
+        "- AUTO-FIT MODE: Replicate the garment's silhouette, fit, length, and drape EXACTLY.",
+      fitSummarySuffix: "",
+    };
+  }
+
+  const h1 = parseInt(specMatch[1], 10);
+  const w1 = parseInt(specMatch[2], 10);
+  const h2 = parseInt(specMatch[3], 10);
+  const w2 = parseInt(specMatch[4], 10);
+
+  const hDiff = h2 - h1;
+  const wDiff = w2 - w1;
+
+  let hDesc = "";
+  let wDesc = "";
+  let lengthEffect = "";
+  let widthEffect = "";
+
+  if (hDiff >= 4) {
+    hDesc = "taller";
+    lengthEffect =
+      "Because the body is taller/longer, the fixed garment sits naturally higher. Sleeves expose more wrist and pants break higher.";
+  } else if (hDiff <= -4) {
+    hDesc = "shorter";
+    lengthEffect =
+      "Because the body is shorter, the fixed garment falls lower. Sleeves cover more hands and pants stack more.";
+  }
+
+  if (wDiff >= 4) {
+    wDesc = "broader/heavier";
+    widthEffect =
+      "Because the body is thicker, the fixed garment fits tighter with reduced drape.";
+  } else if (wDiff <= -4) {
+    wDesc = "slimmer/lighter";
+    widthEffect =
+      "Because the body is thinner, the fixed garment fits looser with more drape.";
+  }
+
+  let bodyChange = [hDesc, wDesc].filter(Boolean).join(" and ");
+  if (!bodyChange) {
+    bodyChange = "similar proportions";
+    lengthEffect = "Maintain original vertical fit.";
+    widthEffect = "Maintain original width and drape.";
+  }
+
+  return {
+    fitPromptContext: `
+- FIT CALIBRATION (FIXED GARMENT PARADIGM):
+  * The garment size and design are fixed.
+  * Do NOT redesign or resize the garment itself.
+  * The target body is visually ${bodyChange}.
+  * Visual effect:
+    1. ${lengthEffect}
+    2. ${widthEffect}
+`,
+    fitSummarySuffix: ` + 📏 핏 보정: Body ${bodyChange}`,
+  };
+};
+
+export async function analyzeBackgroundDNAFromBase64s(
+  bgBase64s: string[]
+): Promise<BackgroundDNA> {
+  const analyses: any[] = [];
+
+  for (const base64 of bgBase64s) {
+    const response = await ai.models.generateContent({
+      model: "gemini-3-flash-preview",
+      contents: {
+        parts: [
+          {
+            inlineData: {
+              data: base64,
+              mimeType: "image/jpeg",
+            },
+          },
+          {
+            text: `Analyze this location/environment image for fashion lookbook worldbuilding.
+
+Return ONLY raw JSON with:
+{
+  "environment_type": "what kind of place this is",
+  "architectural_language": "materials, shapes, structural language",
+  "lighting_and_exposure": "light quality and exposure character",
+  "color_grading_and_texture": "color cast, grain, texture, surface feeling",
+  "spatial_mood": "psychological feel of the place",
+  "camera_feel": "what kind of framing / distance this world suggests",
+  "key_non_repeatable_elements": ["specific one-off details that should NOT be copied literally"]
+}
+
+Focus on environmental DNA only. No people, no clothes.`,
+          },
+        ],
+      },
+      config: {
+        safetySettings,
+      },
+    });
+
+    let text = response.candidates?.[0]?.content?.parts?.[0]?.text || "{}";
+    const jsonStart = text.indexOf("{");
+    const jsonEnd = text.lastIndexOf("}") + 1;
+
+    if (jsonStart !== -1 && jsonEnd !== -1) {
+      text = text.substring(jsonStart, jsonEnd);
+    }
+
+    analyses.push(JSON.parse(text));
+  }
+
+  const summaryResp = await ai.models.generateContent({
+    model: "gemini-3-flash-preview",
+    contents: {
+      parts: [
+        {
+          text: `You are merging multiple environment analyses into one unified background DNA for a fashion lookbook engine.
+
+Input analyses:
+${JSON.stringify(analyses, null, 2)}
+
+Return ONLY raw JSON:
+{
+  "environment_type": "...",
+  "architectural_language": "...",
+  "lighting_and_exposure": "...",
+  "color_grading_and_texture": "...",
+  "spatial_mood": "...",
+  "camera_feel": "...",
+  "do_not_copy": ["specific literal geometry/details to avoid repeating"]
+}
+
+Goal:
+- keep shared DNA
+- remove one-off literal geometry
+- produce a reusable neighborhood/world description`,
+        },
+      ],
+    },
+    config: {
+      safetySettings,
+    },
+  });
+
+  let summaryText =
+    summaryResp.candidates?.[0]?.content?.parts?.[0]?.text || "{}";
+  const sumStart = summaryText.indexOf("{");
+  const sumEnd = summaryText.lastIndexOf("}") + 1;
+
+  if (sumStart !== -1 && sumEnd !== -1) {
+    summaryText = summaryText.substring(sumStart, sumEnd);
+  }
+
+  return JSON.parse(summaryText);
+}
+
+export async function analyzePoseBlueprintFromBase64(
+  poseBase64: string
+): Promise<PoseBlueprint> {
+  const response = await ai.models.generateContent({
+    model: "gemini-3-flash-preview",
+    contents: {
+      parts: [
+        {
+          inlineData: {
+            data: poseBase64,
+            mimeType: "image/jpeg",
+          },
+        },
+        {
+          text: `Analyze this pose reference image as a HIGH-END FASHION EDITORIAL POSE.
+
+IMPORTANT:
+Do NOT reduce the pose into only dry skeletal coordinates.
+Read it like a fashion photographer for a luxury brand.
+
+Return ONLY raw JSON:
+{
+  "pose": "body posture, weight balance, arm/leg attitude",
+  "expression": "facial expression and gaze direction",
+  "camera_angle_and_crop": "camera angle / crop feeling",
+  "body_attitude": "editorial attitude / emotion carried by the body"
+}`,
+        },
+      ],
+    },
+    config: {
+      safetySettings,
+    },
+  });
+
+  let text = response.candidates?.[0]?.content?.parts?.[0]?.text || "{}";
+  const jsonStart = text.indexOf("{");
+  const jsonEnd = text.lastIndexOf("}") + 1;
+
+  if (jsonStart !== -1 && jsonEnd !== -1) {
+    text = text.substring(jsonStart, jsonEnd);
+  }
+
+  return JSON.parse(text);
+}
+
+export async function searchLocationPrompts(
+  bgDNA: BackgroundDNA,
+  count: number
+): Promise<string[]> {
+  const systemPrompt = `Background DNA (Material & Lighting World):
+${JSON.stringify(bgDNA, null, 2)}
+
+TASK:
+Generate EXACTLY ${count} spatially distinct location prompts based strictly on the provided Background DNA.
+
+CRITICAL DIVERSITY RULE:
+If generating multiple locations, each prompt must focus on a DIFFERENT structural element or camera perspective while keeping the core DNA identical.
+
+Return ONLY a valid JSON array of strings containing EXACTLY ${count} elements.
+Format: ["location description 1", "location description 2", ...]`;
+
+  const response = await ai.models.generateContent({
+    model: "gemini-3-flash-preview",
+    contents: { parts: [{ text: systemPrompt }] },
+    config: {
+      safetySettings,
+    },
+  });
+
+  const rawText = response.candidates?.[0]?.content?.parts?.[0]?.text || "[]";
+  const jsonStart = rawText.indexOf("[");
+  const jsonEnd = rawText.lastIndexOf("]") + 1;
+
+  if (jsonStart === -1 || jsonEnd === 0) {
+    throw new Error("로케이션 프롬프트 JSON 파싱 실패");
+  }
+
+  const result = JSON.parse(rawText.substring(jsonStart, jsonEnd));
+  return Array.isArray(result) ? result.slice(0, count) : [];
+}
+
+export async function generateFusionImageWeb(args: {
+  faceBase64s: string[];
+  outfitBase64s: string[];
+  poseBlueprint: PoseBlueprint;
+  targetLocationText: string;
+  bgDNA: BackgroundDNA;
+  bodySpecs?: string;
+  isMixMode?: boolean;
+  mixCaptions?: string[];
+  lockedVibe?: LockedVibe | null;
+  shootingMode?: string;
+  customPrompt?: string;
+  outputRatio?: OutputRatio;
+}): Promise<{ base64: string; summary: string }> {
+  const {
+    faceBase64s,
+    outfitBase64s,
+    poseBlueprint,
+    targetLocationText,
+    bgDNA,
+    bodySpecs,
+    isMixMode = false,
+    mixCaptions = [],
+    lockedVibe,
+    shootingMode = "default",
+    customPrompt,
+    outputRatio = "4:5",
+  } = args;
+
+  const parts: any[] = [];
+
+  faceBase64s.forEach((faceBase64) => {
+    parts.push({
+      inlineData: {
+        data: faceBase64,
+        mimeType: "image/jpeg",
+      },
+    });
+  });
+
+  outfitBase64s.forEach((outfitBase64, index) => {
+    parts.push({
+      inlineData: {
+        data: outfitBase64,
+        mimeType: "image/jpeg",
+      },
+    });
+
+    if (isMixMode) {
+      const caption =
+        mixCaptions[index] || "No specific styling instruction provided.";
+      parts.push({
+        text: `[Mix Item ${index + 1} Instruction: ${caption}]`,
+      });
+    }
+  });
+
+  const { fitPromptContext, fitSummarySuffix } =
+    buildFitPromptContext(bodySpecs);
+  const fitSummary = `${isMixMode ? "🧩 MIX" : "👕 OUTFIT"}${fitSummarySuffix}`;
+
+  const modeDict: Record<string, string> = {
+    fuji: "Texture: Fujifilm 400H (Cool greens, cyan shadows, high contrast cinematic film).",
+    mono: "Texture: Ilford HP5 Plus (High-end monochrome, heavy grain, deep noir look). FORCE STRICT BLACK AND WHITE. NO COLOR.",
+    studio:
+      "Texture: Sharp high-key studio lighting. Zero grain, high-end digital clarity.",
+    raw: "Texture: Natural raw light. iPhone-style snapshot clarity, zero film simulation.",
+    default:
+      "Texture: Kodak Portra 400 (Warm skin tones, subtle analog grain, soft cinematic light).",
+  };
+
+  let textureAndColor = "";
+  if (lockedVibe?.color_grading_and_texture) {
+    textureAndColor = lockedVibe.color_grading_and_texture;
+  } else if (shootingMode === "custom" && customPrompt) {
+    textureAndColor = `Texture & Photography Style: ${customPrompt}`;
+  } else if (shootingMode !== "default") {
+    textureAndColor = modeDict[shootingMode];
+  } else {
+    textureAndColor =
+      bgDNA?.color_grading_and_texture || modeDict["default"];
+  }
+
+  const lightingStyle =
+    lockedVibe?.lighting_and_exposure ||
+    bgDNA?.lighting_and_exposure ||
+    "Soft editorial natural lighting.";
+
+  const moodStyle =
+    lockedVibe?.overall_mood ||
+    bgDNA?.spatial_mood ||
+    "High-end restrained editorial mood.";
+
+  const cameraFeel =
+    lockedVibe?.camera_angle_and_crop ||
+    poseBlueprint?.camera_angle_and_crop ||
+    bgDNA?.camera_feel ||
+    "Editorial framing with natural negative space.";
+
+  const finalPose = lockedVibe?.pose || poseBlueprint?.pose || "";
+  const finalExpression =
+    lockedVibe?.expression || poseBlueprint?.expression || "";
+  const finalBackground = lockedVibe?.background || targetLocationText;
+  const finalBodyAttitude = poseBlueprint?.body_attitude || "";
+
+  const prompt = `
+Task: Create a premium FUSION fashion editorial image.
+
+[IDENTITY]
+- Maintain exact identity from face references.
+
+[OUTFIT]
+- Reconstruct the exact outfit from the uploaded outfit images.
+- ${
+    isMixMode
+      ? "This is MIX mode. Respect each item detail text exactly."
+      : "This is standard outfit mode."
+  }
+
+${fitPromptContext}
+
+[BACKGROUND WORLD]
+- Environment type: ${bgDNA?.environment_type || ""}
+- Architectural language: ${bgDNA?.architectural_language || ""}
+- Lighting DNA: ${lightingStyle}
+- Color / texture DNA: ${textureAndColor}
+- Mood DNA: ${moodStyle}
+- Target location: ${finalBackground}
+
+[POSE / ATTITUDE]
+- Pose: ${finalPose}
+- Expression: ${finalExpression}
+- Body attitude: ${finalBodyAttitude}
+
+[PHOTO GRAMMAR]
+- Camera framing / crop: ${cameraFeel}
+
+[CRITICAL CAMERA PRIORITY]
+- The camera framing MUST follow the pose reference first.
+- Maintain the same crop level and framing feel from the pose reference.
+- Do NOT widen the frame just to show more background.
+- Background/location is for environmental DNA only, not for deciding crop width.
+- If pose reference suggests upper-body, chest-up, waist-up, or medium framing, preserve that exact framing logic.
+- If pose reference suggests full-body, preserve full-body.
+- Pose reference has higher priority than background camera feel.
+
+[BACKGROUND CONTROL]
+- The location should inherit the background DNA, but literal geometry must not be copied.
+- Build a different place within the same neighborhood/world.
+- Avoid repeating one-off windows, doors, corners, or exact facade layout from the background references.
+
+[OUTPUT RULE]
+- Render as a premium fashion editorial photograph.
+- Keep the image realistic and luxury-brand ready.
+- Avoid generic AI mannequin feel.
+- ${outputRatio} composition.
+- 2K quality.
+`;
+
+  const response = await ai.models.generateContent({
+    model: "gemini-3.1-flash-image-preview",
+    contents: {
+      parts: [...parts, { text: prompt }],
+    },
+    config: {
+      imageConfig: {
+        aspectRatio: outputRatio,
+        imageSize: "2K",
+      },
+      safetySettings,
+    },
+  });
+
+  const imageBase64 =
+    response.candidates?.[0]?.content?.parts?.find(
+      (part: any) => part.inlineData
+    )?.inlineData?.data || null;
+
+  if (!imageBase64) {
+    throw new Error("FUSION 이미지 생성 결과가 비어 있다.");
+  }
+
+  return {
+    base64: imageBase64,
+    summary: `${fitSummary} + FUSION`,
+  };
+}
+</file>
+
+<file path="lib/gemini-refrun.ts">
+import {
+  GoogleGenAI,
+  HarmCategory,
+  HarmBlockThreshold,
+} from "@google/genai";
+
+const ai = new GoogleGenAI({
+  apiKey: process.env.GEMINI_API_KEY!,
+});
+
+const safetySettings = [
+  {
+    category: HarmCategory.HARM_CATEGORY_HARASSMENT,
+    threshold: HarmBlockThreshold.BLOCK_ONLY_HIGH,
+  },
+  {
+    category: HarmCategory.HARM_CATEGORY_HATE_SPEECH,
+    threshold: HarmBlockThreshold.BLOCK_ONLY_HIGH,
+  },
+  {
+    category: HarmCategory.HARM_CATEGORY_SEXUALLY_EXPLICIT,
+    threshold: HarmBlockThreshold.BLOCK_ONLY_HIGH,
+  },
+  {
+    category: HarmCategory.HARM_CATEGORY_DANGEROUS_CONTENT,
+    threshold: HarmBlockThreshold.BLOCK_ONLY_HIGH,
+  },
+];
+
+export type RefRunDirection = {
+  background: string;
+  pose: string;
+  expression: string;
+  camera_angle_and_crop: string;
+  lighting_and_exposure: string;
+  color_grading_and_texture: string;
+  overall_mood: string;
+};
+
+export type OutputRatio = "4:5" | "2:3" | "16:9";
+
+const buildFitPromptContext = (
+  bodySpecs?: string
+): { fitPromptContext: string; fitSummarySuffix: string } => {
+  if (!bodySpecs) {
+    return {
+      fitPromptContext:
+        "- AUTO-FIT MODE: Replicate the garment's silhouette, fit, length, and drape exactly.",
+      fitSummarySuffix: "",
+    };
+  }
+
+  const specMatch = bodySpecs.match(/(\d+)\/(\d+)\s+(\d+)\/(\d+)/);
+  if (!specMatch) {
+    return {
+      fitPromptContext:
+        "- AUTO-FIT MODE: Replicate the garment's silhouette, fit, length, and drape exactly.",
+      fitSummarySuffix: "",
+    };
+  }
+
+  const h1 = parseInt(specMatch[1], 10);
+  const w1 = parseInt(specMatch[2], 10);
+  const h2 = parseInt(specMatch[3], 10);
+  const w2 = parseInt(specMatch[4], 10);
+
+  const hDiff = h2 - h1;
+  const wDiff = w2 - w1;
+
+  let hDesc = "";
+  let wDesc = "";
+  let lengthEffect = "";
+  let widthEffect = "";
+
+  if (hDiff >= 4) {
+    hDesc = "taller";
+    lengthEffect =
+      "Because the body is taller, sleeves expose more wrist and the garment sits slightly higher on the body.";
+  } else if (hDiff <= -4) {
+    hDesc = "shorter";
+    lengthEffect =
+      "Because the body is shorter, sleeves cover more of the hands and the garment falls lower on the body.";
+  }
+
+  if (wDiff >= 4) {
+    wDesc = "broader/heavier";
+    widthEffect =
+      "Because the body is thicker, the fixed garment fits tighter. Fabric stretches closer to the body, reducing drape.";
+  } else if (wDiff <= -4) {
+    wDesc = "slimmer/lighter";
+    widthEffect =
+      "Because the body is thinner, the fixed garment fits much looser. More drape, excess fabric, resulting in a baggier silhouette.";
+  }
+
+  let bodyChange = [hDesc, wDesc].filter(Boolean).join(" and ");
+  if (!bodyChange) {
+    bodyChange = "similar proportions";
+    lengthEffect = "Maintain exact original vertical fit.";
+    widthEffect = "Maintain exact original drape and width.";
+  }
+
+  return {
+    fitPromptContext: `
+- FIT CALIBRATION (FIXED GARMENT PARADIGM):
+  * CRITICAL RULE: The physical size, pattern, and design of the garment are 100% FIXED.
+  * DO NOT alter, redesign, shrink, or enlarge the clothing item itself.
+  * THE BODY CHANGE: The target model inside the clothes is visually ${bodyChange} than the original model.
+  * THE VISUAL EFFECT:
+    1. ${lengthEffect}
+    2. ${widthEffect}
+  * DIRECTIVE: Render the natural, physical result of this specific new body wearing the exact same fixed-size garment. Maintain believable human anatomy.
+`,
+    fitSummarySuffix: ` + 📏 핏 보정: Body ${bodyChange || "유사"}`,
+  };
+};
+
+export async function analyzeReferenceWeb(
+  referenceBase64: string
+): Promise<RefRunDirection> {
+  const parts = [
+    {
+      inlineData: {
+        data: referenceBase64,
+        mimeType: "image/jpeg",
+      },
+    },
+  ];
+
+  const systemPrompt = `Analyze the provided reference fashion photograph meticulously.
+Extract the exact visual structure, aesthetic, and mood.
+
+CRITICAL RULE (NEGATIVE CONSTRAINT):
+Ignore all details regarding clothing or accessories worn by the model.
+
+Return ONLY raw JSON with:
+{
+  "background": "describe the environment and set design",
+  "pose": "describe the subject's posture, limb positioning, and attitude",
+  "expression": "describe the facial expression and gaze direction",
+  "camera_angle_and_crop": "camera angle and crop",
+  "lighting_and_exposure": "lighting setup and exposure character",
+  "color_grading_and_texture": "color grading and texture",
+  "overall_mood": "overall mood"
+}`;
+
+  const response = await ai.models.generateContent({
+    model: "gemini-3-flash-preview",
+    contents: {
+      parts: [...parts, { text: systemPrompt }],
+    },
+  });
+
+  let text = response.candidates?.[0]?.content?.parts?.[0]?.text || "{}";
+  const jsonStart = text.indexOf("{");
+  const jsonEnd = text.lastIndexOf("}") + 1;
+
+  if (jsonStart !== -1 && jsonEnd !== -1) {
+    text = text.substring(jsonStart, jsonEnd);
+  }
+
+  return JSON.parse(text);
+}
+
+export async function generateRefRunImageWeb(args: {
+  faceBase64s: string[];
+  outfitBase64s: string[];
+  dirSet: RefRunDirection;
+  bodySpecs?: string;
+  shootingMode?: string;
+  customPrompt?: string;
+  isMixMode?: boolean;
+  mixCaptions?: string[];
+  outputRatio?: OutputRatio;
+}): Promise<{ base64: string; summary: string }> {
+  const {
+    faceBase64s,
+    outfitBase64s,
+    dirSet,
+    bodySpecs,
+    shootingMode = "default",
+    customPrompt,
+    isMixMode = false,
+    mixCaptions = [],
+    outputRatio = "4:5",
+  } = args;
+
+  if (!faceBase64s.length) {
+    throw new Error("얼굴 이미지가 없다.");
+  }
+
+  if (!outfitBase64s.length) {
+    throw new Error("의상 이미지가 없다.");
+  }
+
+  const parts: any[] = [];
+
+  faceBase64s.forEach((faceBase64) => {
+    parts.push({
+      inlineData: {
+        data: faceBase64,
+        mimeType: "image/jpeg",
+      },
+    });
+  });
+
+  outfitBase64s.forEach((outfitBase64, index) => {
+    parts.push({
+      inlineData: {
+        data: outfitBase64,
+        mimeType: "image/jpeg",
+      },
+    });
+
+    if (isMixMode) {
+      const caption =
+        mixCaptions[index] || "No specific styling instruction provided.";
+      parts.push({
+        text: `[Mix Item ${index + 1} Instruction: ${caption}]`,
+      });
+    }
+  });
+
+  const faceContext =
+    faceBase64s.length === 1
+      ? "Use face reference."
+      : "3D FACE ID ENGINE ACTIVE to maintain identity.";
+
+  const { fitPromptContext, fitSummarySuffix } =
+    buildFitPromptContext(bodySpecs);
+
+  const modeDict: Record<string, string> = {
+    fuji: "Texture: Fujifilm 400H (Cool greens, cyan shadows, high contrast cinematic film).",
+    mono: "Texture: Ilford HP5 Plus (High-end monochrome, heavy grain, deep noir look). FORCE STRICT BLACK AND WHITE. NO COLOR.",
+    studio:
+      "Texture: Sharp high-key studio lighting. Zero grain, high-end digital clarity.",
+    raw: "Texture: Natural raw light. iPhone-style snapshot clarity, zero film simulation.",
+    default:
+      "Texture: Kodak Portra 400 (Warm skin tones, subtle analog grain, soft cinematic light).",
+  };
+
+  let textureAndColor = modeDict.default;
+  if (shootingMode === "custom" && customPrompt) {
+    textureAndColor = `Texture & Photography Style: ${customPrompt}`;
+  } else if (modeDict[shootingMode]) {
+    textureAndColor = modeDict[shootingMode];
+  }
+
+  const fitSummary = `${isMixMode ? "🧩 MIX" : "👕 OUTFIT"}${fitSummarySuffix}`;
+
+  const outfitInstruction = isMixMode
+    ? `
+[MIX MODE]
+- Use only the uploaded outfit items.
+- Respect each item instruction exactly.
+- Preserve layer order and item hierarchy.
+- Do not invent extra garments.
+`
+    : `
+[OUTFIT MODE]
+- Reconstruct the exact uploaded outfit references.
+- Preserve pattern, material read, silhouette, drape, and key construction details.
+- Do not invent extra garments.
+`;
+
+  const prompt = `
+Task: Exact Reference-Run Fashion Editorial Generation.
+
+[IDENTITY]
+- ${faceContext}
+
+${fitPromptContext}
+
+${outfitInstruction}
+
+[REFERENCE STRUCTURE]
+- BACKGROUND: ${dirSet.background}
+- POSE: ${dirSet.pose}
+- EXPRESSION: ${dirSet.expression}
+- CAMERA / CROP: ${dirSet.camera_angle_and_crop}
+- LIGHTING / EXPOSURE: ${dirSet.lighting_and_exposure}
+- COLOR / TEXTURE: ${dirSet.color_grading_and_texture}
+- OVERALL MOOD: ${dirSet.overall_mood}
+
+[TECHNICAL EXECUTION]
+- ${textureAndColor}
+- Replicate the photographic language of the reference.
+- Ignore the original reference clothing and accessories.
+- Prioritize atmospheric realism over digital sharpness.
+- ${outputRatio} composition.
+- Output 2K museum quality.
+`;
+
+  const response = await ai.models.generateContent({
+    model: "gemini-3.1-flash-image-preview",
+    contents: {
+      parts: [...parts, { text: prompt }],
+    },
+    config: {
+      imageConfig: {
+        aspectRatio: outputRatio,
+        imageSize: "2K",
+      },
+      safetySettings,
+    },
+  });
+
+  const imageBase64 =
+    response.candidates?.[0]?.content?.parts?.find(
+      (part: any) => part.inlineData
+    )?.inlineData?.data || null;
+
+  if (!imageBase64) {
+    throw new Error("REFRUN 이미지 생성 결과가 비어 있다.");
+  }
+
+  return {
+    base64: imageBase64,
+    summary: fitSummary,
+  };
+}
+</file>
+
 <file path="package.json">
 {
   "name": "ballute-studio",
@@ -5728,6 +5514,252 @@ export default function FaceInputSection({
     "eslint-config-next": "16.2.1",
     "tailwindcss": "^4",
     "typescript": "^5"
+  }
+}
+</file>
+
+<file path="app/api/refrun/run-one/route.ts">
+import { NextResponse } from "next/server";
+import { createClient } from "@supabase/supabase-js";
+import { fileToBase64 } from "@/lib/utils";
+import {
+  analyzeReferenceWeb,
+  generateRefRunImageWeb,
+} from "@/lib/gemini-refrun";
+
+const TEMP_INPUT_BUCKET = "temp-inputs";
+
+function stripBucketPrefix(path: string) {
+  if (!path) return path;
+  const prefix = `${TEMP_INPUT_BUCKET}/`;
+  return path.startsWith(prefix) ? path.slice(prefix.length) : path;
+}
+
+function arrayBufferToBase64(buffer: ArrayBuffer) {
+  return Buffer.from(buffer).toString("base64");
+}
+
+function getStorageAdmin() {
+  const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
+  const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
+
+  if (!url || !serviceRoleKey) {
+    throw new Error(
+      "Supabase Storage 서버 설정이 없습니다. NEXT_PUBLIC_SUPABASE_URL / SUPABASE_SERVICE_ROLE_KEY를 확인하세요."
+    );
+  }
+
+  return createClient(url, serviceRoleKey, {
+    auth: {
+      persistSession: false,
+      autoRefreshToken: false,
+    },
+  });
+}
+
+async function storagePathToBase64(path: string) {
+  const cleanedPath = stripBucketPrefix(path);
+
+  if (!cleanedPath) {
+    throw new Error("스토리지 경로가 비어 있습니다.");
+  }
+
+  const supabaseAdmin = getStorageAdmin();
+
+  const { data, error } = await supabaseAdmin.storage
+    .from(TEMP_INPUT_BUCKET)
+    .download(cleanedPath);
+
+  if (error || !data) {
+    throw new Error(
+      `스토리지 파일 읽기 실패: ${cleanedPath} / ${error?.message || "unknown"}`
+    );
+  }
+
+  const buffer = await data.arrayBuffer();
+  return arrayBufferToBase64(buffer);
+}
+
+function safeJsonParse<T>(raw: string, fallback: T): T {
+  try {
+    return JSON.parse(raw) as T;
+  } catch {
+    return fallback;
+  }
+}
+
+type JsonRefRunBody = {
+  fitSpec?: string;
+  shootingMode?: string;
+  customPrompt?: string;
+  outfitMode?: string;
+  mixCaptions?: string[];
+  facePaths?: string[];
+  outfitPaths?: string[];
+  referencePath?: string;
+  outputRatio?: "4:5" | "2:3" | "16:9"; // ✅ 추가
+};
+
+async function readJsonBody(req: Request): Promise<JsonRefRunBody | null> {
+  const contentType = req.headers.get("content-type") || "";
+
+  if (!contentType.includes("application/json")) {
+    return null;
+  }
+
+  try {
+    return (await req.json()) as JsonRefRunBody;
+  } catch {
+    return null;
+  }
+}
+
+export async function POST(req: Request) {
+  try {
+    const jsonBody = await readJsonBody(req);
+
+    let fitSpec = "";
+    let shootingMode = "default";
+    let customPrompt = "";
+    let outfitMode = "outfit";
+    let mixCaptions: string[] = [];
+
+    let faceBase64s: string[] = [];
+    let outfitBase64s: string[] = [];
+    let referenceBase64 = "";
+    let outputRatio: "4:5" | "2:3" | "16:9" = "4:5"; // ✅ 추가
+
+    if (jsonBody) {
+      fitSpec = jsonBody.fitSpec || "";
+      shootingMode = jsonBody.shootingMode || "default";
+      customPrompt = jsonBody.customPrompt || "";
+      outfitMode = jsonBody.outfitMode || "outfit";
+      mixCaptions = Array.isArray(jsonBody.mixCaptions)
+        ? jsonBody.mixCaptions
+        : [];
+
+      outputRatio = jsonBody.outputRatio || "4:5"; // ✅ 추가
+
+      const facePaths = Array.isArray(jsonBody.facePaths)
+        ? jsonBody.facePaths
+        : [];
+      const outfitPaths = Array.isArray(jsonBody.outfitPaths)
+        ? jsonBody.outfitPaths
+        : [];
+      const referencePath = (jsonBody.referencePath || "").trim();
+
+      if (!facePaths.length) {
+        return NextResponse.json(
+          { error: "얼굴 스토리지 경로는 최소 1개 필요하다." },
+          { status: 400 }
+        );
+      }
+
+      if (!outfitPaths.length) {
+        return NextResponse.json(
+          { error: "의상 스토리지 경로는 최소 1개 필요하다." },
+          { status: 400 }
+        );
+      }
+
+      if (!referencePath) {
+        return NextResponse.json(
+          { error: "레퍼런스 스토리지 경로는 최소 1개 필요하다." },
+          { status: 400 }
+        );
+      }
+
+      if (outfitMode === "mix" && mixCaptions.length !== outfitPaths.length) {
+        return NextResponse.json(
+          { error: "MIX 설명 수와 의상 이미지 수가 맞지 않는다." },
+          { status: 400 }
+        );
+      }
+
+      faceBase64s = await Promise.all(facePaths.map(storagePathToBase64));
+      outfitBase64s = await Promise.all(outfitPaths.map(storagePathToBase64));
+      referenceBase64 = await storagePathToBase64(referencePath);
+    } else {
+      const formData = await req.formData();
+
+      fitSpec = (formData.get("fitSpec") as string) || "";
+      shootingMode = (formData.get("shootingMode") as string) || "default";
+      customPrompt = (formData.get("customPrompt") as string) || "";
+      outfitMode = (formData.get("outfitMode") as string) || "outfit";
+      const mixCaptionsRaw = (formData.get("mixCaptions") as string) || "[]";
+      const outputRatioRaw =
+        (formData.get("outputRatio") as string) || "4:5"; // ✅ 추가
+
+      outputRatio = outputRatioRaw as "4:5" | "2:3" | "16:9"; // ✅ 추가
+
+      const faceFiles = formData.getAll("faces") as File[];
+      const outfitFiles = formData.getAll("outfits") as File[];
+      const referenceFile = formData.get("reference") as File | null;
+
+      if (!faceFiles.length) {
+        return NextResponse.json(
+          { error: "얼굴 이미지는 최소 1장 필요하다." },
+          { status: 400 }
+        );
+      }
+
+      if (!outfitFiles.length) {
+        return NextResponse.json(
+          { error: "의상 이미지는 최소 1장 필요하다." },
+          { status: 400 }
+        );
+      }
+
+      if (!referenceFile) {
+        return NextResponse.json(
+          { error: "레퍼런스 이미지는 최소 1장 필요하다." },
+          { status: 400 }
+        );
+      }
+
+      mixCaptions = safeJsonParse<string[]>(mixCaptionsRaw, []);
+
+      if (outfitMode === "mix" && mixCaptions.length !== outfitFiles.length) {
+        return NextResponse.json(
+          { error: "MIX 설명 수와 의상 이미지 수가 맞지 않는다." },
+          { status: 400 }
+        );
+      }
+
+      faceBase64s = await Promise.all(faceFiles.map(fileToBase64));
+      outfitBase64s = await Promise.all(outfitFiles.map(fileToBase64));
+      referenceBase64 = await fileToBase64(referenceFile);
+    }
+
+    const analyzed = await analyzeReferenceWeb(referenceBase64);
+
+    const generated = await generateRefRunImageWeb({
+      faceBase64s,
+      outfitBase64s,
+      dirSet: analyzed,
+      bodySpecs: fitSpec,
+      shootingMode,
+      customPrompt: shootingMode === "custom" ? customPrompt : undefined,
+      isMixMode: outfitMode === "mix",
+      mixCaptions,
+      outputRatio, // ✅ 핵심 추가
+    });
+
+    return NextResponse.json({
+      success: true,
+      result: {
+        image: generated.base64,
+        summary: generated.summary,
+        direction: analyzed,
+      },
+    });
+  } catch (error) {
+    console.error("REFRUN_RUN_ONE_ERROR:", error);
+
+    const message =
+      error instanceof Error ? error.message : "알 수 없는 REFRUN 오류";
+
+    return NextResponse.json({ error: message }, { status: 500 });
   }
 }
 </file>
@@ -5788,6 +5820,8 @@ import { makeSessionId, uploadTempAssets } from "@/lib/storage";
 import FaceInputSection, {
   ModelGenerateOptions,
 } from "@/components/face-input-section";
+
+type OutputRatio = "4:5" | "2:3" | "16:9";
 
 type UploadItem = {
   file: File;
@@ -5991,6 +6025,7 @@ export default function FusionPage() {
   const [fitSpec, setFitSpec] = useState("");
   const [shootingMode, setShootingMode] = useState("default");
   const [customPrompt, setCustomPrompt] = useState("");
+  const [outputRatio, setOutputRatio] = useState<OutputRatio>("4:5");
   const [lockedVibe, setLockedVibe] = useState<LockedVibe | null>(null);
 
   const [loading, setLoading] = useState(false);
@@ -6193,6 +6228,44 @@ export default function FusionPage() {
     } catch (error) {
       console.error("FUSION_SESSION_CLEANUP_ERROR:", error);
     }
+  };
+
+  const resetUploadedStorageState = () => {
+    setFaces((prev) =>
+      prev.map((item) => ({
+        ...item,
+        storagePath: undefined,
+        uploaded: false,
+        expiresAt: undefined,
+      }))
+    );
+
+    setOutfits((prev) =>
+      prev.map((item) => ({
+        ...item,
+        storagePath: undefined,
+        uploaded: false,
+        expiresAt: undefined,
+      }))
+    );
+
+    setBgs((prev) =>
+      prev.map((item) => ({
+        ...item,
+        storagePath: undefined,
+        uploaded: false,
+        expiresAt: undefined,
+      }))
+    );
+
+    setPoses((prev) =>
+      prev.map((item) => ({
+        ...item,
+        storagePath: undefined,
+        uploaded: false,
+        expiresAt: undefined,
+      }))
+    );
   };
 
   const handleGenerateModel = async (options: ModelGenerateOptions) => {
@@ -6403,6 +6476,7 @@ export default function FusionPage() {
                 bgDNA,
                 poseBlueprint: poseBlueprints[poseIndex],
                 locationPrompt: locationPrompts[locationIndex],
+                outputRatio,
               }),
             });
 
@@ -6441,6 +6515,7 @@ export default function FusionPage() {
 
       setStatusMessage("임시 파일 정리중...");
       await cleanupFusionSession();
+      resetUploadedStorageState();
       setStatusMessage("FUSION 완료");
     } catch (error) {
       const message =
@@ -6550,7 +6625,7 @@ export default function FusionPage() {
         </div>
 
         <div className="border rounded-2xl p-6 bg-white space-y-5">
-          <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+          <div className="grid grid-cols-1 md:grid-cols-5 gap-4">
             <div>
               <label className="block text-sm font-semibold mb-2">Count</label>
               <input
@@ -6599,6 +6674,21 @@ export default function FusionPage() {
 
             <div>
               <label className="block text-sm font-semibold mb-2">
+                Output Ratio
+              </label>
+              <select
+                value={outputRatio}
+                onChange={(e) => setOutputRatio(e.target.value as OutputRatio)}
+                className="w-full border rounded-xl px-4 py-3"
+              >
+                <option value="4:5">4:5</option>
+                <option value="2:3">2:3</option>
+                <option value="16:9">16:9</option>
+              </select>
+            </div>
+
+            <div>
+              <label className="block text-sm font-semibold mb-2">
                 Custom Prompt
               </label>
               <input
@@ -6623,6 +6713,7 @@ export default function FusionPage() {
               <div>총 예상 결과 수: {expectedResultCount}장</div>
               <div>핏 보정: {fitSpec || "없음"}</div>
               <div>Shooting Mode: {shootingMode}</div>
+              <div>Output Ratio: {outputRatio}</div>
               <div>Vibe Lock: {lockedVibe ? "설정됨" : "없음"}</div>
               <div>실행 비용: {totalCost}P</div>
             </div>
@@ -6788,6 +6879,8 @@ import { makeSessionId, uploadTempAssets } from "@/lib/storage";
 import FaceInputSection, {
   ModelGenerateOptions,
 } from "@/components/face-input-section";
+
+type OutputRatio = "4:5" | "2:3" | "16:9";
 
 type UploadItem = {
   file: File;
@@ -6978,6 +7071,7 @@ export default function RefRunPage() {
   const [fitSpec, setFitSpec] = useState("");
   const [shootingMode, setShootingMode] = useState("default");
   const [customPrompt, setCustomPrompt] = useState("");
+  const [outputRatio, setOutputRatio] = useState<OutputRatio>("4:5");
   const [perReferenceCount, setPerReferenceCount] = useState(2);
 
   const [loading, setLoading] = useState(false);
@@ -7157,6 +7251,35 @@ export default function RefRunPage() {
     }
   };
 
+  const resetUploadedStorageState = () => {
+    setFaces((prev) =>
+      prev.map((item) => ({
+        ...item,
+        storagePath: undefined,
+        uploaded: false,
+        expiresAt: undefined,
+      }))
+    );
+
+    setOutfits((prev) =>
+      prev.map((item) => ({
+        ...item,
+        storagePath: undefined,
+        uploaded: false,
+        expiresAt: undefined,
+      }))
+    );
+
+    setReferences((prev) =>
+      prev.map((item) => ({
+        ...item,
+        storagePath: undefined,
+        uploaded: false,
+        expiresAt: undefined,
+      }))
+    );
+  };
+
   const handleGenerateModel = async (options: ModelGenerateOptions) => {
     try {
       setModelGenerating(true);
@@ -7293,6 +7416,7 @@ export default function RefRunPage() {
                 facePaths,
                 outfitPaths,
                 referencePath,
+                outputRatio,
               }),
             });
 
@@ -7329,6 +7453,7 @@ export default function RefRunPage() {
 
       setStatusMessage("임시 파일 정리중...");
       await cleanupRefRunSession();
+      resetUploadedStorageState();
       setStatusMessage("REFRUN 완료");
     } catch (error) {
       const message =
@@ -7426,7 +7551,7 @@ export default function RefRunPage() {
         </div>
 
         <div className="border rounded-2xl p-6 bg-white space-y-5">
-          <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+          <div className="grid grid-cols-1 md:grid-cols-5 gap-4">
             <div>
               <label className="block text-sm font-semibold mb-2">
                 Reference당 생성 수
@@ -7477,6 +7602,21 @@ export default function RefRunPage() {
 
             <div>
               <label className="block text-sm font-semibold mb-2">
+                Output Ratio
+              </label>
+              <select
+                value={outputRatio}
+                onChange={(e) => setOutputRatio(e.target.value as OutputRatio)}
+                className="w-full border rounded-xl px-4 py-3"
+              >
+                <option value="4:5">4:5</option>
+                <option value="2:3">2:3</option>
+                <option value="16:9">16:9</option>
+              </select>
+            </div>
+
+            <div>
+              <label className="block text-sm font-semibold mb-2">
                 Custom Prompt
               </label>
               <input
@@ -7500,6 +7640,7 @@ export default function RefRunPage() {
               <div>총 예상 결과 수: {totalResults}장</div>
               <div>핏 보정: {fitSpec || "없음"}</div>
               <div>Shooting Mode: {shootingMode}</div>
+              <div>Output Ratio: {outputRatio}</div>
               <div>실행 비용: {totalCost}P</div>
             </div>
           </div>
@@ -7633,6 +7774,8 @@ import { makeSessionId, uploadTempAssets } from "@/lib/storage";
 import FaceInputSection, {
   ModelGenerateOptions,
 } from "@/components/face-input-section";
+
+type OutputRatio = "4:5" | "2:3" | "16:9";
 
 type UploadItem = {
   file: File;
@@ -7830,6 +7973,7 @@ export default function DigPage() {
   const [fitSpec, setFitSpec] = useState("");
   const [shootingMode, setShootingMode] = useState("default");
   const [customPrompt, setCustomPrompt] = useState("");
+  const [outputRatio, setOutputRatio] = useState<OutputRatio>("4:5");
   const [lockedVibe, setLockedVibe] = useState<LockedVibe | null>(null);
 
   const [loading, setLoading] = useState(false);
@@ -8020,6 +8164,26 @@ export default function DigPage() {
     }
   };
 
+  const resetUploadedStorageState = () => {
+    setFaces((prev) =>
+      prev.map((item) => ({
+        ...item,
+        storagePath: undefined,
+        uploaded: false,
+        expiresAt: undefined,
+      }))
+    );
+
+    setOutfits((prev) =>
+      prev.map((item) => ({
+        ...item,
+        storagePath: undefined,
+        uploaded: false,
+        expiresAt: undefined,
+      }))
+    );
+  };
+
   const handleGenerateModel = async (options: ModelGenerateOptions) => {
     try {
       setModelGenerating(true);
@@ -8178,6 +8342,7 @@ export default function DigPage() {
               direction,
               facePaths,
               outfitPaths,
+              outputRatio,
             }),
           });
 
@@ -8209,6 +8374,7 @@ export default function DigPage() {
 
       setStatusMessage("임시 파일 정리중...");
       await cleanupDigSession();
+      resetUploadedStorageState();
       setStatusMessage("DIG 완료");
     } catch (error) {
       const message =
@@ -8309,7 +8475,7 @@ export default function DigPage() {
             />
           </div>
 
-          <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+          <div className="grid grid-cols-1 md:grid-cols-5 gap-4">
             <div>
               <label className="block text-sm font-semibold mb-2">Count</label>
               <input
@@ -8359,6 +8525,21 @@ export default function DigPage() {
 
             <div>
               <label className="block text-sm font-semibold mb-2">
+                Output Ratio
+              </label>
+              <select
+                value={outputRatio}
+                onChange={(e) => setOutputRatio(e.target.value as OutputRatio)}
+                className="w-full border rounded-xl px-4 py-3"
+              >
+                <option value="4:5">4:5</option>
+                <option value="2:3">2:3</option>
+                <option value="16:9">16:9</option>
+              </select>
+            </div>
+
+            <div>
+              <label className="block text-sm font-semibold mb-2">
                 Custom Prompt
               </label>
               <input
@@ -8382,6 +8563,7 @@ export default function DigPage() {
               <div>총 예상 결과 수: {safeCount}장</div>
               <div>핏 보정: {fitSpec || "없음"}</div>
               <div>Shooting Mode: {shootingMode}</div>
+              <div>Output Ratio: {outputRatio}</div>
               <div>Vibe Lock: {lockedVibe ? "설정됨" : "없음"}</div>
               <div>실행 비용: {totalCost}P</div>
             </div>

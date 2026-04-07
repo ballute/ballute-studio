@@ -6,8 +6,16 @@ import {
   LockedVibe,
   DigDirection,
 } from "@/lib/gemini-dig";
+import {
+  ApiError,
+  assertTempAssetOwnership,
+  authenticateApiRequest,
+  ensureUserHasPoints,
+  spendUserPoints,
+} from "@/lib/server-api";
 
 const TEMP_INPUT_BUCKET = "temp-inputs";
+const DIG_COST_PER_IMAGE = 50;
 
 function stripBucketPrefix(path: string) {
   if (!path) return path;
@@ -97,6 +105,9 @@ async function readJsonBody(req: Request): Promise<JsonGenerateBody | null> {
 
 export async function POST(req: Request) {
   try {
+    const user = await authenticateApiRequest(req);
+    await ensureUserHasPoints(user.id, DIG_COST_PER_IMAGE);
+
     const jsonBody = await readJsonBody(req);
 
     let fitSpec = "";
@@ -157,6 +168,8 @@ export async function POST(req: Request) {
           { status: 400 }
         );
       }
+
+      assertTempAssetOwnership(user.id, [...facePaths, ...outfitPaths]);
 
       faceBase64s = await Promise.all(facePaths.map(storagePathToBase64));
       outfitBase64s = await Promise.all(outfitPaths.map(storagePathToBase64));
@@ -229,8 +242,11 @@ export async function POST(req: Request) {
       outputRatio, // ✅ 핵심 추가
     });
 
+    await spendUserPoints(user.id, DIG_COST_PER_IMAGE, "DIG GENERATE");
+
     return NextResponse.json({
       success: true,
+      chargedPoints: DIG_COST_PER_IMAGE,
       result: {
         image: generated.base64,
         summary: generated.summary,
@@ -239,6 +255,10 @@ export async function POST(req: Request) {
     });
   } catch (error) {
     console.error("DIG_GENERATE_ONE_ERROR:", error);
+
+    if (error instanceof ApiError) {
+      return NextResponse.json({ error: error.message }, { status: error.status });
+    }
 
     const message =
       error instanceof Error ? error.message : "알 수 없는 generate-one 오류";

@@ -3,8 +3,8 @@
 import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { spendPoints } from "@/lib/points";
 import { makeSessionId, uploadTempAssets } from "@/lib/storage";
+import { getAccessToken } from "@/lib/supabase";
 import FaceInputSection, {
   ModelGenerateOptions,
 } from "@/components/face-input-section";
@@ -226,6 +226,7 @@ export default function FusionPage() {
     setFusionSessionId(makeSessionId("fusion"));
   }, []);
 
+  const modelGenerationCost = 30;
   const costPerImage = 60;
   const safeCount = useMemo(
     () => Math.max(1, Math.min(8, Number(count) || 1)),
@@ -237,6 +238,12 @@ export default function FusionPage() {
   const handlePointFailure = (message: string) => {
     setStatusMessage(`오류: ${message}`);
 
+    if (message.includes("로그인이 필요합니다")) {
+      alert("로그인이 필요합니다. 로그인 페이지로 이동합니다.");
+      router.push("/login");
+      return true;
+    }
+
     if (message.includes("포인트 부족")) {
       alert("포인트가 부족합니다. 충전 페이지로 이동합니다.");
       router.push("/charge");
@@ -245,6 +252,16 @@ export default function FusionPage() {
 
     alert(message);
     return false;
+  };
+
+  const isBlockingGenerationError = (status: number, message: string) => {
+    return (
+      status === 401 ||
+      status === 402 ||
+      status === 403 ||
+      message.includes("로그인이 필요합니다") ||
+      message.includes("포인트 부족")
+    );
   };
 
   const appendFiles = (
@@ -418,17 +435,57 @@ export default function FusionPage() {
     }
   };
 
+  const resetUploadedStorageState = () => {
+    setFaces((prev) =>
+      prev.map((item) => ({
+        ...item,
+        storagePath: undefined,
+        uploaded: false,
+        expiresAt: undefined,
+      }))
+    );
+
+    setOutfits((prev) =>
+      prev.map((item) => ({
+        ...item,
+        storagePath: undefined,
+        uploaded: false,
+        expiresAt: undefined,
+      }))
+    );
+
+    setBgs((prev) =>
+      prev.map((item) => ({
+        ...item,
+        storagePath: undefined,
+        uploaded: false,
+        expiresAt: undefined,
+      }))
+    );
+
+    setPoses((prev) =>
+      prev.map((item) => ({
+        ...item,
+        storagePath: undefined,
+        uploaded: false,
+        expiresAt: undefined,
+      }))
+    );
+  };
+
   const handleGenerateModel = async (options: ModelGenerateOptions) => {
     try {
       setModelGenerating(true);
-      setStatusMessage("모델 생성 준비중...");
+      setStatusMessage("모델 생성 요청 준비중...");
 
-      await spendPoints(30, "MODEL GENERATE");
+      const accessToken = await getAccessToken();
+      setStatusMessage("모델 생성중...");
 
       const res = await fetch("/api/model-anchor", {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
+          Authorization: `Bearer ${accessToken}`,
         },
         body: JSON.stringify(options),
       });
@@ -461,7 +518,7 @@ export default function FusionPage() {
       };
 
       setFaces((prev) => [...prev, newItem]);
-      setStatusMessage("모델 생성 완료 (30P 차감)");
+      setStatusMessage(`모델 생성 완료 (${modelGenerationCost}P 차감)`);
     } catch (error) {
       const message =
         error instanceof Error ? error.message : "모델 생성 중 오류";
@@ -505,6 +562,9 @@ export default function FusionPage() {
     try {
       setLoading(true);
       setResultSlots([]);
+      setStatusMessage("서버 요청 준비중...");
+
+      const accessToken = await getAccessToken();
 
       const {
         uploadedFaces,
@@ -537,15 +597,13 @@ export default function FusionPage() {
         throw new Error("얼굴 또는 의상 업로드 경로 확보 실패");
       }
 
-      setStatusMessage(`포인트 차감중... (${totalCost}P)`);
-      await spendPoints(totalCost, `FUSION 실행 (${expectedResultCount}장)`);
-
       setStatusMessage("FUSION 준비중...");
 
       const prepareRes = await fetch("/api/fusion/prepare", {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
+          Authorization: `Bearer ${accessToken}`,
         },
         body: JSON.stringify({
           count: safeCount,
@@ -599,8 +657,16 @@ export default function FusionPage() {
 
       setResultSlots(initialSlots);
 
+      let successCount = 0;
+      let chargedPoints = 0;
+      let stopMessage = "";
+      let stoppedByChargeFailure = false;
       let slotIndex = 0;
-      for (let poseIndex = 0; poseIndex < poseBlueprints.length; poseIndex++) {
+      outerLoop: for (
+        let poseIndex = 0;
+        poseIndex < poseBlueprints.length;
+        poseIndex++
+      ) {
         for (
           let locationIndex = 0;
           locationIndex < locationPrompts.length;
@@ -613,6 +679,7 @@ export default function FusionPage() {
               method: "POST",
               headers: {
                 "Content-Type": "application/json",
+                Authorization: `Bearer ${accessToken}`,
               },
               body: JSON.stringify({
                 fitSpec,
@@ -634,7 +701,25 @@ export default function FusionPage() {
             const data = parseJsonSafely(raw);
 
             if (!res.ok) {
-              throw new Error(data?.error || raw || "FUSION 한 장 생성 실패");
+              const message =
+                data?.error || raw || "FUSION 한 장 생성 실패";
+
+              if (isBlockingGenerationError(res.status, message)) {
+                stoppedByChargeFailure = true;
+                stopMessage = message.includes("포인트 부족")
+                  ? "포인트 부족으로 추가 생성을 중단했습니다."
+                  : message;
+
+                updateSlot(slotIndex, {
+                  status: "error",
+                  error: message,
+                });
+
+                handlePointFailure(message);
+                break outerLoop;
+              }
+
+              throw new Error(message);
             }
 
             updateSlot(slotIndex, {
@@ -642,8 +727,12 @@ export default function FusionPage() {
               result: data.result as FusionResult,
             });
 
+            successCount += 1;
+            chargedPoints += costPerImage;
             setStatusMessage(
-              `Pose ${poseIndex + 1} / Location ${locationIndex + 1} 생성 완료`
+              `Pose ${poseIndex + 1} / Location ${
+                locationIndex + 1
+              } 생성 완료 (${costPerImage}P 차감)`
             );
           } catch (error) {
             const message =
@@ -663,9 +752,28 @@ export default function FusionPage() {
         }
       }
 
+      if (stoppedByChargeFailure) {
+        setResultSlots((prev) =>
+          prev.map((slot) =>
+            slot.status === "waiting"
+              ? {
+                  ...slot,
+                  status: "error",
+                  error: stopMessage,
+                }
+              : slot
+          )
+        );
+      }
+
       setStatusMessage("임시 파일 정리중...");
       await cleanupFusionSession();
-      setStatusMessage("FUSION 완료");
+      resetUploadedStorageState();
+      setStatusMessage(
+        `${
+          stoppedByChargeFailure ? "FUSION 중단" : "FUSION 완료"
+        } · 성공 ${successCount}장 · ${chargedPoints}P 차감`
+      );
     } catch (error) {
       const message =
         error instanceof Error ? error.message : "알 수 없는 FUSION 오류";
@@ -864,7 +972,8 @@ export default function FusionPage() {
               <div>Shooting Mode: {shootingMode}</div>
               <div>Output Ratio: {outputRatio}</div>
               <div>Vibe Lock: {lockedVibe ? "설정됨" : "없음"}</div>
-              <div>실행 비용: {totalCost}P</div>
+              <div>차감 방식: 성공 결과당 {costPerImage}P</div>
+              <div>최대 차감 비용: {totalCost}P</div>
             </div>
           </div>
 
@@ -873,7 +982,7 @@ export default function FusionPage() {
               <div>
                 <div className="text-sm font-semibold text-black">포인트 충전</div>
                 <div className="mt-1 text-sm text-gray-600">
-                  FUSION은 이미지당 차감 포인트가 높아 실행 전 잔액 확인을 권장합니다.
+                  성공한 결과만 장당 차감되지만, 최대 비용 기준으로 잔액 확인을 권장합니다.
                 </div>
               </div>
 
@@ -892,7 +1001,7 @@ export default function FusionPage() {
               disabled={loading || modelGenerating || !fusionSessionId}
               className="flex-1 bg-black text-white py-5 rounded-2xl text-xl disabled:opacity-60"
             >
-              {loading ? "FUSION 준비중..." : `FUSION 실행하기 (${totalCost}P)`}
+              {loading ? "FUSION 준비중..." : `FUSION 실행하기 (최대 ${totalCost}P)`}
             </button>
 
             <button

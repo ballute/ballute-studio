@@ -3,8 +3,8 @@
 import { useEffect, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { spendPoints } from "@/lib/points";
 import { makeSessionId, uploadTempAssets } from "@/lib/storage";
+import { getAccessToken } from "@/lib/supabase";
 import FaceInputSection, {
   ModelGenerateOptions,
 } from "@/components/face-input-section";
@@ -220,11 +220,19 @@ export default function DigPage() {
     setDigSessionId(makeSessionId("dig"));
   }, []);
 
+  const modelGenerationCost = 30;
+  const digCostPerImage = 50;
   const safeCount = Math.max(1, Math.min(8, Number(count) || 1));
-  const totalCost = safeCount * 50;
+  const totalCost = safeCount * digCostPerImage;
 
   const handlePointFailure = (message: string) => {
     setStatusMessage(`오류: ${message}`);
+
+    if (message.includes("로그인이 필요합니다")) {
+      alert("로그인이 필요합니다. 로그인 페이지로 이동합니다.");
+      router.push("/login");
+      return true;
+    }
 
     if (message.includes("포인트 부족")) {
       alert("포인트가 부족합니다. 충전 페이지로 이동합니다.");
@@ -234,6 +242,16 @@ export default function DigPage() {
 
     alert(message);
     return false;
+  };
+
+  const isBlockingGenerationError = (status: number, message: string) => {
+    return (
+      status === 401 ||
+      status === 402 ||
+      status === 403 ||
+      message.includes("로그인이 필요합니다") ||
+      message.includes("포인트 부족")
+    );
   };
 
   const appendFiles = (
@@ -398,17 +416,39 @@ export default function DigPage() {
     }
   };
 
+  const resetUploadedStorageState = () => {
+    setFaces((prev) =>
+      prev.map((item) => ({
+        ...item,
+        storagePath: undefined,
+        uploaded: false,
+        expiresAt: undefined,
+      }))
+    );
+
+    setOutfits((prev) =>
+      prev.map((item) => ({
+        ...item,
+        storagePath: undefined,
+        uploaded: false,
+        expiresAt: undefined,
+      }))
+    );
+  };
+
   const handleGenerateModel = async (options: ModelGenerateOptions) => {
     try {
       setModelGenerating(true);
-      setStatusMessage("모델 생성 준비중...");
+      setStatusMessage("모델 생성 요청 준비중...");
 
-      await spendPoints(30, "MODEL GENERATE");
+      const accessToken = await getAccessToken();
+      setStatusMessage("모델 생성중...");
 
       const res = await fetch("/api/model-anchor", {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
+          Authorization: `Bearer ${accessToken}`,
         },
         body: JSON.stringify(options),
       });
@@ -441,7 +481,7 @@ export default function DigPage() {
       };
 
       setFaces((prev) => [...prev, newItem]);
-      setStatusMessage("모델 생성 완료 (30P 차감)");
+      setStatusMessage(`모델 생성 완료 (${modelGenerationCost}P 차감)`);
     } catch (error) {
       const message =
         error instanceof Error ? error.message : "모델 생성 중 오류";
@@ -479,7 +519,9 @@ export default function DigPage() {
 
     try {
       setLoading(true);
-      setStatusMessage(`포인트 차감중... (${totalCost}P)`);
+      setStatusMessage("서버 요청 준비중...");
+
+      const accessToken = await getAccessToken();
 
       const { uploadedFaces, uploadedOutfits } = await ensureAssetsUploaded();
 
@@ -495,13 +537,14 @@ export default function DigPage() {
         throw new Error("얼굴 또는 의상 업로드 경로 확보 실패");
       }
 
-      await spendPoints(totalCost, `DIG 실행 (${safeCount}장)`);
-
       setStatusMessage("DIG directions 생성중...");
       setResultSlots([]);
 
       const directionsRes = await fetch("/api/dig/directions", {
         method: "POST",
+        headers: {
+          Authorization: `Bearer ${accessToken}`,
+        },
         body: (() => {
           const formData = new FormData();
           formData.append("moodQuery", moodQuery);
@@ -536,6 +579,11 @@ export default function DigPage() {
         `Directions 생성 완료. ${directions.length}개 컷 생성 시작...`
       );
 
+      let successCount = 0;
+      let chargedPoints = 0;
+      let stopMessage = "";
+      let stoppedByChargeFailure = false;
+
       for (let index = 0; index < directions.length; index++) {
         const direction = directions[index];
         updateSlot(index, { status: "generating" });
@@ -545,6 +593,7 @@ export default function DigPage() {
             method: "POST",
             headers: {
               "Content-Type": "application/json",
+              Authorization: `Bearer ${accessToken}`,
             },
             body: JSON.stringify({
               fitSpec,
@@ -564,7 +613,24 @@ export default function DigPage() {
           const data = parseJsonSafely(raw);
 
           if (!res.ok) {
-            throw new Error(data?.error || raw || "한 장 생성 실패");
+            const message = data?.error || raw || "한 장 생성 실패";
+
+            if (isBlockingGenerationError(res.status, message)) {
+              stoppedByChargeFailure = true;
+              stopMessage = message.includes("포인트 부족")
+                ? "포인트 부족으로 추가 생성을 중단했습니다."
+                : message;
+
+              updateSlot(index, {
+                status: "error",
+                error: message,
+              });
+
+              handlePointFailure(message);
+              break;
+            }
+
+            throw new Error(message);
           }
 
           updateSlot(index, {
@@ -572,7 +638,9 @@ export default function DigPage() {
             result: data.result as DigResult,
           });
 
-          setStatusMessage(`컷 ${index + 1} 생성 완료`);
+          successCount += 1;
+          chargedPoints += digCostPerImage;
+          setStatusMessage(`컷 ${index + 1} 생성 완료 (${digCostPerImage}P 차감)`);
         } catch (error) {
           const message =
             error instanceof Error ? error.message : "알 수 없는 생성 오류";
@@ -586,9 +654,28 @@ export default function DigPage() {
         }
       }
 
+      if (stoppedByChargeFailure) {
+        setResultSlots((prev) =>
+          prev.map((slot) =>
+            slot.status === "waiting"
+              ? {
+                  ...slot,
+                  status: "error",
+                  error: stopMessage,
+                }
+              : slot
+          )
+        );
+      }
+
       setStatusMessage("임시 파일 정리중...");
       await cleanupDigSession();
-      setStatusMessage("DIG 완료");
+      resetUploadedStorageState();
+      setStatusMessage(
+        `${
+          stoppedByChargeFailure ? "DIG 중단" : "DIG 완료"
+        } · 성공 ${successCount}장 · ${chargedPoints}P 차감`
+      );
     } catch (error) {
       const message =
         error instanceof Error ? error.message : "알 수 없는 DIG 오류";
@@ -778,7 +865,8 @@ export default function DigPage() {
               <div>Shooting Mode: {shootingMode}</div>
               <div>Output Ratio: {outputRatio}</div>
               <div>Vibe Lock: {lockedVibe ? "설정됨" : "없음"}</div>
-              <div>실행 비용: {totalCost}P</div>
+              <div>차감 방식: 성공 결과당 {digCostPerImage}P</div>
+              <div>최대 차감 비용: {totalCost}P</div>
             </div>
           </div>
 
@@ -787,7 +875,7 @@ export default function DigPage() {
               <div>
                 <div className="text-sm font-semibold text-black">포인트 충전</div>
                 <div className="mt-1 text-sm text-gray-600">
-                  DIG 실행 전 포인트를 미리 충전해 두시면 작업이 끊기지 않습니다.
+                  성공한 결과만 장당 차감되지만, 최대 비용 기준으로 잔액 확인을 권장합니다.
                 </div>
               </div>
 
@@ -806,7 +894,7 @@ export default function DigPage() {
               disabled={loading || modelGenerating || !digSessionId}
               className="flex-1 bg-black text-white py-5 rounded-2xl text-xl disabled:opacity-60"
             >
-              {loading ? "DIG 준비중..." : "DIG 실행하기"}
+              {loading ? "DIG 준비중..." : `DIG 실행하기 (최대 ${totalCost}P)`}
             </button>
 
             <button

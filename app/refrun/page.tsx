@@ -3,11 +3,13 @@
 import { useEffect, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { spendPoints } from "@/lib/points";
 import { makeSessionId, uploadTempAssets } from "@/lib/storage";
+import { getAccessToken } from "@/lib/supabase";
 import FaceInputSection, {
   ModelGenerateOptions,
 } from "@/components/face-input-section";
+
+type OutputRatio = "4:5" | "2:3" | "16:9";
 
 type UploadItem = {
   file: File;
@@ -198,6 +200,7 @@ export default function RefRunPage() {
   const [fitSpec, setFitSpec] = useState("");
   const [shootingMode, setShootingMode] = useState("default");
   const [customPrompt, setCustomPrompt] = useState("");
+  const [outputRatio, setOutputRatio] = useState<OutputRatio>("4:5");
   const [perReferenceCount, setPerReferenceCount] = useState(2);
 
   const [loading, setLoading] = useState(false);
@@ -210,12 +213,20 @@ export default function RefRunPage() {
     setRefRunSessionId(makeSessionId("refrun"));
   }, []);
 
+  const modelGenerationCost = 30;
+  const refrunCostPerImage = 50;
   const safeCount = Math.max(1, Math.min(20, Number(perReferenceCount) || 1));
   const totalResults = references.length * safeCount;
-  const totalCost = totalResults * 50;
+  const totalCost = totalResults * refrunCostPerImage;
 
   const handlePointFailure = (message: string) => {
     setStatusMessage(`오류: ${message}`);
+
+    if (message.includes("로그인이 필요합니다")) {
+      alert("로그인이 필요합니다. 로그인 페이지로 이동합니다.");
+      router.push("/login");
+      return true;
+    }
 
     if (message.includes("포인트 부족")) {
       alert("포인트가 부족합니다. 충전 페이지로 이동합니다.");
@@ -225,6 +236,16 @@ export default function RefRunPage() {
 
     alert(message);
     return false;
+  };
+
+  const isBlockingGenerationError = (status: number, message: string) => {
+    return (
+      status === 401 ||
+      status === 402 ||
+      status === 403 ||
+      message.includes("로그인이 필요합니다") ||
+      message.includes("포인트 부족")
+    );
   };
 
   const appendFiles = (
@@ -377,8 +398,6 @@ export default function RefRunPage() {
     }
   };
 
-
-
   const resetUploadedStorageState = () => {
     setFaces((prev) =>
       prev.map((item) => ({
@@ -411,14 +430,16 @@ export default function RefRunPage() {
   const handleGenerateModel = async (options: ModelGenerateOptions) => {
     try {
       setModelGenerating(true);
-      setStatusMessage("모델 생성 준비중...");
+      setStatusMessage("모델 생성 요청 준비중...");
 
-      await spendPoints(30, "MODEL GENERATE");
+      const accessToken = await getAccessToken();
+      setStatusMessage("모델 생성중...");
 
       const res = await fetch("/api/model-anchor", {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
+          Authorization: `Bearer ${accessToken}`,
         },
         body: JSON.stringify(options),
       });
@@ -451,7 +472,7 @@ export default function RefRunPage() {
       };
 
       setFaces((prev) => [...prev, newItem]);
-      setStatusMessage("모델 생성 완료 (30P 차감)");
+      setStatusMessage(`모델 생성 완료 (${modelGenerationCost}P 차감)`);
     } catch (error) {
       const message =
         error instanceof Error ? error.message : "모델 생성 중 오류";
@@ -484,6 +505,9 @@ export default function RefRunPage() {
 
     try {
       setLoading(true);
+      setStatusMessage("서버 요청 준비중...");
+
+      const accessToken = await getAccessToken();
 
       const { uploadedFaces, uploadedOutfits, uploadedReferences } =
         await ensureAssetsUploaded();
@@ -504,9 +528,6 @@ export default function RefRunPage() {
         throw new Error("얼굴 / 의상 / 레퍼런스 업로드 경로 확보 실패");
       }
 
-      setStatusMessage(`포인트 차감중... (${totalCost}P)`);
-      await spendPoints(totalCost, `REFRUN 실행 (${totalResults}장)`);
-
       const initialSlots: ResultSlot[] = [];
       for (let refIndex = 0; refIndex < referencePaths.length; refIndex++) {
         for (let cutIndex = 0; cutIndex < safeCount; cutIndex++) {
@@ -522,7 +543,16 @@ export default function RefRunPage() {
 
       setStatusMessage("REFRUN 생성 시작...");
 
-      for (let refIndex = 0; refIndex < referencePaths.length; refIndex++) {
+      let successCount = 0;
+      let chargedPoints = 0;
+      let stopMessage = "";
+      let stoppedByChargeFailure = false;
+
+      outerLoop: for (
+        let refIndex = 0;
+        refIndex < referencePaths.length;
+        refIndex++
+      ) {
         const referencePath = referencePaths[refIndex];
 
         for (let cutIndex = 0; cutIndex < safeCount; cutIndex++) {
@@ -534,6 +564,7 @@ export default function RefRunPage() {
               method: "POST",
               headers: {
                 "Content-Type": "application/json",
+                Authorization: `Bearer ${accessToken}`,
               },
               body: JSON.stringify({
                 fitSpec,
@@ -544,6 +575,7 @@ export default function RefRunPage() {
                 facePaths,
                 outfitPaths,
                 referencePath,
+                outputRatio,
               }),
             });
 
@@ -551,7 +583,25 @@ export default function RefRunPage() {
             const data = parseJsonSafely(raw);
 
             if (!res.ok) {
-              throw new Error(data?.error || raw || "REFRUN 한 장 생성 실패");
+              const message =
+                data?.error || raw || "REFRUN 한 장 생성 실패";
+
+              if (isBlockingGenerationError(res.status, message)) {
+                stoppedByChargeFailure = true;
+                stopMessage = message.includes("포인트 부족")
+                  ? "포인트 부족으로 추가 생성을 중단했습니다."
+                  : message;
+
+                updateSlot(slotIndex, {
+                  status: "error",
+                  error: message,
+                });
+
+                handlePointFailure(message);
+                break outerLoop;
+              }
+
+              throw new Error(message);
             }
 
             updateSlot(slotIndex, {
@@ -559,8 +609,10 @@ export default function RefRunPage() {
               result: data.result as RefRunResult,
             });
 
+            successCount += 1;
+            chargedPoints += refrunCostPerImage;
             setStatusMessage(
-              `Ref ${refIndex + 1} / Cut ${cutIndex + 1} 생성 완료`
+              `Ref ${refIndex + 1} / Cut ${cutIndex + 1} 생성 완료 (${refrunCostPerImage}P 차감)`
             );
           } catch (error) {
             const message =
@@ -578,10 +630,28 @@ export default function RefRunPage() {
         }
       }
 
+      if (stoppedByChargeFailure) {
+        setResultSlots((prev) =>
+          prev.map((slot) =>
+            slot.status === "waiting"
+              ? {
+                  ...slot,
+                  status: "error",
+                  error: stopMessage,
+                }
+              : slot
+          )
+        );
+      }
+
       setStatusMessage("임시 파일 정리중...");
       await cleanupRefRunSession();
       resetUploadedStorageState();
-      setStatusMessage("REFRUN 완료");
+      setStatusMessage(
+        `${
+          stoppedByChargeFailure ? "REFRUN 중단" : "REFRUN 완료"
+        } · 성공 ${successCount}장 · ${chargedPoints}P 차감`
+      );
     } catch (error) {
       const message =
         error instanceof Error ? error.message : "알 수 없는 REFRUN 오류";
@@ -678,7 +748,7 @@ export default function RefRunPage() {
         </div>
 
         <div className="border rounded-2xl p-6 bg-white space-y-5">
-          <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+          <div className="grid grid-cols-1 md:grid-cols-5 gap-4">
             <div>
               <label className="block text-sm font-semibold mb-2">
                 Reference당 생성 수
@@ -729,6 +799,21 @@ export default function RefRunPage() {
 
             <div>
               <label className="block text-sm font-semibold mb-2">
+                Output Ratio
+              </label>
+              <select
+                value={outputRatio}
+                onChange={(e) => setOutputRatio(e.target.value as OutputRatio)}
+                className="w-full border rounded-xl px-4 py-3"
+              >
+                <option value="4:5">4:5</option>
+                <option value="2:3">2:3</option>
+                <option value="16:9">16:9</option>
+              </select>
+            </div>
+
+            <div>
+              <label className="block text-sm font-semibold mb-2">
                 Custom Prompt
               </label>
               <input
@@ -752,7 +837,9 @@ export default function RefRunPage() {
               <div>총 예상 결과 수: {totalResults}장</div>
               <div>핏 보정: {fitSpec || "없음"}</div>
               <div>Shooting Mode: {shootingMode}</div>
-              <div>실행 비용: {totalCost}P</div>
+              <div>Output Ratio: {outputRatio}</div>
+              <div>차감 방식: 성공 결과당 {refrunCostPerImage}P</div>
+              <div>최대 차감 비용: {totalCost}P</div>
             </div>
           </div>
 
@@ -761,7 +848,7 @@ export default function RefRunPage() {
               <div>
                 <div className="text-sm font-semibold text-black">포인트 충전</div>
                 <div className="mt-1 text-sm text-gray-600">
-                  REFRUN 실행 전 포인트를 미리 충전해 두시면 작업이 끊기지 않습니다.
+                  성공한 결과만 장당 차감되지만, 최대 비용 기준으로 잔액 확인을 권장합니다.
                 </div>
               </div>
 
@@ -779,7 +866,7 @@ export default function RefRunPage() {
             disabled={loading || modelGenerating || !refRunSessionId}
             className="w-full bg-black text-white py-5 rounded-2xl text-xl disabled:opacity-60"
           >
-            {loading ? "REFRUN 준비중..." : `REFRUN 실행하기 (${totalCost}P)`}
+            {loading ? "REFRUN 준비중..." : `REFRUN 실행하기 (최대 ${totalCost}P)`}
           </button>
         </div>
 

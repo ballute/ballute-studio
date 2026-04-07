@@ -6,8 +6,15 @@ import {
   analyzePoseBlueprintFromBase64,
   searchLocationPrompts,
 } from "@/lib/gemini-fusion";
+import {
+  ApiError,
+  assertTempAssetOwnership,
+  authenticateApiRequest,
+  ensureUserHasPoints,
+} from "@/lib/server-api";
 
 const TEMP_INPUT_BUCKET = "temp-inputs";
+const FUSION_COST_PER_IMAGE = 60;
 
 function clampCount(value: unknown, fallback = 4) {
   const n = Number(value);
@@ -87,6 +94,9 @@ async function readJsonBody(req: Request): Promise<JsonPrepareBody | null> {
 
 export async function POST(req: Request) {
   try {
+    const user = await authenticateApiRequest(req);
+    await ensureUserHasPoints(user.id, FUSION_COST_PER_IMAGE);
+
     const jsonBody = await readJsonBody(req);
 
     let count = 4;
@@ -107,6 +117,8 @@ export async function POST(req: Request) {
           { status: 400 }
         );
       }
+
+      assertTempAssetOwnership(user.id, [...bgPaths, ...posePaths]);
 
       bgBase64s = await Promise.all(bgPaths.map(storagePathToBase64));
       poseBase64s = await Promise.all(posePaths.map(storagePathToBase64));
@@ -146,6 +158,10 @@ export async function POST(req: Request) {
     });
   } catch (error) {
     console.error("FUSION_PREPARE_ERROR:", error);
+
+    if (error instanceof ApiError) {
+      return NextResponse.json({ error: error.message }, { status: error.status });
+    }
 
     const message =
       error instanceof Error ? error.message : "알 수 없는 FUSION 준비 오류";

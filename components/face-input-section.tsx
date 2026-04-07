@@ -265,7 +265,7 @@ export default function FaceInputSection({
             disabled={generating || disabled}
             className="inline-flex rounded-2xl bg-black px-6 py-4 text-lg text-white disabled:opacity-60"
           >
-            {generating ? "모델 생성중..." : "모델 생성 (30P)"}
+            {generating ? "모델 생성중..." : "모델 생성 (성공 시 30P)"}
           </button>
         </div>
       )}
