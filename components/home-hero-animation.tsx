@@ -134,7 +134,8 @@ const panels: PanelItem[] = [
   },
 ];
 
-const LOOPS = 2;
+const DESKTOP_LOOPS = 2;
+const MOBILE_LOOPS = 1;
 const START_DELAY_MS = 150;
 const STAGE_GAP_MS = 900;
 const LAST_STAGE_GAP_MS = 1300;
@@ -225,7 +226,13 @@ function FinalCard({
   );
 }
 
-function Panel({ panel }: { panel: PanelItem }) {
+function Panel({
+  panel,
+  loopCount,
+}: {
+  panel: PanelItem;
+  loopCount: number;
+}) {
   const [phase, setPhase] = useState(0);
   const [finished, setFinished] = useState(false);
   const lastMaterialPhase = 3;
@@ -249,7 +256,7 @@ function Panel({ panel }: { panel: PanelItem }) {
       timers.push(window.setTimeout(() => setPhase(3), lastRevealAt));
       timers.push(window.setTimeout(() => setPhase(finalPhase), finalRevealAt));
 
-      if (loopIndex + 1 < LOOPS) {
+      if (loopIndex + 1 < loopCount) {
         timers.push(window.setTimeout(() => scheduleLoop(loopIndex + 1), loopEndAt));
       } else {
         timers.push(
@@ -267,7 +274,7 @@ function Panel({ panel }: { panel: PanelItem }) {
       cancelled = true;
       timers.forEach((timer) => window.clearTimeout(timer));
     };
-  }, [finalPhase]);
+  }, [finalPhase, loopCount]);
 
   const clarity = finished ? 1 : Math.min(phase / finalPhase, 1);
   const sharpOpacity = 0.08 + clarity * 0.92;
@@ -278,7 +285,7 @@ function Panel({ panel }: { panel: PanelItem }) {
   return (
     <Link
       href={panel.href}
-      className="group relative block h-[calc(100svh-52px)] shrink-0 snap-start overflow-hidden bg-[#efede7] md:h-full md:min-h-0"
+      className="group relative block h-full w-full min-w-full flex-none snap-center overflow-hidden bg-[#efede7] md:min-w-0 md:flex-auto md:snap-start"
     >
       <div className="absolute inset-0">
         <motion.img
@@ -379,10 +386,30 @@ function Panel({ panel }: { panel: PanelItem }) {
 }
 
 export default function HomeHeroAnimation() {
+  const [isMobile, setIsMobile] = useState(() =>
+    typeof window !== "undefined" ? window.matchMedia("(max-width: 767px)").matches : false,
+  );
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+
+    const mediaQuery = window.matchMedia("(max-width: 767px)");
+    const update = (event?: MediaQueryListEvent) => {
+      setIsMobile(event ? event.matches : mediaQuery.matches);
+    };
+
+    update();
+    mediaQuery.addEventListener("change", update);
+
+    return () => mediaQuery.removeEventListener("change", update);
+  }, []);
+
+  const loopCount = isMobile ? MOBILE_LOOPS : DESKTOP_LOOPS;
+
   return (
-    <section className="min-h-0 overflow-y-auto snap-y snap-mandatory md:grid md:grid-cols-3 md:overflow-hidden md:snap-none">
+    <section className="flex h-full min-h-0 snap-x snap-mandatory overflow-x-auto overflow-y-hidden scroll-smooth touch-pan-x md:grid md:grid-cols-3 md:overflow-hidden md:snap-none">
       {panels.map((panel) => (
-        <Panel key={panel.title} panel={panel} />
+        <Panel key={panel.title} panel={panel} loopCount={loopCount} />
       ))}
     </section>
   );
