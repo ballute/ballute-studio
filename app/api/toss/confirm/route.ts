@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
+import { getNormalizedTossSecretKey } from "@/lib/toss";
 
 export async function POST(req: Request) {
   try {
@@ -10,10 +11,7 @@ export async function POST(req: Request) {
       throw new Error("필수값 누락");
     }
 
-    const secretKey = process.env.TOSS_SECRET_KEY;
-    if (!secretKey) {
-      throw new Error("TOSS_SECRET_KEY 없음");
-    }
+    const secretKey = getNormalizedTossSecretKey(process.env.TOSS_SECRET_KEY);
 
     const tossResponse = await fetch(
       "https://api.tosspayments.com/v1/payments/confirm",
@@ -76,11 +74,13 @@ export async function POST(req: Request) {
       success: true,
       data,
     });
-  } catch (e: any) {
+  } catch (e: unknown) {
     console.error("confirm route error:", e);
 
+    const message = e instanceof Error ? e.message : "알 수 없는 오류";
+
     return NextResponse.json(
-      { error: e.message || "알 수 없는 오류" },
+      { error: message },
       { status: 500 }
     );
   }

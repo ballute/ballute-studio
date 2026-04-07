@@ -4,10 +4,24 @@ import Link from "next/link";
 import { useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { supabase } from "@/lib/supabase";
+import { getNormalizedTossClientKey } from "@/lib/toss";
 
 declare global {
+  type TossPaymentsInstance = {
+    requestPayment: (
+      method: string,
+      params: {
+        amount: number;
+        orderId: string;
+        orderName: string;
+        successUrl: string;
+        failUrl: string;
+      }
+    ) => Promise<void>;
+  };
+
   interface Window {
-    TossPayments: any;
+    TossPayments?: (clientKey: string) => TossPaymentsInstance;
   }
 }
 
@@ -46,11 +60,13 @@ export default function ChargePage() {
         return;
       }
 
-      const clientKey = process.env.NEXT_PUBLIC_TOSS_CLIENT_KEY;
-      if (!clientKey) {
-        throw new Error("NEXT_PUBLIC_TOSS_CLIENT_KEY 없음");
+      if (typeof window.TossPayments !== "function") {
+        throw new Error("토스 SDK 로드 실패");
       }
 
+      const clientKey = getNormalizedTossClientKey(
+        process.env.NEXT_PUBLIC_TOSS_CLIENT_KEY
+      );
       const tossPayments = window.TossPayments(clientKey);
       const orderId = `order_${user.id}_${Date.now()}`;
 
@@ -63,7 +79,7 @@ export default function ChargePage() {
       });
     } catch (e) {
       console.error(e);
-      alert("결제 실행 오류");
+      alert(e instanceof Error ? e.message : "결제 실행 오류");
     } finally {
       setLoading(false);
     }
