@@ -42,6 +42,19 @@ export type PoseBlueprint = {
   expression?: string;
   camera_angle_and_crop?: string;
   body_attitude?: string;
+  head_direction?: string;
+  gaze_direction?: string;
+  torso_rotation?: string;
+  shoulder_tilt?: string;
+  left_arm_position?: string;
+  right_arm_position?: string;
+  left_hand_action?: string;
+  right_hand_action?: string;
+  hip_shift?: string;
+  weight_distribution?: string;
+  leg_stance?: string;
+  body_lean?: string;
+  styling_items_to_ignore?: string[];
 };
 
 export type LockedVibe = {
@@ -128,6 +141,37 @@ const buildFitPromptContext = (
 `,
     fitSummarySuffix: ` + 📏 핏 보정: Body ${bodyChange}`,
   };
+};
+
+const compactPoseValue = (value?: string) => {
+  const trimmed = value?.trim();
+  return trimmed ? trimmed : undefined;
+};
+
+const buildStructuredPosePrompt = (poseBlueprint: PoseBlueprint) => {
+  const lines = [
+    ["Head direction", compactPoseValue(poseBlueprint.head_direction)],
+    ["Gaze direction", compactPoseValue(poseBlueprint.gaze_direction)],
+    ["Torso rotation", compactPoseValue(poseBlueprint.torso_rotation)],
+    ["Shoulder tilt", compactPoseValue(poseBlueprint.shoulder_tilt)],
+    ["Left arm position", compactPoseValue(poseBlueprint.left_arm_position)],
+    ["Right arm position", compactPoseValue(poseBlueprint.right_arm_position)],
+    ["Left hand action", compactPoseValue(poseBlueprint.left_hand_action)],
+    ["Right hand action", compactPoseValue(poseBlueprint.right_hand_action)],
+    ["Hip shift", compactPoseValue(poseBlueprint.hip_shift)],
+    [
+      "Weight distribution",
+      compactPoseValue(poseBlueprint.weight_distribution),
+    ],
+    ["Leg stance", compactPoseValue(poseBlueprint.leg_stance)],
+    ["Body lean", compactPoseValue(poseBlueprint.body_lean)],
+  ]
+    .filter(([, value]) => Boolean(value))
+    .map(([label, value]) => `- ${label}: ${value}`);
+
+  return lines.length
+    ? lines.join("\n")
+    : "- Preserve the pose reference asymmetry and body balance exactly.";
 };
 
 export async function analyzeBackgroundDNAFromBase64s(
@@ -242,20 +286,39 @@ export async function analyzePoseBlueprintFromBase64(
           text: `Analyze this pose reference image as a HIGH-END FASHION EDITORIAL POSE.
 
 IMPORTANT:
-Do NOT reduce the pose into only dry skeletal coordinates.
-Read it like a fashion photographer for a luxury brand.
+- Extract BODY POSTURE ONLY.
+- Preserve asymmetry, body lean, hand placement, torso rotation, and weight balance.
+- If one hand is in a pocket, keep that as pose logic.
+- Ignore all accessories and styling contamination from the pose reference.
+- Do NOT transfer sunglasses, hats, bags, jewelry, scarves, props, or extra styling items.
+- Do NOT describe the outfit itself. Focus on posture, stance, gaze, and crop.
+- Keep each field concise and practical.
 
 Return ONLY raw JSON:
 {
-  "pose": "body posture, weight balance, arm/leg attitude",
-  "expression": "facial expression and gaze direction",
-  "camera_angle_and_crop": "camera angle / crop feeling",
-  "body_attitude": "editorial attitude / emotion carried by the body"
+  "pose": "short overall pose summary",
+  "expression": "short facial expression summary",
+  "camera_angle_and_crop": "short framing summary",
+  "body_attitude": "short editorial body attitude summary",
+  "head_direction": "where the head is turned",
+  "gaze_direction": "where the eyes are directed",
+  "torso_rotation": "front / 3-quarter / twisted / angled",
+  "shoulder_tilt": "level / left lowered / right lowered / etc",
+  "left_arm_position": "arm position only",
+  "right_arm_position": "arm position only",
+  "left_hand_action": "e.g. relaxed, in pocket, touching hip",
+  "right_hand_action": "e.g. relaxed, in pocket, touching hip",
+  "hip_shift": "centered / shifted left / shifted right",
+  "weight_distribution": "balanced / left leg / right leg",
+  "leg_stance": "parallel / staggered / one knee bent / etc",
+  "body_lean": "upright / slight left lean / slight right lean / etc",
+  "styling_items_to_ignore": ["list only non-pose accessory items to ignore"]
 }`,
         },
       ],
     },
     config: {
+      responseMimeType: "application/json",
       safetySettings,
     },
   });
@@ -411,6 +474,13 @@ export async function generateFusionImageWeb(args: {
     lockedVibe?.expression || poseBlueprint?.expression || "";
   const finalBackground = lockedVibe?.background || targetLocationText;
   const finalBodyAttitude = poseBlueprint?.body_attitude || "";
+  const structuredPosePrompt = buildStructuredPosePrompt(poseBlueprint);
+  const stylingItemsToIgnore = (poseBlueprint?.styling_items_to_ignore || [])
+    .map((item) => item.trim())
+    .filter(Boolean);
+  const stylingIgnorePrompt = stylingItemsToIgnore.length
+    ? stylingItemsToIgnore.join(", ")
+    : "sunglasses, hats, bags, jewelry, scarves, props, and any extra styling accessories";
 
   const prompt = `
 Task: Create a premium FUSION fashion editorial image.
@@ -441,6 +511,9 @@ ${fitPromptContext}
 - Expression: ${finalExpression}
 - Body attitude: ${finalBodyAttitude}
 
+[POSE STRUCTURE]
+${structuredPosePrompt}
+
 [PHOTO GRAMMAR]
 - Camera framing / crop: ${cameraFeel}
 
@@ -452,6 +525,19 @@ ${fitPromptContext}
 - If pose reference suggests upper-body, chest-up, waist-up, or medium framing, preserve that exact framing logic.
 - If pose reference suggests full-body, preserve full-body.
 - Pose reference has higher priority than background camera feel.
+
+[POSE PRESERVATION]
+- Preserve asymmetry from the pose reference.
+- Preserve body lean, torso rotation, shoulder tilt, and weight balance.
+- Preserve the exact arm logic from the pose reference.
+- If one hand is in a pocket in the pose reference, keep one hand in a pocket.
+- Do NOT simplify the result into a generic straight standing pose.
+- Do NOT mirror the pose into a more symmetrical stance.
+
+[STYLING CONTAMINATION CONTROL]
+- Use the pose reference for posture only.
+- Ignore these non-pose styling items from the pose reference: ${stylingIgnorePrompt}.
+- Do NOT introduce any accessory, prop, or styling item from the pose reference unless it already exists in the actual outfit references.
 
 [BACKGROUND CONTROL]
 - The location should inherit the background DNA, but literal geometry must not be copied.
