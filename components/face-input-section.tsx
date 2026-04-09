@@ -267,6 +267,41 @@ export default function FaceInputSection({
           >
             {generating ? "모델 생성중..." : "모델 생성 (성공 시 30P)"}
           </button>
+
+          {items.length > 0 ? (
+            <div className="pt-3">
+              <div className="mb-3 flex items-center justify-between">
+                <div className="text-sm font-medium text-gray-700">
+                  최근 생성/업로드된 모델 얼굴
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setMode("upload")}
+                  className="text-xs text-gray-500 underline underline-offset-2"
+                >
+                  전체 목록 보기
+                </button>
+              </div>
+
+              <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
+                {items.slice(-3).reverse().map((item, index) => (
+                  <div
+                    key={`${item.file.name}-${items.length - index}`}
+                    className="border rounded-xl p-2"
+                  >
+                    <img
+                      src={item.preview}
+                      alt={item.file.name}
+                      className="w-full h-32 object-cover rounded-lg"
+                    />
+                    <div className="mt-2 text-xs text-gray-600 truncate">
+                      {item.file.name}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          ) : null}
         </div>
       )}
     </div>
