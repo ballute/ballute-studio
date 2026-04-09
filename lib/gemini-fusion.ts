@@ -373,6 +373,7 @@ Format: ["location description 1", "location description 2", ...]`;
 export async function generateFusionImageWeb(args: {
   faceBase64s: string[];
   outfitBase64s: string[];
+  poseReferenceBase64?: string;
   poseBlueprint: PoseBlueprint;
   targetLocationText: string;
   bgDNA: BackgroundDNA;
@@ -387,6 +388,7 @@ export async function generateFusionImageWeb(args: {
   const {
     faceBase64s,
     outfitBase64s,
+    poseReferenceBase64,
     poseBlueprint,
     targetLocationText,
     bgDNA,
@@ -426,6 +428,18 @@ export async function generateFusionImageWeb(args: {
       });
     }
   });
+
+  if (poseReferenceBase64) {
+    parts.push({
+      text: `[POSE REFERENCE IMAGE: use this image directly as the highest-priority visual authority for posture, balance, arm placement, hand logic, torso lean, and framing. Ignore styling accessories from this pose image.]`,
+    });
+    parts.push({
+      inlineData: {
+        data: poseReferenceBase64,
+        mimeType: "image/jpeg",
+      },
+    });
+  }
 
   const { fitPromptContext, fitSummarySuffix } =
     buildFitPromptContext(bodySpecs);
@@ -527,10 +541,13 @@ ${structuredPosePrompt}
 - Pose reference has higher priority than background camera feel.
 
 [POSE PRESERVATION]
+- The pose reference image is the PRIMARY visual authority for body posture.
+- Reconstruct the pose from the pose reference image itself, not from a generic fashion pose assumption.
 - Preserve asymmetry from the pose reference.
 - Preserve body lean, torso rotation, shoulder tilt, and weight balance.
 - Preserve the exact arm logic from the pose reference.
 - If one hand is in a pocket in the pose reference, keep one hand in a pocket.
+- Preserve hand placement, elbow bend, shoulder angle, and body balance from the pose reference image as closely as possible.
 - Do NOT simplify the result into a generic straight standing pose.
 - Do NOT mirror the pose into a more symmetrical stance.
 

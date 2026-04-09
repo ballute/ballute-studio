@@ -710,6 +710,7 @@ export default function FusionPage() {
                 lockedVibe,
                 facePaths,
                 outfitPaths,
+                posePath: posePaths[poseIndex],
                 bgDNA,
                 poseBlueprint: poseBlueprints[poseIndex],
                 locationPrompt: locationPrompts[locationIndex],

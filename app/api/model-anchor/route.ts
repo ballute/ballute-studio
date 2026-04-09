@@ -19,6 +19,72 @@ function detectMimeType(base64?: string) {
   return "image/jpeg";
 }
 
+function normalizeWhitespace(text: string) {
+  return text.replace(/\s+/g, " ").trim();
+}
+
+function buildHairConstraint(hairStyle: string) {
+  const raw = normalizeWhitespace(hairStyle);
+  const rules: string[] = [];
+
+  if (/[짧단]은?|short/i.test(raw)) {
+    rules.push("short haircut");
+  }
+  if (/웻|wet/i.test(raw)) {
+    rules.push("wet textured finish");
+  }
+  if (/앞머리.*내|fringe|bang/i.test(raw)) {
+    rules.push("fringe falling down toward the forehead");
+  }
+  if (/가르마|center part|side part/i.test(raw)) {
+    rules.push("respect the requested parting");
+  }
+  if (/볼륨|volume/i.test(raw)) {
+    rules.push("respect the requested top and side volume");
+  }
+
+  if (!rules.length) {
+    return raw || "natural hairstyle";
+  }
+
+  return `${raw} / ${rules.join(", ")}`;
+}
+
+function buildIdentityConstraint(extraDetails: string) {
+  const raw = normalizeWhitespace(extraDetails);
+  const rules: string[] = [];
+
+  if (/무쌍/.test(raw)) {
+    rules.push(
+      "monolid eyelids, no visible double-eyelid crease, do not beautify into a double-eyelid look"
+    );
+  }
+  if (/속쌍/.test(raw)) {
+    rules.push("subtle inner eyelid fold only, not a deep or dramatic crease");
+  }
+  if (/큰눈|large eyes?/i.test(raw)) {
+    rules.push("large eyes");
+  }
+  if (/작은 눈|small eyes?/i.test(raw)) {
+    rules.push("smaller eye opening");
+  }
+  if (/매력점|점|beauty mark|mole/i.test(raw)) {
+    rules.push("include the requested beauty mark or mole clearly");
+  }
+  if (/수염 없음|no facial hair/i.test(raw)) {
+    rules.push("no facial hair");
+  }
+  if (/턱선|jawline/i.test(raw)) {
+    rules.push("respect the requested jawline character");
+  }
+
+  if (!rules.length) {
+    return raw;
+  }
+
+  return raw ? `${raw} / ${rules.join(", ")}` : rules.join(", ");
+}
+
 export async function POST(req: NextRequest) {
   try {
     const user = await authenticateApiRequest(req);
@@ -35,43 +101,73 @@ export async function POST(req: NextRequest) {
     const mood = body.mood || "Calm and confident";
     const extraDetails = body.extraDetails || "";
 
+    const hairConstraint = buildHairConstraint(hairStyle);
+    const identityConstraint = buildIdentityConstraint(extraDetails);
+
     const prompt = `
-Create a single high-resolution "Fixed Face Anchor" collage for a virtual fashion model.
+Create a single photorealistic "Fixed Face Anchor" collage for a virtual fashion model.
 
 MODEL PROFILE:
 - ethnicity: ${ethnicity}
 - gender: ${gender}
 - age: ${age}
-- hair style: ${hairStyle}
+- hair style: ${hairConstraint}
 - skin tone: ${skinTone}
 - eye color: ${eyeColor}
 - mood: ${mood}
-- extra details: ${extraDetails}
+- identity-critical details: ${identityConstraint || "none"}
+
+CORE GOAL:
+- produce a reliable face anchor for downstream fashion generation
+- preserve identity consistency
+- preserve the requested hair style strongly
+- preserve identity-critical facial traits strongly
+- avoid a bland or overly generic casting face
 
 STRICT COMPOSITION RULES:
-- output must be a 3-panel collage in one single image
+- output must be a 2-panel collage in one single image
 - panel 1: FRONT VIEW
 - panel 2: 45-DEGREE VIEW
-- panel 3: SIDE PROFILE
+- do NOT include a side profile panel
 
 STRICT CROP RULES:
-- head-only portrait
-- crop from top of head to base of neck
-- no shoulders below clavicle
+- head-and-neck portrait only
+- include the full head shape and full hair silhouette
+- include the ears clearly when visible from the angle
+- crop from slightly above the hair to slightly below the neck
 - no torso
 - no chest
 - no hands
-- face occupies about 80% of each panel
-- keep all three panels tightly framed around the face and neck only
+- keep the framing wide enough to show the full hairstyle, ears, and face structure
+
+STRICT HAIR RULES:
+- hair has very high priority
+- follow the requested hair style literally and specifically
+- preserve length, fringe direction, parting, texture, wet/dry feel, volume, and ear coverage according to the description
+- do NOT replace the requested hair with a generic clean short haircut or generic center-part hairstyle unless explicitly requested
+
+STRICT IDENTITY FEATURE RULES:
+- identity-critical facial traits have very high priority
+- if monolid is requested, preserve monolid eyelids clearly
+- do NOT convert monolid eyes into deep double eyelids
+- if large eyes are requested, keep the eyes large without changing the eyelid type
+- if a beauty mark or mole is requested, keep it visible and natural
+- do NOT over-beautify, over-symmetrize, or turn the face into a generic idol-style beauty face unless explicitly requested
+
+IDENTITY RULES:
+- maintain the same person across both panels
+- keep subtle individuality
+- allow small natural asymmetry in facial features
+- do NOT make the face look mannequin-like, plastic, or overly standardized
+- do NOT make the model look like a generic beauty test face
 
 AESTHETIC:
 - photorealistic
-- beauty editorial headshot
 - neutral studio lighting
-- white seamless background
-- ultra clean skin detail
-- premium fashion casting reference
-- consistent identity across all three views
+- clean light background
+- fashion casting reference feel
+- natural skin texture
+- sharp enough for reference use, but not excessively retouched
 
 OUTPUT RULE:
 - return only the face anchor collage image

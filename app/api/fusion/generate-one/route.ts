@@ -91,6 +91,7 @@ type JsonGenerateBody = {
   lockedVibe?: LockedVibe | null;
   facePaths?: string[];
   outfitPaths?: string[];
+  posePath?: string;
   outputRatio?: "4:5" | "2:3" | "16:9"; // ✅ 추가
 };
 
@@ -127,6 +128,7 @@ export async function POST(req: Request) {
     let lockedVibe: LockedVibe | null = null;
     let faceBase64s: string[] = [];
     let outfitBase64s: string[] = [];
+    let poseReferenceBase64 = "";
     let outputRatio: "4:5" | "2:3" | "16:9" = "4:5"; // ✅ 추가
 
     if (jsonBody) {
@@ -151,6 +153,7 @@ export async function POST(req: Request) {
       const outfitPaths = Array.isArray(jsonBody.outfitPaths)
         ? jsonBody.outfitPaths
         : [];
+      const posePath = (jsonBody.posePath || "").trim();
 
       if (!facePaths.length) {
         return NextResponse.json(
@@ -173,10 +176,18 @@ export async function POST(req: Request) {
         );
       }
 
-      assertTempAssetOwnership(user.id, [...facePaths, ...outfitPaths]);
+      if (!posePath) {
+        return NextResponse.json(
+          { error: "포즈 스토리지 경로가 필요하다." },
+          { status: 400 }
+        );
+      }
+
+      assertTempAssetOwnership(user.id, [...facePaths, ...outfitPaths, posePath]);
 
       faceBase64s = await Promise.all(facePaths.map(storagePathToBase64));
       outfitBase64s = await Promise.all(outfitPaths.map(storagePathToBase64));
+      poseReferenceBase64 = await storagePathToBase64(posePath);
     } else {
       const formData = await req.formData();
 
@@ -238,6 +249,7 @@ export async function POST(req: Request) {
     const generated = await generateFusionImageWeb({
       faceBase64s,
       outfitBase64s,
+      poseReferenceBase64,
       poseBlueprint,
       targetLocationText: locationPrompt,
       bgDNA,
