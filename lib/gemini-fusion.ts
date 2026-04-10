@@ -392,6 +392,7 @@ export async function generateFusionImageWeb(args: {
   const cameraRelation = poseBlueprint?.camera_relation || "Natural photographic angle.";
   const purgeNotes = poseBlueprint?.pose_purge_notes || "All original background, clothing, and accessories.";
 
+  // 🚨 [낮에 바꿨던 감도 핵심 프롬프트 복구]
   const prompt = `
 Task: Create a premium FUSION fashion editorial image.
 
@@ -448,17 +449,15 @@ ${fitPromptContext}
         aspectRatio: outputRatio,
         imageSize: defaultImageSize,
       },
-      // 🚨 리전 안전을 위한 httpOptions는 유지하되, 크롭을 방해하던 ...imageGenerateConfig는 제거했습니다.
       httpOptions: imageGenerateHttpOptions,
+      ...imageGenerateConfig,
       safetySettings,
     },
   });
 
-  // 🚨 대표님이 "크롭 잘되던 시절" 쓰시던 원초적이고 확실한 파싱 로직으로 복구했습니다.
-  const imageBase64 =
-    response.candidates?.[0]?.content?.parts?.find(
-      (part: any) => part.inlineData
-    )?.inlineData?.data || null;
+  const responseParts = (response.candidates?.[0]?.content?.parts ??
+    []) as GenAiResponsePart[];
+  const imageBase64 = pickGeneratedInlineImage(responseParts)?.data || null;
 
   if (!imageBase64) {
     throw new Error("FUSION 이미지 생성 결과가 비어 있다.");
