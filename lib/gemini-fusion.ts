@@ -2,17 +2,9 @@ import { HarmCategory, HarmBlockThreshold } from "@google/genai";
 import {
   ai,
   defaultImageSize,
-  imageGenerateConfig,
   imageGenerateHttpOptions,
-  imageGenerationModel,
 } from "./genai-client";
-import {
-  pickGeneratedInlineImage,
-  type GenAiResponsePart,
-} from "./genai-response";
 import { toInlineImagePart } from "./image-mime";
-
-type PromptPart = ReturnType<typeof toInlineImagePart> | { text: string };
 
 const safetySettings = [
   {
@@ -121,7 +113,7 @@ const buildFitPromptContext = (
 export async function analyzeBackgroundDNAFromBase64s(
   bgBase64s: string[]
 ): Promise<BackgroundDNA> {
-  const analyses: BackgroundDNA[] = [];
+  const analyses: any[] = [];
 
   for (const base64 of bgBase64s) {
     const response = await ai.models.generateContent({
@@ -328,7 +320,7 @@ export async function generateFusionImageWeb(args: {
     outputRatio = "4:5",
   } = args;
 
-  const parts: PromptPart[] = [];
+  const parts: any[] = [];
 
   faceBase64s.forEach((faceBase64) => {
     parts.push(toInlineImagePart(faceBase64));
@@ -441,7 +433,7 @@ ${fitPromptContext}
 `;
 
   const response = await ai.models.generateContent({
-    model: imageGenerationModel,
+    model: "gemini-3.1-flash-image-preview",
     contents: [{ role: "user", parts: [...parts, { text: prompt }] }],
     config: {
       imageConfig: {
@@ -449,14 +441,14 @@ ${fitPromptContext}
         imageSize: defaultImageSize,
       },
       httpOptions: imageGenerateHttpOptions,
-      ...imageGenerateConfig,
       safetySettings,
     },
   });
 
-  const responseParts = (response.candidates?.[0]?.content?.parts ??
-    []) as GenAiResponsePart[];
-  const imageBase64 = pickGeneratedInlineImage(responseParts)?.data || null;
+  const imageBase64 =
+    response.candidates?.[0]?.content?.parts?.find(
+      (part: any) => part.inlineData
+    )?.inlineData?.data || null;
 
   if (!imageBase64) {
     throw new Error("FUSION 이미지 생성 결과가 비어 있다.");

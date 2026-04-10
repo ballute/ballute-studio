@@ -1,7 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import {
   ai,
-  defaultImageSize,
   imageGenerateConfig,
   imageGenerateHttpOptions,
   imageGenerationModel,
@@ -192,7 +191,7 @@ OUTPUT RULE:
       config: {
         imageConfig: {
           aspectRatio: "1:1",
-          imageSize: defaultImageSize,
+          imageSize: "1K",
         },
         httpOptions: imageGenerateHttpOptions,
         ...imageGenerateConfig,

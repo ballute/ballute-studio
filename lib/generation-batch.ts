@@ -97,10 +97,21 @@ export async function waitForGenerationBatch(params: {
     throw new Error("세션 생성중입니다. 잠시 후 다시 시도해 주세요.");
   }
 
-  const accessToken = providedAccessToken || (await getAccessToken());
   let lastQueuedPosition: number | null = null;
 
   while (true) {
+    let accessToken: string | null = null;
+
+    try {
+      accessToken = await getAccessToken();
+    } catch {
+      accessToken = providedAccessToken || null;
+    }
+
+    if (!accessToken) {
+      throw new Error("로그인이 필요합니다.");
+    }
+
     const res = await fetch("/api/generation-slots/reserve", {
       method: "POST",
       headers: {
@@ -146,7 +157,17 @@ export async function releaseGenerationBatchWithOptions(
   }
 
   try {
-    const accessToken = options.accessToken || (await getAccessToken());
+    let accessToken: string | null = null;
+
+    try {
+      accessToken = await getAccessToken();
+    } catch {
+      accessToken = options.accessToken || null;
+    }
+
+    if (!accessToken) {
+      return;
+    }
 
     await fetch("/api/generation-slots/release", {
       method: "POST",

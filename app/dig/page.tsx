@@ -306,6 +306,16 @@ export default function DigPage() {
     );
   };
 
+  const getAuthHeaders = async (headers?: HeadersInit) => {
+    const accessToken = await getAccessToken();
+    batchAccessTokenRef.current = accessToken;
+
+    const nextHeaders = new Headers(headers);
+    nextHeaders.set("Authorization", `Bearer ${accessToken}`);
+
+    return nextHeaders;
+  };
+
   const appendFiles = (
     setter: React.Dispatch<React.SetStateAction<UploadItem[]>>,
     files: FileList | null
@@ -494,14 +504,14 @@ export default function DigPage() {
       setStatusMessage("모델 생성 요청 준비중...");
 
       const accessToken = await getAccessToken();
+      batchAccessTokenRef.current = accessToken;
       setStatusMessage("모델 생성중...");
 
       const res = await fetch("/api/model-anchor", {
         method: "POST",
-        headers: {
+        headers: await getAuthHeaders({
           "Content-Type": "application/json",
-          Authorization: `Bearer ${accessToken}`,
-        },
+        }),
         body: JSON.stringify(options),
       });
 
@@ -611,9 +621,7 @@ export default function DigPage() {
 
       const directionsRes = await fetch("/api/dig/directions", {
         method: "POST",
-        headers: {
-          Authorization: `Bearer ${accessToken}`,
-        },
+        headers: await getAuthHeaders(),
         body: (() => {
           const formData = new FormData();
           formData.append("batchId", batchId);
@@ -661,10 +669,9 @@ export default function DigPage() {
         try {
           const res = await fetch("/api/dig/generate-one", {
             method: "POST",
-            headers: {
+            headers: await getAuthHeaders({
               "Content-Type": "application/json",
-              Authorization: `Bearer ${accessToken}`,
-            },
+            }),
             body: JSON.stringify({
               batchId,
               fitSpec,

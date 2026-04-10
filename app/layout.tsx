@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
+import Script from "next/script";
 import "./globals.css";
 import Footer from "@/components/footer";
 
@@ -29,8 +30,7 @@ export default function RootLayout({
       className={`${geistSans.variable} ${geistMono.variable} h-full antialiased`}
     >
       <head>
-        {/* 🔥 토스 SDK 추가 */}
-        <script src="https://js.tosspayments.com/v1"></script>
+        <Script src="https://js.tosspayments.com/v1" strategy="beforeInteractive" />
       </head>
 
       <body className="min-h-full flex flex-col">

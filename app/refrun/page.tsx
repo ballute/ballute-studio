@@ -300,6 +300,16 @@ export default function RefRunPage() {
     );
   };
 
+  const getAuthHeaders = async (headers?: HeadersInit) => {
+    const accessToken = await getAccessToken();
+    batchAccessTokenRef.current = accessToken;
+
+    const nextHeaders = new Headers(headers);
+    nextHeaders.set("Authorization", `Bearer ${accessToken}`);
+
+    return nextHeaders;
+  };
+
   const appendFiles = (
     setter: React.Dispatch<React.SetStateAction<UploadItem[]>>,
     files: FileList | null
@@ -485,14 +495,14 @@ export default function RefRunPage() {
       setStatusMessage("모델 생성 요청 준비중...");
 
       const accessToken = await getAccessToken();
+      batchAccessTokenRef.current = accessToken;
       setStatusMessage("모델 생성중...");
 
       const res = await fetch("/api/model-anchor", {
         method: "POST",
-        headers: {
+        headers: await getAuthHeaders({
           "Content-Type": "application/json",
-          Authorization: `Bearer ${accessToken}`,
-        },
+        }),
         body: JSON.stringify(options),
       });
 
@@ -631,10 +641,9 @@ export default function RefRunPage() {
           try {
             const res = await fetch("/api/refrun/run-one", {
               method: "POST",
-              headers: {
+              headers: await getAuthHeaders({
                 "Content-Type": "application/json",
-                Authorization: `Bearer ${accessToken}`,
-              },
+              }),
               body: JSON.stringify({
                 batchId,
                 fitSpec,

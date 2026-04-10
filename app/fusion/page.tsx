@@ -44,9 +44,9 @@ type FusionResult = {
   elapsedMs?: number;
   locationPrompt?: string;
   poseBlueprint?: {
-    pose?: string;
-    expression?: string;
-    camera_angle_and_crop?: string;
+    pose_core?: string;
+    expression_and_gaze?: string;
+    framing_and_scale?: string;
   };
   bgDNA?: {
     spatial_mood?: string;
@@ -316,6 +316,16 @@ export default function FusionPage() {
     );
   };
 
+  const getAuthHeaders = async (headers?: HeadersInit) => {
+    const accessToken = await getAccessToken();
+    batchAccessTokenRef.current = accessToken;
+
+    const nextHeaders = new Headers(headers);
+    nextHeaders.set("Authorization", `Bearer ${accessToken}`);
+
+    return nextHeaders;
+  };
+
   const appendFiles = (
     setter: React.Dispatch<React.SetStateAction<UploadItem[]>>,
     files: FileList | null
@@ -371,11 +381,11 @@ export default function FusionPage() {
   const handleSetVibe = (result: FusionResult) => {
     setLockedVibe({
       background: result.locationPrompt,
-      pose: result.poseBlueprint?.pose,
-      expression: result.poseBlueprint?.expression,
+      pose: result.poseBlueprint?.pose_core,
+      expression: result.poseBlueprint?.expression_and_gaze,
       overall_mood: result.bgDNA?.spatial_mood,
       camera_angle_and_crop:
-        result.poseBlueprint?.camera_angle_and_crop ||
+        result.poseBlueprint?.framing_and_scale ||
         result.bgDNA?.camera_feel,
       lighting_and_exposure: result.bgDNA?.lighting_and_exposure,
       color_grading_and_texture: result.bgDNA?.color_grading_and_texture,
@@ -531,14 +541,14 @@ export default function FusionPage() {
       setStatusMessage("모델 생성 요청 준비중...");
 
       const accessToken = await getAccessToken();
+      batchAccessTokenRef.current = accessToken;
       setStatusMessage("모델 생성중...");
 
       const res = await fetch("/api/model-anchor", {
         method: "POST",
-        headers: {
+        headers: await getAuthHeaders({
           "Content-Type": "application/json",
-          Authorization: `Bearer ${accessToken}`,
-        },
+        }),
         body: JSON.stringify(options),
       });
 
@@ -670,10 +680,9 @@ export default function FusionPage() {
 
       const prepareRes = await fetch("/api/fusion/prepare", {
         method: "POST",
-        headers: {
+        headers: await getAuthHeaders({
           "Content-Type": "application/json",
-          Authorization: `Bearer ${accessToken}`,
-        },
+        }),
         body: JSON.stringify({
           batchId,
           count: safeCount,
@@ -747,10 +756,9 @@ export default function FusionPage() {
           try {
             const res = await fetch("/api/fusion/generate-one", {
               method: "POST",
-              headers: {
+              headers: await getAuthHeaders({
                 "Content-Type": "application/json",
-                Authorization: `Bearer ${accessToken}`,
-              },
+              }),
               body: JSON.stringify({
                 batchId,
                 fitSpec,
@@ -1156,16 +1164,16 @@ export default function FusionPage() {
                         />
                         <ShortTag
                           label="포즈"
-                          value={shorten(slot.result.poseBlueprint?.pose)}
+                          value={shorten(slot.result.poseBlueprint?.pose_core)}
                         />
                         <ShortTag
                           label="표정"
-                          value={shorten(slot.result.poseBlueprint?.expression)}
+                          value={shorten(slot.result.poseBlueprint?.expression_and_gaze)}
                         />
                         <ShortTag
                           label="카메라"
                           value={shorten(
-                            slot.result.poseBlueprint?.camera_angle_and_crop
+                            slot.result.poseBlueprint?.framing_and_scale
                           )}
                         />
                         <ShortTag

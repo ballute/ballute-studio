@@ -1,17 +1,12 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useState } from "react";
+import { useSearchParams } from "next/navigation";
 
 export default function FailPage() {
-  const [code, setCode] = useState<string>("-");
-  const [message, setMessage] = useState<string>("알 수 없는 오류");
-
-  useEffect(() => {
-    const params = new URLSearchParams(window.location.search);
-    setCode(params.get("code") || "-");
-    setMessage(params.get("message") || "알 수 없는 오류");
-  }, []);
+  const searchParams = useSearchParams();
+  const code = searchParams.get("code") || "-";
+  const message = searchParams.get("message") || "알 수 없는 오류";
 
   return (
     <main className="min-h-screen bg-[#f7f7f5] px-6 py-16">
