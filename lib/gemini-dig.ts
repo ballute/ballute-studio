@@ -2,9 +2,17 @@ import { HarmCategory, HarmBlockThreshold } from "@google/genai";
 import {
   ai,
   defaultImageSize,
+  imageGenerateConfig,
   imageGenerateHttpOptions,
+  imageGenerationModel,
 } from "./genai-client";
+import {
+  pickGeneratedInlineImage,
+  type GenAiResponsePart,
+} from "./genai-response";
 import { toInlineImagePart } from "./image-mime";
+
+type PromptPart = ReturnType<typeof toInlineImagePart> | { text: string };
 
 const safetySettings = [
   {
@@ -151,7 +159,7 @@ Format:
   const response = await ai.models.generateContent({
     model: "gemini-3-flash-preview",
     contents: [{ role: "user", parts: [{ text: systemPrompt }] }],
-    // @ts-ignore
+    // @ts-expect-error The SDK supports googleSearch at runtime.
     tools: [{ googleSearch: {} }],
   });
 
@@ -205,7 +213,7 @@ export async function generateDigImageWeb(args: {
     throw new Error("의상 이미지가 없다.");
   }
 
-  const parts: any[] = [];
+  const parts: PromptPart[] = [];
 
   for (const faceBase64 of faceBase64s) {
     parts.push(toInlineImagePart(faceBase64));
@@ -306,7 +314,7 @@ ${outfitInstruction}
 `;
 
   const response = await ai.models.generateContent({
-    model: "gemini-3.1-flash-image-preview",
+    model: imageGenerationModel,
     contents: [{ role: "user", parts: [...parts, { text: prompt }] }],
     config: {
       imageConfig: {
@@ -314,14 +322,14 @@ ${outfitInstruction}
         imageSize: defaultImageSize,
       },
       httpOptions: imageGenerateHttpOptions,
+      ...imageGenerateConfig,
       safetySettings,
     },
   });
 
-  const imageBase64 =
-    response.candidates?.[0]?.content?.parts?.find(
-      (part: any) => part.inlineData
-    )?.inlineData?.data || null;
+  const responseParts = (response.candidates?.[0]?.content?.parts ??
+    []) as GenAiResponsePart[];
+  const imageBase64 = pickGeneratedInlineImage(responseParts)?.data || null;
 
   if (!imageBase64) {
     throw new Error("DIG 이미지 생성 결과가 비어 있다.");

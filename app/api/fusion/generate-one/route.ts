@@ -15,9 +15,14 @@ import {
   ensureUserHasPoints,
   spendUserPoints,
 } from "@/lib/server-api";
+import {
+  buildGenAiErrorLog,
+  formatGenAiErrorMessage,
+} from "@/lib/genai-response";
 
 const TEMP_INPUT_BUCKET = "temp-inputs";
 const FUSION_COST_PER_IMAGE = 60;
+export const maxDuration = 300;
 
 function stripBucketPrefix(path: string) {
   if (!path) return path;
@@ -278,14 +283,16 @@ export async function POST(req: Request) {
       },
     });
   } catch (error) {
-    console.error("FUSION_GENERATE_ONE_ERROR:", error);
+    console.error("FUSION_GENERATE_ONE_ERROR:", buildGenAiErrorLog(error));
 
     if (error instanceof ApiError) {
       return NextResponse.json({ error: error.message }, { status: error.status });
     }
 
-    const message =
-      error instanceof Error ? error.message : "알 수 없는 FUSION 생성 오류";
+    const message = formatGenAiErrorMessage(
+      error,
+      "알 수 없는 FUSION 생성 오류"
+    );
 
     return NextResponse.json({ error: message }, { status: 500 });
   }

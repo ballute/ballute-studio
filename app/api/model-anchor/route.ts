@@ -1,5 +1,17 @@
 import { NextRequest, NextResponse } from "next/server";
-import { ai } from "@/lib/genai-client";
+import {
+  ai,
+  defaultImageSize,
+  imageGenerateConfig,
+  imageGenerateHttpOptions,
+  imageGenerationModel,
+} from "@/lib/genai-client";
+import {
+  buildGenAiErrorLog,
+  formatGenAiErrorMessage,
+  pickGeneratedInlineImage,
+  type GenAiResponsePart,
+} from "@/lib/genai-response";
 import {
   ApiError,
   authenticateApiRequest,
@@ -8,6 +20,7 @@ import {
 } from "@/lib/server-api";
 
 const MODEL_GENERATE_COST = 30;
+export const maxDuration = 300;
 
 function detectMimeType(base64?: string) {
   if (!base64) return "image/jpeg";
@@ -174,40 +187,46 @@ OUTPUT RULE:
 `;
 
     const response = await ai.models.generateContent({
-      model: "gemini-3.1-flash-image-preview",
+      model: imageGenerationModel,
       contents: [{ role: "user", parts: [{ text: prompt }] }],
       config: {
         imageConfig: {
           aspectRatio: "1:1",
-          imageSize: "1K",
+          imageSize: defaultImageSize,
         },
+        httpOptions: imageGenerateHttpOptions,
+        ...imageGenerateConfig,
       },
     });
 
-    for (const part of response.candidates?.[0]?.content?.parts || []) {
-      if (part.inlineData?.data) {
-        const imageBase64 = part.inlineData.data;
-        const mimeType =
-          part.inlineData.mimeType || detectMimeType(imageBase64);
+    const responseParts = (response.candidates?.[0]?.content?.parts ??
+      []) as GenAiResponsePart[];
+    const inlineImage = pickGeneratedInlineImage(responseParts);
 
-        await spendUserPoints(user.id, MODEL_GENERATE_COST, "MODEL GENERATE");
+    if (inlineImage?.data) {
+      const imageBase64 = inlineImage.data;
+      const mimeType = inlineImage.mimeType || detectMimeType(imageBase64);
 
-        return NextResponse.json({
-          imageBase64,
-          mimeType,
-          chargedPoints: MODEL_GENERATE_COST,
-        });
-      }
+      await spendUserPoints(user.id, MODEL_GENERATE_COST, "MODEL GENERATE");
+
+      return NextResponse.json({
+        imageBase64,
+        mimeType,
+        chargedPoints: MODEL_GENERATE_COST,
+      });
     }
 
     throw new Error("No image was generated.");
   } catch (error) {
-    console.error("model-anchor route error:", error);
+    console.error("model-anchor route error:", buildGenAiErrorLog(error));
 
     if (error instanceof ApiError) {
       return NextResponse.json({ error: error.message }, { status: error.status });
     }
 
-    return NextResponse.json({ error: "모델 생성 실패" }, { status: 500 });
+    return NextResponse.json(
+      { error: formatGenAiErrorMessage(error, "모델 생성 실패") },
+      { status: 500 }
+    );
   }
 }

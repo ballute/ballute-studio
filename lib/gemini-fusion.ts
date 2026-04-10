@@ -2,9 +2,17 @@ import { HarmCategory, HarmBlockThreshold } from "@google/genai";
 import {
   ai,
   defaultImageSize,
+  imageGenerateConfig,
   imageGenerateHttpOptions,
+  imageGenerationModel,
 } from "./genai-client";
+import {
+  pickGeneratedInlineImage,
+  type GenAiResponsePart,
+} from "./genai-response";
 import { toInlineImagePart } from "./image-mime";
+
+type PromptPart = ReturnType<typeof toInlineImagePart> | { text: string };
 
 const safetySettings = [
   {
@@ -36,31 +44,13 @@ export type BackgroundDNA = {
 };
 
 export type PoseBlueprint = {
-  pose?: string;
-  expression?: string;
-  camera_angle_and_crop?: string;
+  pose_core?: string;
   body_attitude?: string;
-  detailed_pose_report?: string;
-  safe_generation_pose_notes?: string;
-  pose_category?: string;
-  overall_symmetry?: string;
-  head_direction?: string;
-  gaze_direction?: string;
-  torso_rotation?: string;
-  shoulder_tilt?: string;
-  left_arm_position?: string;
-  right_arm_position?: string;
-  left_hand_action?: string;
-  right_hand_action?: string;
-  garment_interaction?: string;
-  hip_shift?: string;
-  weight_distribution?: string;
-  left_leg_position?: string;
-  right_leg_position?: string;
-  leg_stance?: string;
-  feet_direction?: string;
-  body_lean?: string;
-  styling_items_to_ignore?: string[];
+  arm_and_hand_behavior?: string;
+  expression_and_gaze?: string;
+  framing_and_scale?: string;
+  camera_relation?: string;
+  pose_purge_notes?: string;
 };
 
 export type LockedVibe = {
@@ -81,7 +71,7 @@ const buildFitPromptContext = (
   if (!bodySpecs) {
     return {
       fitPromptContext:
-        "- AUTO-FIT MODE: Replicate the garment's silhouette, fit, length, and drape EXACTLY.",
+        "- AUTO-FIT MODE: Maintain natural drape, silhouette, and effortless fit of the garment. Prioritize garment integrity.",
       fitSummarySuffix: "",
     };
   }
@@ -90,7 +80,7 @@ const buildFitPromptContext = (
   if (!specMatch) {
     return {
       fitPromptContext:
-        "- AUTO-FIT MODE: Replicate the garment's silhouette, fit, length, and drape EXACTLY.",
+        "- AUTO-FIT MODE: Maintain natural drape, silhouette, and effortless fit of the garment.",
       fitSummarySuffix: "",
     };
   }
@@ -105,73 +95,33 @@ const buildFitPromptContext = (
 
   let hDesc = "";
   let wDesc = "";
-  let lengthEffect = "";
-  let widthEffect = "";
 
-  if (hDiff >= 4) {
-    hDesc = "taller";
-    lengthEffect =
-      "Because the body is taller/longer, the fixed garment sits naturally higher. Sleeves expose more wrist and pants break higher.";
-  } else if (hDiff <= -4) {
-    hDesc = "shorter";
-    lengthEffect =
-      "Because the body is shorter, the fixed garment falls lower. Sleeves cover more hands and pants stack more.";
-  }
+  if (hDiff >= 4) hDesc = "taller frame";
+  else if (hDiff <= -4) hDesc = "shorter frame";
 
-  if (wDiff >= 4) {
-    wDesc = "broader/heavier";
-    widthEffect =
-      "Because the body is thicker, the fixed garment fits tighter with reduced drape.";
-  } else if (wDiff <= -4) {
-    wDesc = "slimmer/lighter";
-    widthEffect =
-      "Because the body is thinner, the fixed garment fits looser with more drape.";
-  }
+  if (wDiff >= 4) wDesc = "broader build";
+  else if (wDiff <= -4) wDesc = "slimmer build";
 
   let bodyChange = [hDesc, wDesc].filter(Boolean).join(" and ");
   if (!bodyChange) {
     bodyChange = "similar proportions";
-    lengthEffect = "Maintain original vertical fit.";
-    widthEffect = "Maintain original width and drape.";
   }
 
   return {
     fitPromptContext: `
-- FIT CALIBRATION (FIXED GARMENT PARADIGM):
-  * The garment size and design are fixed.
-  * Do NOT redesign or resize the garment itself.
-  * The target body is visually ${bodyChange}.
-  * Visual effect:
-    1. ${lengthEffect}
-    2. ${widthEffect}
+- FIT CALIBRATION (ORGANIC ADAPTATION):
+  * Adjust the garment to fit a ${bodyChange}.
+  * CRITICAL: Focus on realistic fabric drape, gravity, and fluid movement. 
+  * NEVER distort the garment's fundamental design, pockets, or texture to force a pose. Garment structural integrity is the highest priority.
 `,
-    fitSummarySuffix: ` + 📏 핏 보정: Body ${bodyChange}`,
+    fitSummarySuffix: ` + 📏 핏 보정: ${bodyChange}`,
   };
-};
-
-const compactPoseValue = (value?: string) => {
-  const trimmed = value?.trim();
-  return trimmed ? trimmed : undefined;
-};
-
-const buildSafePoseGenerationPrompt = (poseBlueprint: PoseBlueprint) => {
-  const lines = [
-    compactPoseValue(poseBlueprint.safe_generation_pose_notes),
-    compactPoseValue(poseBlueprint.pose),
-    compactPoseValue(poseBlueprint.body_attitude),
-    compactPoseValue(poseBlueprint.garment_interaction),
-    compactPoseValue(poseBlueprint.camera_angle_and_crop),
-  ].filter(Boolean);
-
-  return lines.length
-    ? lines.map((line) => `- ${line}`).join("\n")
-    : "- Preserve the natural attitude, body balance, and hand logic from the pose reference.";
 };
 
 export async function analyzeBackgroundDNAFromBase64s(
   bgBase64s: string[]
 ): Promise<BackgroundDNA> {
-  const analyses: any[] = [];
+  const analyses: BackgroundDNA[] = [];
 
   for (const base64 of bgBase64s) {
     const response = await ai.models.generateContent({
@@ -267,46 +217,32 @@ export async function analyzePoseBlueprintFromBase64(
         },
         {
           text: `Analyze this pose reference image as a HIGH-END FASHION EDITORIAL POSE.
-
 IMPORTANT:
-- Extract BODY POSTURE ONLY.
-- Preserve asymmetry, body lean, hand placement, torso rotation, and weight balance.
-- Capture any GARMENT-TOUCHING action clearly, such as lightly holding lapels, gripping the front opening, touching the placket, or adjusting the jacket/shirt front.
-- If one hand is in a pocket, keep that as pose logic.
-- Ignore all accessories and styling contamination from the pose reference.
-- Do NOT transfer sunglasses, hats, bags, jewelry, scarves, props, or extra styling items.
-- Do NOT describe the outfit itself. Focus on posture, stance, gaze, and crop.
-- Produce one detailed natural-language pose report for analysis, then one shorter safe summary for image generation.
-- The detailed report should describe weight shift, pelvis/hip balance, torso lean, shoulder line, arm behavior, leg stance, head/gaze, facial tension, and editorial mood in a natural observational way.
-- Do NOT invent rigid biomechanical numbers unless the angle or shift is visually obvious.
+Do NOT reduce the pose into only dry skeletal coordinates.
+Read it like a fashion photographer for a luxury brand (Lemaire, The Row style).
+
+You must preserve:
+- Body attitude: The specific energy (nonchalant, tense, slouchy, elegant).
+- Narrative tension: The relationship between the subject and the negative space.
+- Weight distribution and torso lean.
+- Hand placement feeling: The "accidental" yet precise touch.
+- Facial mood: Subdued gaze, chin angle, fatigue or alertness.
+- Camera relation: The psychological distance (voyeuristic, intimate, formal).
+
+You must IGNORE / PURGE:
+- All original background/architecture.
+- All original clothing/textures/logos.
+- All accessories (sunglasses, bags, jewelry).
 
 Return ONLY raw JSON:
 {
-  "pose": "short overall pose summary",
-  "expression": "short facial expression summary",
-  "camera_angle_and_crop": "short framing summary",
-  "body_attitude": "short editorial body attitude summary",
-  "detailed_pose_report": "dense editorial pose analysis in natural language",
-  "safe_generation_pose_notes": "short natural-language pose guide safe for image generation",
-  "pose_category": "e.g. asymmetrical garment-touch standing pose / relaxed standing pose",
-  "overall_symmetry": "asymmetrical / slightly asymmetrical / symmetrical",
-  "head_direction": "where the head is turned",
-  "gaze_direction": "where the eyes are directed",
-  "torso_rotation": "front / 3-quarter / twisted / angled",
-  "shoulder_tilt": "level / left lowered / right lowered / etc",
-  "left_arm_position": "arm position only",
-  "right_arm_position": "arm position only",
-  "left_hand_action": "e.g. relaxed, in pocket, touching hip",
-  "right_hand_action": "e.g. relaxed, in pocket, touching hip",
-  "garment_interaction": "how the hands interact with the garment if applicable",
-  "hip_shift": "centered / shifted left / shifted right",
-  "weight_distribution": "balanced / left leg / right leg",
-  "left_leg_position": "straight / bent / forward / back / crossed / etc",
-  "right_leg_position": "straight / bent / forward / back / crossed / etc",
-  "leg_stance": "parallel / staggered / one knee bent / etc",
-  "feet_direction": "forward / slightly outward / mixed / crossed / etc",
-  "body_lean": "upright / slight left lean / slight right lean / etc",
-  "styling_items_to_ignore": ["list only non-pose accessory items to ignore"]
+  "pose_core": "precise body posture using editorial photography terms",
+  "body_attitude": "detailed energy reading: weight balance, lean, slouch, psychological tension",
+  "arm_and_hand_behavior": "narrative reading of hands/arms relationship to the model's presence",
+  "expression_and_gaze": "subtle facial mood, gaze direction, and emotional vibe",
+  "framing_and_scale": "STRICT CROP LEVEL (Choose one: Extreme Close-up / Bust / Waist-up / Knee-up / Full-body) AND photographic framing logic",
+  "camera_relation": "lens feel, camera height, and the specific angle to the subject",
+  "pose_purge_notes": "items that MUST be erased from the source"
 }`,
         },
       ] }],
@@ -392,7 +328,7 @@ export async function generateFusionImageWeb(args: {
     outputRatio = "4:5",
   } = args;
 
-  const parts: any[] = [];
+  const parts: PromptPart[] = [];
 
   faceBase64s.forEach((faceBase64) => {
     parts.push(toInlineImagePart(faceBase64));
@@ -446,107 +382,66 @@ export async function generateFusionImageWeb(args: {
     bgDNA?.spatial_mood ||
     "High-end restrained editorial mood.";
 
-  const cameraFeel =
-    lockedVibe?.camera_angle_and_crop ||
-    poseBlueprint?.camera_angle_and_crop ||
-    bgDNA?.camera_feel ||
-    "Editorial framing with natural negative space.";
-
-  const finalPose = lockedVibe?.pose || poseBlueprint?.pose || "";
-  const finalExpression =
-    lockedVibe?.expression || poseBlueprint?.expression || "";
   const finalBackground = lockedVibe?.background || targetLocationText;
-  const finalBodyAttitude = poseBlueprint?.body_attitude || "";
-  const finalGarmentInteraction = poseBlueprint?.garment_interaction || "";
-  const safePoseGenerationPrompt = buildSafePoseGenerationPrompt(poseBlueprint);
-  const stylingItemsToIgnore = (poseBlueprint?.styling_items_to_ignore || [])
-    .map((item) => item.trim())
-    .filter(Boolean);
-  const stylingIgnorePrompt = stylingItemsToIgnore.length
-    ? stylingItemsToIgnore.join(", ")
-    : "sunglasses, hats, bags, jewelry, scarves, props, and any extra styling accessories";
+  
+  const poseCore = lockedVibe?.pose || poseBlueprint?.pose_core || "Relaxed natural stance.";
+  const poseExpression = lockedVibe?.expression || poseBlueprint?.expression_and_gaze || "Natural editorial gaze.";
+  const cameraFeel = lockedVibe?.camera_angle_and_crop || poseBlueprint?.framing_and_scale || bgDNA?.camera_feel || "Editorial framing.";
+  const poseAttitude = poseBlueprint?.body_attitude || "Nonchalant and natural.";
+  const handsArms = poseBlueprint?.arm_and_hand_behavior || "Natural placement.";
+  const cameraRelation = poseBlueprint?.camera_relation || "Natural photographic angle.";
+  const purgeNotes = poseBlueprint?.pose_purge_notes || "All original background, clothing, and accessories.";
 
   const prompt = `
 Task: Create a premium FUSION fashion editorial image.
 
-[PRIORITY ORDER]
-- 1. Face references define identity.
-- 2. Outfit references define wardrobe and styling.
-- 3. Pose blueprint defines posture, hand logic, gaze mood, and crop feeling.
-- 4. Background/location defines environment, light, and atmosphere.
-- Lower-priority inputs must never override higher-priority inputs.
+[⚠️ ABSOLUTE DIRECTIVE: IDENTITY & WARDROBE FIRST ⚠️]
+The highest priority of this generation is preserving the EXACT FACE IDENTITY and the EXACT GARMENT DETAILS. 
+Background and Pose MUST adapt to the Outfit, not the other way around.
 
 [FACE IDENTITY LOCK]
 - Maintain exact identity from face references.
-- Preserve face shape, facial proportions, age impression, and hair silhouette from the face references.
-- Do NOT borrow face, hair, or styling from outfit, pose, or background signals.
+- Preserve face shape, facial proportions, age impression, and hair silhouette.
 
-[OUTFIT LOCK]
-- Reconstruct the exact visible outfit from the uploaded outfit images.
-- Preserve garment category, sleeve length, neckline/collar shape, color blocking, fabric impression, layering order, and visible styling from the outfit references.
-- Do NOT invent, replace, or swap garments.
-- Do NOT introduce scarves, neckwear, knitwear, jewelry, props, or extra layers unless they are clearly visible in the outfit references.
-- ${
-    isMixMode
-      ? "This is MIX mode. Respect each item detail text exactly."
-      : "This is standard outfit mode."
-  }
+[OUTFIT LOCK (CRITICAL PRIORITY)]
+- INSTRUCTION: Reconstruct the exact visible outfit from the uploaded outfit images with 100% pixel-perfect fidelity.
+- PRESERVE: Exact garment category, sleeve length, collar shape, fabric texture, pockets, stitching, and layering order.
+- PROHIBITION: Do NOT alter the clothes to fit the pose. If the pose causes the clothes to distort, prioritize the clothes' structural integrity over the pose.
+- ${isMixMode ? "This is MIX mode. Respect each item detail text exactly." : "This is standard outfit mode."}
 
 ${fitPromptContext}
 
-[BACKGROUND INFLUENCE]
-- Environment type: ${bgDNA?.environment_type || ""}
-- Architectural language: ${bgDNA?.architectural_language || ""}
-- Lighting DNA: ${lightingStyle}
-- Color / texture DNA: ${textureAndColor}
-- Mood DNA: ${moodStyle}
-- Target location: ${finalBackground}
-- Use background/location only to construct the environment, light, and atmosphere.
-- Background guidance must never change the outfit, identity, or pose logic.
-- Do NOT creatively restyle the wardrobe to match the location.
+[BACKGROUND WORLD DNA & LOCATION]
+- DNA: ${bgDNA?.environment_type || "Location"}, ${bgDNA?.architectural_language || "Architecture"}.
+- Vibe: ${moodStyle}.
+- Set/Location: "${finalBackground}"
+- Lighting: ${lightingStyle}
+- Texture/Color: ${textureAndColor}
 
-[POSE INFLUENCE]
-- Pose: ${finalPose}
-- Expression: ${finalExpression}
-- Body attitude: ${finalBodyAttitude}
-- Garment interaction: ${finalGarmentInteraction}
-- Use pose guidance only for body stance, asymmetry, hand placement, weight balance, torso lean, head direction, gaze mood, and crop feeling.
-- Pose guidance must not change identity, outfit category, garment styling, or background concept.
-- Keep pose natural, relaxed, and editorial.
-- ${safePoseGenerationPrompt}
+[POSE & ATTITUDE - PHOTOGRAPHIC READING]
+- Core: ${poseCore}.
+- Energy: ${poseAttitude}.
+- Hands/Arms: ${handsArms}.
+- Face/Gaze: ${poseExpression}.
+- Angle: ${cameraRelation}.
+- CRITICAL VIBE: The model's posture MUST feel fluid, organic, and effortlessly natural. AVOID stiff, robotic, mannequin-like rigidity. Let the body weight shift naturally.
 
-[PHOTO GRAMMAR]
-- Camera framing / crop: ${cameraFeel}
-
-[CRITICAL CAMERA PRIORITY]
-- The camera framing MUST follow the pose reference first.
-- Maintain the same crop level and framing feel from the pose reference.
-- Do NOT widen the frame just to show more background.
-- Background/location is for environmental DNA only, not for deciding crop width.
-- If pose reference suggests upper-body, chest-up, waist-up, or medium framing, preserve that exact framing logic.
-- If pose reference suggests full-body, preserve full-body.
-- Pose reference has higher priority than background camera feel.
-
-[STYLING CONTAMINATION CONTROL]
-- Use the pose blueprint for posture only.
-- Ignore these non-pose styling items from the pose reference: ${stylingIgnorePrompt}.
-- Do NOT introduce any accessory, prop, or styling item from the pose reference unless it already exists in the actual outfit references.
-
-[BACKGROUND CONTROL]
-- The location should inherit the background DNA, but literal geometry must not be copied.
-- Build a compatible place within the same neighborhood/world.
-- Avoid repeating one-off windows, doors, corners, or exact facade layout from the background references.
+[CRITICAL CAMERA CROP LOCK]
+- Framing directive: ${cameraFeel}
+- ⚠️ STRICT RULE: You MUST replicate the exact crop level from the pose reference.
+- If the framing directive implies waist-up or half-body, DO NOT generate legs.
+- If the framing is a close-up, DO NOT show the full torso. 
+- DO NOT widen the frame or zoom out just to show more of the background. The background must adapt to the camera crop, not vice versa.
+- Purge from pose reference: ${purgeNotes}
 
 [OUTPUT RULE]
 - Render as a premium fashion editorial photograph.
-- Keep the image realistic and luxury-brand ready.
-- Avoid generic AI mannequin feel.
 - ${outputRatio} composition.
 - ${defaultImageSize} quality.
 `;
 
   const response = await ai.models.generateContent({
-    model: "gemini-3.1-flash-image-preview",
+    model: imageGenerationModel,
     contents: [{ role: "user", parts: [...parts, { text: prompt }] }],
     config: {
       imageConfig: {
@@ -554,14 +449,14 @@ ${fitPromptContext}
         imageSize: defaultImageSize,
       },
       httpOptions: imageGenerateHttpOptions,
+      ...imageGenerateConfig,
       safetySettings,
     },
   });
 
-  const imageBase64 =
-    response.candidates?.[0]?.content?.parts?.find(
-      (part: any) => part.inlineData
-    )?.inlineData?.data || null;
+  const responseParts = (response.candidates?.[0]?.content?.parts ??
+    []) as GenAiResponsePart[];
+  const imageBase64 = pickGeneratedInlineImage(responseParts)?.data || null;
 
   if (!imageBase64) {
     throw new Error("FUSION 이미지 생성 결과가 비어 있다.");

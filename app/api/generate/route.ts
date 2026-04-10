@@ -1,5 +1,9 @@
 import { NextResponse } from "next/server";
 import { fileToBase64 } from "@/lib/utils";
+import {
+  buildGenAiErrorLog,
+  formatGenAiErrorMessage,
+} from "@/lib/genai-response";
 import { generateLookbookWeb } from "@/lib/gemini-web";
 import {
   ApiError,
@@ -9,6 +13,7 @@ import {
 } from "@/lib/server-api";
 
 const LOOKBOOK_GENERATE_COST = 50;
+export const maxDuration = 300;
 
 export async function POST(req: Request) {
   try {
@@ -76,14 +81,14 @@ Type: ${projectType}
       image: imageBase64,
     });
   } catch (error) {
-    console.error(error);
+    console.error("LOOKBOOK_GENERATE_ERROR:", buildGenAiErrorLog(error));
 
     if (error instanceof ApiError) {
       return NextResponse.json({ error: error.message }, { status: error.status });
     }
 
     return NextResponse.json(
-      { error: "이미지 생성 실패" },
+      { error: formatGenAiErrorMessage(error, "이미지 생성 실패") },
       { status: 500 }
     );
   }

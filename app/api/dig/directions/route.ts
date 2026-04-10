@@ -6,8 +6,13 @@ import {
   ensureGenerationSlotActive,
   ensureUserHasPoints,
 } from "@/lib/server-api";
+import {
+  buildGenAiErrorLog,
+  formatGenAiErrorMessage,
+} from "@/lib/genai-response";
 
 const DIG_COST_PER_IMAGE = 50;
+export const maxDuration = 300;
 
 export async function POST(req: Request) {
   try {
@@ -37,14 +42,16 @@ export async function POST(req: Request) {
       directions,
     });
   } catch (error) {
-    console.error("DIG_DIRECTIONS_ERROR:", error);
+    console.error("DIG_DIRECTIONS_ERROR:", buildGenAiErrorLog(error));
 
     if (error instanceof ApiError) {
       return NextResponse.json({ error: error.message }, { status: error.status });
     }
 
-    const message =
-      error instanceof Error ? error.message : "알 수 없는 directions 오류";
+    const message = formatGenAiErrorMessage(
+      error,
+      "알 수 없는 directions 오류"
+    );
 
     return NextResponse.json({ error: message }, { status: 500 });
   }

@@ -2,9 +2,17 @@ import { HarmCategory, HarmBlockThreshold } from "@google/genai";
 import {
   ai,
   defaultImageSize,
+  imageGenerateConfig,
   imageGenerateHttpOptions,
+  imageGenerationModel,
 } from "./genai-client";
+import {
+  pickGeneratedInlineImage,
+  type GenAiResponsePart,
+} from "./genai-response";
 import { toInlineImagePart } from "./image-mime";
+
+type PromptPart = ReturnType<typeof toInlineImagePart> | { text: string };
 
 const safetySettings = [
   {
@@ -191,7 +199,7 @@ export async function generateRefRunImageWeb(args: {
     throw new Error("의상 이미지가 없다.");
   }
 
-  const parts: any[] = [];
+  const parts: PromptPart[] = [];
 
   faceBase64s.forEach((faceBase64) => {
     parts.push(toInlineImagePart(faceBase64));
@@ -280,7 +288,7 @@ ${outfitInstruction}
 `;
 
   const response = await ai.models.generateContent({
-    model: "gemini-3.1-flash-image-preview",
+    model: imageGenerationModel,
     contents: [{ role: "user", parts: [...parts, { text: prompt }] }],
     config: {
       imageConfig: {
@@ -288,14 +296,14 @@ ${outfitInstruction}
         imageSize: defaultImageSize,
       },
       httpOptions: imageGenerateHttpOptions,
+      ...imageGenerateConfig,
       safetySettings,
     },
   });
 
-  const imageBase64 =
-    response.candidates?.[0]?.content?.parts?.find(
-      (part: any) => part.inlineData
-    )?.inlineData?.data || null;
+  const responseParts = (response.candidates?.[0]?.content?.parts ??
+    []) as GenAiResponsePart[];
+  const imageBase64 = pickGeneratedInlineImage(responseParts)?.data || null;
 
   if (!imageBase64) {
     throw new Error("REFRUN 이미지 생성 결과가 비어 있다.");

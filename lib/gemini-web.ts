@@ -1,5 +1,17 @@
-import { ai, defaultImageSize } from "./genai-client";
+import {
+  ai,
+  defaultImageSize,
+  imageGenerateConfig,
+  imageGenerateHttpOptions,
+  imageGenerationModel,
+} from "./genai-client";
+import {
+  pickGeneratedInlineImage,
+  type GenAiResponsePart,
+} from "./genai-response";
 import { toInlineImagePart } from "./image-mime";
+
+type PromptPart = ReturnType<typeof toInlineImagePart> | { text: string };
 
 export const generateLookbookWeb = async ({
   prompt,
@@ -14,7 +26,7 @@ export const generateLookbookWeb = async ({
   bgBase64: string | null;
   poseBase64: string | null;
 }) => {
-  const parts: any[] = [
+  const parts: PromptPart[] = [
     toInlineImagePart(faceBase64),
     toInlineImagePart(outfitBase64),
   ];
@@ -28,20 +40,21 @@ export const generateLookbookWeb = async ({
   }
 
   const response = await ai.models.generateContent({
-    model: "gemini-3.1-flash-image-preview",
+    model: imageGenerationModel,
     contents: [{ role: "user", parts: [...parts, { text: prompt }] }],
     config: {
       imageConfig: {
         aspectRatio: "3:4",
         imageSize: defaultImageSize,
       },
+      httpOptions: imageGenerateHttpOptions,
+      ...imageGenerateConfig,
     },
   });
 
-  const imageBase64 =
-    response.candidates?.[0]?.content?.parts?.find(
-      (part: any) => part.inlineData
-    )?.inlineData?.data || null;
+  const responseParts = (response.candidates?.[0]?.content?.parts ??
+    []) as GenAiResponsePart[];
+  const imageBase64 = pickGeneratedInlineImage(responseParts)?.data || null;
 
   if (!imageBase64) {
     throw new Error("생성된 이미지가 없습니다.");
