@@ -2,9 +2,17 @@ import { HarmCategory, HarmBlockThreshold } from "@google/genai";
 import {
   ai,
   defaultImageSize,
+  imageGenerateConfig,
   imageGenerateHttpOptions,
+  imageGenerationModel,
 } from "./genai-client";
+import {
+  pickGeneratedInlineImage,
+  type GenAiResponsePart,
+} from "./genai-response";
 import { toInlineImagePart } from "./image-mime";
+
+type PromptPart = ReturnType<typeof toInlineImagePart> | { text: string };
 
 const safetySettings = [
   {
@@ -113,7 +121,7 @@ const buildFitPromptContext = (
 export async function analyzeBackgroundDNAFromBase64s(
   bgBase64s: string[]
 ): Promise<BackgroundDNA> {
-  const analyses: any[] = [];
+  const analyses: BackgroundDNA[] = [];
 
   for (const base64 of bgBase64s) {
     const response = await ai.models.generateContent({
@@ -320,7 +328,7 @@ export async function generateFusionImageWeb(args: {
     outputRatio = "4:5",
   } = args;
 
-  const parts: any[] = [];
+  const parts: PromptPart[] = [];
 
   faceBase64s.forEach((faceBase64) => {
     parts.push(toInlineImagePart(faceBase64));
@@ -433,18 +441,20 @@ ${fitPromptContext}
 `;
 
   const response = await ai.models.generateContent({
-    model: "gemini-3.1-flash-image-preview",
+    model: imageGenerationModel,
     contents: [{ role: "user", parts: [...parts, { text: prompt }] }],
     config: {
       imageConfig: {
         aspectRatio: outputRatio,
         imageSize: defaultImageSize,
       },
+      // 🚨 리전 안전을 위한 httpOptions는 유지하되, 크롭을 방해하던 ...imageGenerateConfig는 제거했습니다.
       httpOptions: imageGenerateHttpOptions,
       safetySettings,
     },
   });
 
+  // 🚨 대표님이 "크롭 잘되던 시절" 쓰시던 원초적이고 확실한 파싱 로직으로 복구했습니다.
   const imageBase64 =
     response.candidates?.[0]?.content?.parts?.find(
       (part: any) => part.inlineData
