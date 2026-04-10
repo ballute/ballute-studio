@@ -1,12 +1,10 @@
+import { HarmCategory, HarmBlockThreshold } from "@google/genai";
 import {
-  GoogleGenAI,
-  HarmCategory,
-  HarmBlockThreshold,
-} from "@google/genai";
-
-const ai = new GoogleGenAI({
-  apiKey: process.env.GEMINI_API_KEY!,
-});
+  ai,
+  defaultImageSize,
+  imageGenerateHttpOptions,
+} from "./genai-client";
+import { toInlineImagePart } from "./image-mime";
 
 const safetySettings = [
   {
@@ -118,12 +116,7 @@ export async function analyzeReferenceWeb(
   referenceBase64: string
 ): Promise<RefRunDirection> {
   const parts = [
-    {
-      inlineData: {
-        data: referenceBase64,
-        mimeType: "image/jpeg",
-      },
-    },
+    toInlineImagePart(referenceBase64),
   ];
 
   const systemPrompt = `Analyze the provided reference fashion photograph meticulously.
@@ -145,12 +138,18 @@ Return ONLY raw JSON with:
 
   const response = await ai.models.generateContent({
     model: "gemini-3-flash-preview",
-    contents: {
-      parts: [...parts, { text: systemPrompt }],
-    },
+    contents: [{ role: "user", parts: [...parts, { text: systemPrompt }] }],
   });
 
-  let text = response.candidates?.[0]?.content?.parts?.[0]?.text || "{}";
+  let text = "";
+  for (const part of response.candidates?.[0]?.content?.parts || []) {
+    if (part.text) {
+      text += part.text;
+    }
+  }
+  if (!text) {
+    text = "{}";
+  }
   const jsonStart = text.indexOf("{");
   const jsonEnd = text.lastIndexOf("}") + 1;
 
@@ -195,21 +194,11 @@ export async function generateRefRunImageWeb(args: {
   const parts: any[] = [];
 
   faceBase64s.forEach((faceBase64) => {
-    parts.push({
-      inlineData: {
-        data: faceBase64,
-        mimeType: "image/jpeg",
-      },
-    });
+    parts.push(toInlineImagePart(faceBase64));
   });
 
   outfitBase64s.forEach((outfitBase64, index) => {
-    parts.push({
-      inlineData: {
-        data: outfitBase64,
-        mimeType: "image/jpeg",
-      },
-    });
+    parts.push(toInlineImagePart(outfitBase64));
 
     if (isMixMode) {
       const caption =
@@ -287,19 +276,18 @@ ${outfitInstruction}
 - Ignore the original reference clothing and accessories.
 - Prioritize atmospheric realism over digital sharpness.
 - ${outputRatio} composition.
-- Output 2K museum quality.
+- Output ${defaultImageSize} museum quality.
 `;
 
   const response = await ai.models.generateContent({
     model: "gemini-3.1-flash-image-preview",
-    contents: {
-      parts: [...parts, { text: prompt }],
-    },
+    contents: [{ role: "user", parts: [...parts, { text: prompt }] }],
     config: {
       imageConfig: {
         aspectRatio: outputRatio,
-        imageSize: "2K",
+        imageSize: defaultImageSize,
       },
+      httpOptions: imageGenerateHttpOptions,
       safetySettings,
     },
   });

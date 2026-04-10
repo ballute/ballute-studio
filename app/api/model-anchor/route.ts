@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { GoogleGenAI } from "@google/genai";
+import { ai } from "@/lib/genai-client";
 import {
   ApiError,
   authenticateApiRequest,
@@ -7,9 +7,6 @@ import {
   spendUserPoints,
 } from "@/lib/server-api";
 
-const ai = new GoogleGenAI({
-  apiKey: process.env.GEMINI_API_KEY!,
-});
 const MODEL_GENERATE_COST = 30;
 
 function detectMimeType(base64?: string) {
@@ -178,9 +175,7 @@ OUTPUT RULE:
 
     const response = await ai.models.generateContent({
       model: "gemini-3.1-flash-image-preview",
-      contents: {
-        parts: [{ text: prompt }],
-      },
+      contents: [{ role: "user", parts: [{ text: prompt }] }],
       config: {
         imageConfig: {
           aspectRatio: "1:1",

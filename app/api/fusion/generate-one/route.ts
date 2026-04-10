@@ -128,7 +128,6 @@ export async function POST(req: Request) {
     let lockedVibe: LockedVibe | null = null;
     let faceBase64s: string[] = [];
     let outfitBase64s: string[] = [];
-    let poseReferenceBase64 = "";
     let outputRatio: "4:5" | "2:3" | "16:9" = "4:5"; // ✅ 추가
 
     if (jsonBody) {
@@ -187,7 +186,6 @@ export async function POST(req: Request) {
 
       faceBase64s = await Promise.all(facePaths.map(storagePathToBase64));
       outfitBase64s = await Promise.all(outfitPaths.map(storagePathToBase64));
-      poseReferenceBase64 = await storagePathToBase64(posePath);
     } else {
       const formData = await req.formData();
 
@@ -246,10 +244,11 @@ export async function POST(req: Request) {
 
     await ensureGenerationSlotActive(user.id, batchId, "fusion");
 
+    const generationStartedAt = Date.now();
+
     const generated = await generateFusionImageWeb({
       faceBase64s,
       outfitBase64s,
-      poseReferenceBase64,
       poseBlueprint,
       targetLocationText: locationPrompt,
       bgDNA,
@@ -262,6 +261,8 @@ export async function POST(req: Request) {
       outputRatio, // ✅ 핵심 추가
     });
 
+    const elapsedMs = Date.now() - generationStartedAt;
+
     await spendUserPoints(user.id, FUSION_COST_PER_IMAGE, "FUSION GENERATE");
 
     return NextResponse.json({
@@ -270,6 +271,7 @@ export async function POST(req: Request) {
       result: {
         image: generated.base64,
         summary: generated.summary,
+        elapsedMs,
         locationPrompt,
         poseBlueprint,
         bgDNA,

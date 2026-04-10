@@ -1,11 +1,15 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { makeSessionId, uploadTempAssets } from "@/lib/storage";
 import {
+  clearPersistedGenerationBatch,
+  persistGenerationBatch,
   releaseGenerationBatch,
+  releasePersistedGenerationBatch,
+  releaseGenerationBatchWithOptions,
   waitForGenerationBatch,
 } from "@/lib/generation-batch";
 import { getAccessToken } from "@/lib/supabase";
@@ -37,6 +41,7 @@ type LockedVibe = {
 type FusionResult = {
   image: string;
   summary?: string;
+  elapsedMs?: number;
   locationPrompt?: string;
   poseBlueprint?: {
     pose?: string;
@@ -225,10 +230,53 @@ export default function FusionPage() {
   const [statusMessage, setStatusMessage] = useState("");
   const [resultSlots, setResultSlots] = useState<ResultSlot[]>([]);
   const [fusionSessionId, setFusionSessionId] = useState<string | null>(null);
+  const [sessionReady, setSessionReady] = useState(false);
+  const batchAccessTokenRef = useRef<string | null>(null);
 
   useEffect(() => {
-    setFusionSessionId(makeSessionId("fusion"));
+    let cancelled = false;
+
+    const initializeSession = async () => {
+      await releasePersistedGenerationBatch("fusion");
+
+      if (cancelled) {
+        return;
+      }
+
+      setFusionSessionId(makeSessionId("fusion"));
+      setSessionReady(true);
+    };
+
+    void initializeSession();
+
+    return () => {
+      cancelled = true;
+    };
   }, []);
+
+  useEffect(() => {
+    if (!loading || !fusionSessionId || !batchAccessTokenRef.current) {
+      return;
+    }
+
+    const releaseCurrentBatch = () => {
+      if (!batchAccessTokenRef.current) {
+        return;
+      }
+
+      void releaseGenerationBatchWithOptions(fusionSessionId, {
+        accessToken: batchAccessTokenRef.current,
+        keepalive: true,
+      });
+    };
+
+    window.addEventListener("beforeunload", releaseCurrentBatch);
+
+    return () => {
+      window.removeEventListener("beforeunload", releaseCurrentBatch);
+      releaseCurrentBatch();
+    };
+  }, [loading, fusionSessionId]);
 
   const modelGenerationCost = 30;
   const costPerImage = 60;
@@ -533,7 +581,7 @@ export default function FusionPage() {
   };
 
   const handleRunFusion = async () => {
-    if (!fusionSessionId) {
+    if (!sessionReady || !fusionSessionId) {
       alert("세션 생성중입니다. 잠시 후 다시 시도해 주세요.");
       return;
     }
@@ -566,12 +614,17 @@ export default function FusionPage() {
     }
 
     try {
+      persistGenerationBatch("fusion", batchId);
       setLoading(true);
       setResultSlots([]);
+
+      const accessToken = await getAccessToken();
+      batchAccessTokenRef.current = accessToken;
 
       await waitForGenerationBatch({
         batchId,
         mode: "fusion",
+        accessToken,
         onQueued: (position) => {
           setStatusMessage(
             `현재 작업량이 많아 대기 중입니다. 대기 순번 ${position}번. 이 탭을 닫거나 다른 페이지로 이동하지 말아 주세요.`
@@ -581,8 +634,6 @@ export default function FusionPage() {
           setStatusMessage("대기가 끝나 작업을 시작합니다.");
         },
       });
-
-      const accessToken = await getAccessToken();
 
       const {
         uploadedFaces,
@@ -801,6 +852,8 @@ export default function FusionPage() {
       handlePointFailure(message);
     } finally {
       await releaseGenerationBatch(batchId);
+      clearPersistedGenerationBatch("fusion", batchId);
+      batchAccessTokenRef.current = null;
       setLoading(false);
     }
   };
@@ -1123,6 +1176,13 @@ export default function FusionPage() {
 
                       <div className="text-sm text-gray-700 mb-4">
                         <b>요약:</b> {slot.result.summary || "-"}
+                        {typeof slot.result.elapsedMs === "number" && (
+                          <>
+                            <br />
+                            <b>생성 시간:</b>{" "}
+                            {(slot.result.elapsedMs / 1000).toFixed(1)}초
+                          </>
+                        )}
                       </div>
 
                       <button

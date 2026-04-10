@@ -13,6 +13,12 @@ type ReserveResponse = {
 };
 
 const POLL_INTERVAL_MS = 8000;
+const BATCH_STORAGE_PREFIX = "generation-batch:";
+
+type ReleaseGenerationBatchOptions = {
+  accessToken?: string | null;
+  keepalive?: boolean;
+};
 
 function wait(ms: number) {
   return new Promise((resolve) => {
@@ -20,20 +26,78 @@ function wait(ms: number) {
   });
 }
 
+function getBatchStorageKey(mode: GenerationMode) {
+  return `${BATCH_STORAGE_PREFIX}${mode}`;
+}
+
+export function persistGenerationBatch(
+  mode: GenerationMode,
+  batchId: string | null
+) {
+  if (typeof window === "undefined") {
+    return;
+  }
+
+  const normalizedBatchId = (batchId || "").trim();
+  const key = getBatchStorageKey(mode);
+
+  if (!normalizedBatchId) {
+    window.sessionStorage.removeItem(key);
+    return;
+  }
+
+  window.sessionStorage.setItem(key, normalizedBatchId);
+}
+
+export function clearPersistedGenerationBatch(
+  mode: GenerationMode,
+  batchId?: string | null
+) {
+  if (typeof window === "undefined") {
+    return;
+  }
+
+  const key = getBatchStorageKey(mode);
+  const currentBatchId = window.sessionStorage.getItem(key);
+  const normalizedBatchId = (batchId || "").trim();
+
+  if (!normalizedBatchId || currentBatchId === normalizedBatchId) {
+    window.sessionStorage.removeItem(key);
+  }
+}
+
+export async function releasePersistedGenerationBatch(mode: GenerationMode) {
+  if (typeof window === "undefined") {
+    return;
+  }
+
+  const key = getBatchStorageKey(mode);
+  const batchId = (window.sessionStorage.getItem(key) || "").trim();
+
+  if (!batchId) {
+    return;
+  }
+
+  await releaseGenerationBatchWithOptions(batchId);
+  window.sessionStorage.removeItem(key);
+}
+
 export async function waitForGenerationBatch(params: {
   batchId: string | null;
   mode: GenerationMode;
+  accessToken?: string | null;
   onQueued?: (position: number, maxActive: number) => void;
   onActive?: () => void;
 }) {
-  const { batchId, mode, onQueued, onActive } = params;
+  const { batchId, mode, accessToken: providedAccessToken, onQueued, onActive } =
+    params;
   const normalizedBatchId = (batchId || "").trim();
 
   if (!normalizedBatchId) {
     throw new Error("세션 생성중입니다. 잠시 후 다시 시도해 주세요.");
   }
 
-  const accessToken = await getAccessToken();
+  const accessToken = providedAccessToken || (await getAccessToken());
   let lastQueuedPosition: number | null = null;
 
   while (true) {
@@ -71,7 +135,10 @@ export async function waitForGenerationBatch(params: {
   }
 }
 
-export async function releaseGenerationBatch(batchId: string | null) {
+export async function releaseGenerationBatchWithOptions(
+  batchId: string | null,
+  options: ReleaseGenerationBatchOptions = {}
+) {
   const normalizedBatchId = (batchId || "").trim();
 
   if (!normalizedBatchId) {
@@ -79,7 +146,7 @@ export async function releaseGenerationBatch(batchId: string | null) {
   }
 
   try {
-    const accessToken = await getAccessToken();
+    const accessToken = options.accessToken || (await getAccessToken());
 
     await fetch("/api/generation-slots/release", {
       method: "POST",
@@ -90,8 +157,13 @@ export async function releaseGenerationBatch(batchId: string | null) {
       body: JSON.stringify({
         batchId: normalizedBatchId,
       }),
+      keepalive: options.keepalive ?? false,
     });
   } catch (error) {
     console.error("GENERATION_BATCH_RELEASE_ERROR:", error);
   }
+}
+
+export async function releaseGenerationBatch(batchId: string | null) {
+  await releaseGenerationBatchWithOptions(batchId);
 }

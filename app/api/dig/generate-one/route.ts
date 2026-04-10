@@ -236,6 +236,8 @@ export async function POST(req: Request) {
 
     await ensureGenerationSlotActive(user.id, batchId, "dig");
 
+    const generationStartedAt = Date.now();
+
     const generated = await generateDigImageWeb({
       faceBase64s,
       outfitBase64s,
@@ -249,6 +251,8 @@ export async function POST(req: Request) {
       outputRatio, // ✅ 핵심 추가
     });
 
+    const elapsedMs = Date.now() - generationStartedAt;
+
     await spendUserPoints(user.id, DIG_COST_PER_IMAGE, "DIG GENERATE");
 
     return NextResponse.json({
@@ -257,6 +261,7 @@ export async function POST(req: Request) {
       result: {
         image: generated.base64,
         summary: generated.summary,
+        elapsedMs,
         direction,
       },
     });

@@ -1,8 +1,5 @@
-import { GoogleGenAI } from "@google/genai";
-
-const ai = new GoogleGenAI({
-  apiKey: process.env.GEMINI_API_KEY!,
-});
+import { ai, defaultImageSize } from "./genai-client";
+import { toInlineImagePart } from "./image-mime";
 
 export const generateLookbookWeb = async ({
   prompt,
@@ -18,47 +15,25 @@ export const generateLookbookWeb = async ({
   poseBase64: string | null;
 }) => {
   const parts: any[] = [
-    {
-      inlineData: {
-        mimeType: "image/jpeg",
-        data: faceBase64,
-      },
-    },
-    {
-      inlineData: {
-        mimeType: "image/jpeg",
-        data: outfitBase64,
-      },
-    },
+    toInlineImagePart(faceBase64),
+    toInlineImagePart(outfitBase64),
   ];
 
   if (bgBase64) {
-    parts.push({
-      inlineData: {
-        mimeType: "image/jpeg",
-        data: bgBase64,
-      },
-    });
+    parts.push(toInlineImagePart(bgBase64));
   }
 
   if (poseBase64) {
-    parts.push({
-      inlineData: {
-        mimeType: "image/jpeg",
-        data: poseBase64,
-      },
-    });
+    parts.push(toInlineImagePart(poseBase64));
   }
 
   const response = await ai.models.generateContent({
     model: "gemini-3.1-flash-image-preview",
-    contents: {
-      parts: [...parts, { text: prompt }],
-    },
+    contents: [{ role: "user", parts: [...parts, { text: prompt }] }],
     config: {
       imageConfig: {
         aspectRatio: "3:4",
-        imageSize: "2K",
+        imageSize: defaultImageSize,
       },
     },
   });

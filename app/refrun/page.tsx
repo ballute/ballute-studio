@@ -1,11 +1,15 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { makeSessionId, uploadTempAssets } from "@/lib/storage";
 import {
+  clearPersistedGenerationBatch,
+  persistGenerationBatch,
   releaseGenerationBatch,
+  releasePersistedGenerationBatch,
+  releaseGenerationBatchWithOptions,
   waitForGenerationBatch,
 } from "@/lib/generation-batch";
 import { getAccessToken } from "@/lib/supabase";
@@ -37,6 +41,7 @@ type RefRunDirection = {
 type RefRunResult = {
   image: string;
   summary: string;
+  elapsedMs?: number;
   direction: RefRunDirection;
 };
 
@@ -212,10 +217,53 @@ export default function RefRunPage() {
   const [statusMessage, setStatusMessage] = useState("");
   const [resultSlots, setResultSlots] = useState<ResultSlot[]>([]);
   const [refRunSessionId, setRefRunSessionId] = useState<string | null>(null);
+  const [sessionReady, setSessionReady] = useState(false);
+  const batchAccessTokenRef = useRef<string | null>(null);
 
   useEffect(() => {
-    setRefRunSessionId(makeSessionId("refrun"));
+    let cancelled = false;
+
+    const initializeSession = async () => {
+      await releasePersistedGenerationBatch("refrun");
+
+      if (cancelled) {
+        return;
+      }
+
+      setRefRunSessionId(makeSessionId("refrun"));
+      setSessionReady(true);
+    };
+
+    void initializeSession();
+
+    return () => {
+      cancelled = true;
+    };
   }, []);
+
+  useEffect(() => {
+    if (!loading || !refRunSessionId || !batchAccessTokenRef.current) {
+      return;
+    }
+
+    const releaseCurrentBatch = () => {
+      if (!batchAccessTokenRef.current) {
+        return;
+      }
+
+      void releaseGenerationBatchWithOptions(refRunSessionId, {
+        accessToken: batchAccessTokenRef.current,
+        keepalive: true,
+      });
+    };
+
+    window.addEventListener("beforeunload", releaseCurrentBatch);
+
+    return () => {
+      window.removeEventListener("beforeunload", releaseCurrentBatch);
+      releaseCurrentBatch();
+    };
+  }, [loading, refRunSessionId]);
 
   const modelGenerationCost = 30;
   const refrunCostPerImage = 50;
@@ -487,7 +535,7 @@ export default function RefRunPage() {
   };
 
   const handleRunRefRun = async () => {
-    if (!refRunSessionId) {
+    if (!sessionReady || !refRunSessionId) {
       alert("세션 생성중입니다. 잠시 후 다시 시도해 주세요.");
       return;
     }
@@ -510,11 +558,16 @@ export default function RefRunPage() {
     }
 
     try {
+      persistGenerationBatch("refrun", batchId);
       setLoading(true);
+
+      const accessToken = await getAccessToken();
+      batchAccessTokenRef.current = accessToken;
 
       await waitForGenerationBatch({
         batchId,
         mode: "refrun",
+        accessToken,
         onQueued: (position) => {
           setStatusMessage(
             `현재 작업량이 많아 대기 중입니다. 대기 순번 ${position}번. 이 탭을 닫거나 다른 페이지로 이동하지 말아 주세요.`
@@ -524,8 +577,6 @@ export default function RefRunPage() {
           setStatusMessage("대기가 끝나 작업을 시작합니다.");
         },
       });
-
-      const accessToken = await getAccessToken();
 
       const { uploadedFaces, uploadedOutfits, uploadedReferences } =
         await ensureAssetsUploaded();
@@ -677,6 +728,8 @@ export default function RefRunPage() {
       handlePointFailure(message);
     } finally {
       await releaseGenerationBatch(batchId);
+      clearPersistedGenerationBatch("refrun", batchId);
+      batchAccessTokenRef.current = null;
       setLoading(false);
     }
   };
@@ -967,6 +1020,13 @@ export default function RefRunPage() {
 
                       <div className="text-sm text-gray-700">
                         <b>요약:</b> {slot.result.summary}
+                        {typeof slot.result.elapsedMs === "number" && (
+                          <>
+                            <br />
+                            <b>생성 시간:</b>{" "}
+                            {(slot.result.elapsedMs / 1000).toFixed(1)}초
+                          </>
+                        )}
                       </div>
                     </>
                   )}

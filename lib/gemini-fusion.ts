@@ -1,12 +1,10 @@
+import { HarmCategory, HarmBlockThreshold } from "@google/genai";
 import {
-  GoogleGenAI,
-  HarmCategory,
-  HarmBlockThreshold,
-} from "@google/genai";
-
-const ai = new GoogleGenAI({
-  apiKey: process.env.GEMINI_API_KEY!,
-});
+  ai,
+  defaultImageSize,
+  imageGenerateHttpOptions,
+} from "./genai-client";
+import { toInlineImagePart } from "./image-mime";
 
 const safetySettings = [
   {
@@ -42,6 +40,10 @@ export type PoseBlueprint = {
   expression?: string;
   camera_angle_and_crop?: string;
   body_attitude?: string;
+  detailed_pose_report?: string;
+  safe_generation_pose_notes?: string;
+  pose_category?: string;
+  overall_symmetry?: string;
   head_direction?: string;
   gaze_direction?: string;
   torso_rotation?: string;
@@ -50,9 +52,13 @@ export type PoseBlueprint = {
   right_arm_position?: string;
   left_hand_action?: string;
   right_hand_action?: string;
+  garment_interaction?: string;
   hip_shift?: string;
   weight_distribution?: string;
+  left_leg_position?: string;
+  right_leg_position?: string;
   leg_stance?: string;
+  feet_direction?: string;
   body_lean?: string;
   styling_items_to_ignore?: string[];
 };
@@ -148,30 +154,18 @@ const compactPoseValue = (value?: string) => {
   return trimmed ? trimmed : undefined;
 };
 
-const buildStructuredPosePrompt = (poseBlueprint: PoseBlueprint) => {
+const buildSafePoseGenerationPrompt = (poseBlueprint: PoseBlueprint) => {
   const lines = [
-    ["Head direction", compactPoseValue(poseBlueprint.head_direction)],
-    ["Gaze direction", compactPoseValue(poseBlueprint.gaze_direction)],
-    ["Torso rotation", compactPoseValue(poseBlueprint.torso_rotation)],
-    ["Shoulder tilt", compactPoseValue(poseBlueprint.shoulder_tilt)],
-    ["Left arm position", compactPoseValue(poseBlueprint.left_arm_position)],
-    ["Right arm position", compactPoseValue(poseBlueprint.right_arm_position)],
-    ["Left hand action", compactPoseValue(poseBlueprint.left_hand_action)],
-    ["Right hand action", compactPoseValue(poseBlueprint.right_hand_action)],
-    ["Hip shift", compactPoseValue(poseBlueprint.hip_shift)],
-    [
-      "Weight distribution",
-      compactPoseValue(poseBlueprint.weight_distribution),
-    ],
-    ["Leg stance", compactPoseValue(poseBlueprint.leg_stance)],
-    ["Body lean", compactPoseValue(poseBlueprint.body_lean)],
-  ]
-    .filter(([, value]) => Boolean(value))
-    .map(([label, value]) => `- ${label}: ${value}`);
+    compactPoseValue(poseBlueprint.safe_generation_pose_notes),
+    compactPoseValue(poseBlueprint.pose),
+    compactPoseValue(poseBlueprint.body_attitude),
+    compactPoseValue(poseBlueprint.garment_interaction),
+    compactPoseValue(poseBlueprint.camera_angle_and_crop),
+  ].filter(Boolean);
 
   return lines.length
-    ? lines.join("\n")
-    : "- Preserve the pose reference asymmetry and body balance exactly.";
+    ? lines.map((line) => `- ${line}`).join("\n")
+    : "- Preserve the natural attitude, body balance, and hand logic from the pose reference.";
 };
 
 export async function analyzeBackgroundDNAFromBase64s(
@@ -182,14 +176,10 @@ export async function analyzeBackgroundDNAFromBase64s(
   for (const base64 of bgBase64s) {
     const response = await ai.models.generateContent({
       model: "gemini-3-flash-preview",
-      contents: {
-        parts: [
-          {
-            inlineData: {
-              data: base64,
-              mimeType: "image/jpeg",
-            },
-          },
+      contents: [{ role: "user", parts: [
+        {
+          ...toInlineImagePart(base64),
+        },
           {
             text: `Analyze this location/environment image for fashion lookbook worldbuilding.
 
@@ -206,8 +196,7 @@ Return ONLY raw JSON with:
 
 Focus on environmental DNA only. No people, no clothes.`,
           },
-        ],
-      },
+        ] }],
       config: {
         safetySettings,
       },
@@ -226,8 +215,7 @@ Focus on environmental DNA only. No people, no clothes.`,
 
   const summaryResp = await ai.models.generateContent({
     model: "gemini-3-flash-preview",
-    contents: {
-      parts: [
+    contents: [{ role: "user", parts: [
         {
           text: `You are merging multiple environment analyses into one unified background DNA for a fashion lookbook engine.
 
@@ -250,8 +238,7 @@ Goal:
 - remove one-off literal geometry
 - produce a reusable neighborhood/world description`,
         },
-      ],
-    },
+      ] }],
     config: {
       safetySettings,
     },
@@ -274,13 +261,9 @@ export async function analyzePoseBlueprintFromBase64(
 ): Promise<PoseBlueprint> {
   const response = await ai.models.generateContent({
     model: "gemini-3-flash-preview",
-    contents: {
-      parts: [
+    contents: [{ role: "user", parts: [
         {
-          inlineData: {
-            data: poseBase64,
-            mimeType: "image/jpeg",
-          },
+          ...toInlineImagePart(poseBase64),
         },
         {
           text: `Analyze this pose reference image as a HIGH-END FASHION EDITORIAL POSE.
@@ -288,11 +271,14 @@ export async function analyzePoseBlueprintFromBase64(
 IMPORTANT:
 - Extract BODY POSTURE ONLY.
 - Preserve asymmetry, body lean, hand placement, torso rotation, and weight balance.
+- Capture any GARMENT-TOUCHING action clearly, such as lightly holding lapels, gripping the front opening, touching the placket, or adjusting the jacket/shirt front.
 - If one hand is in a pocket, keep that as pose logic.
 - Ignore all accessories and styling contamination from the pose reference.
 - Do NOT transfer sunglasses, hats, bags, jewelry, scarves, props, or extra styling items.
 - Do NOT describe the outfit itself. Focus on posture, stance, gaze, and crop.
-- Keep each field concise and practical.
+- Produce one detailed natural-language pose report for analysis, then one shorter safe summary for image generation.
+- The detailed report should describe weight shift, pelvis/hip balance, torso lean, shoulder line, arm behavior, leg stance, head/gaze, facial tension, and editorial mood in a natural observational way.
+- Do NOT invent rigid biomechanical numbers unless the angle or shift is visually obvious.
 
 Return ONLY raw JSON:
 {
@@ -300,6 +286,10 @@ Return ONLY raw JSON:
   "expression": "short facial expression summary",
   "camera_angle_and_crop": "short framing summary",
   "body_attitude": "short editorial body attitude summary",
+  "detailed_pose_report": "dense editorial pose analysis in natural language",
+  "safe_generation_pose_notes": "short natural-language pose guide safe for image generation",
+  "pose_category": "e.g. asymmetrical garment-touch standing pose / relaxed standing pose",
+  "overall_symmetry": "asymmetrical / slightly asymmetrical / symmetrical",
   "head_direction": "where the head is turned",
   "gaze_direction": "where the eyes are directed",
   "torso_rotation": "front / 3-quarter / twisted / angled",
@@ -308,15 +298,18 @@ Return ONLY raw JSON:
   "right_arm_position": "arm position only",
   "left_hand_action": "e.g. relaxed, in pocket, touching hip",
   "right_hand_action": "e.g. relaxed, in pocket, touching hip",
+  "garment_interaction": "how the hands interact with the garment if applicable",
   "hip_shift": "centered / shifted left / shifted right",
   "weight_distribution": "balanced / left leg / right leg",
+  "left_leg_position": "straight / bent / forward / back / crossed / etc",
+  "right_leg_position": "straight / bent / forward / back / crossed / etc",
   "leg_stance": "parallel / staggered / one knee bent / etc",
+  "feet_direction": "forward / slightly outward / mixed / crossed / etc",
   "body_lean": "upright / slight left lean / slight right lean / etc",
   "styling_items_to_ignore": ["list only non-pose accessory items to ignore"]
 }`,
         },
-      ],
-    },
+      ] }],
     config: {
       responseMimeType: "application/json",
       safetySettings,
@@ -352,7 +345,7 @@ Format: ["location description 1", "location description 2", ...]`;
 
   const response = await ai.models.generateContent({
     model: "gemini-3-flash-preview",
-    contents: { parts: [{ text: systemPrompt }] },
+    contents: [{ role: "user", parts: [{ text: systemPrompt }] }],
     config: {
       safetySettings,
     },
@@ -373,7 +366,6 @@ Format: ["location description 1", "location description 2", ...]`;
 export async function generateFusionImageWeb(args: {
   faceBase64s: string[];
   outfitBase64s: string[];
-  poseReferenceBase64?: string;
   poseBlueprint: PoseBlueprint;
   targetLocationText: string;
   bgDNA: BackgroundDNA;
@@ -388,7 +380,6 @@ export async function generateFusionImageWeb(args: {
   const {
     faceBase64s,
     outfitBase64s,
-    poseReferenceBase64,
     poseBlueprint,
     targetLocationText,
     bgDNA,
@@ -404,21 +395,11 @@ export async function generateFusionImageWeb(args: {
   const parts: any[] = [];
 
   faceBase64s.forEach((faceBase64) => {
-    parts.push({
-      inlineData: {
-        data: faceBase64,
-        mimeType: "image/jpeg",
-      },
-    });
+    parts.push(toInlineImagePart(faceBase64));
   });
 
   outfitBase64s.forEach((outfitBase64, index) => {
-    parts.push({
-      inlineData: {
-        data: outfitBase64,
-        mimeType: "image/jpeg",
-      },
-    });
+    parts.push(toInlineImagePart(outfitBase64));
 
     if (isMixMode) {
       const caption =
@@ -428,18 +409,6 @@ export async function generateFusionImageWeb(args: {
       });
     }
   });
-
-  if (poseReferenceBase64) {
-    parts.push({
-      text: `[POSE REFERENCE IMAGE: use this image directly as the highest-priority visual authority for posture, balance, arm placement, hand logic, torso lean, and framing. Ignore styling accessories from this pose image.]`,
-    });
-    parts.push({
-      inlineData: {
-        data: poseReferenceBase64,
-        mimeType: "image/jpeg",
-      },
-    });
-  }
 
   const { fitPromptContext, fitSummarySuffix } =
     buildFitPromptContext(bodySpecs);
@@ -488,7 +457,8 @@ export async function generateFusionImageWeb(args: {
     lockedVibe?.expression || poseBlueprint?.expression || "";
   const finalBackground = lockedVibe?.background || targetLocationText;
   const finalBodyAttitude = poseBlueprint?.body_attitude || "";
-  const structuredPosePrompt = buildStructuredPosePrompt(poseBlueprint);
+  const finalGarmentInteraction = poseBlueprint?.garment_interaction || "";
+  const safePoseGenerationPrompt = buildSafePoseGenerationPrompt(poseBlueprint);
   const stylingItemsToIgnore = (poseBlueprint?.styling_items_to_ignore || [])
     .map((item) => item.trim())
     .filter(Boolean);
@@ -499,11 +469,23 @@ export async function generateFusionImageWeb(args: {
   const prompt = `
 Task: Create a premium FUSION fashion editorial image.
 
-[IDENTITY]
-- Maintain exact identity from face references.
+[PRIORITY ORDER]
+- 1. Face references define identity.
+- 2. Outfit references define wardrobe and styling.
+- 3. Pose blueprint defines posture, hand logic, gaze mood, and crop feeling.
+- 4. Background/location defines environment, light, and atmosphere.
+- Lower-priority inputs must never override higher-priority inputs.
 
-[OUTFIT]
-- Reconstruct the exact outfit from the uploaded outfit images.
+[FACE IDENTITY LOCK]
+- Maintain exact identity from face references.
+- Preserve face shape, facial proportions, age impression, and hair silhouette from the face references.
+- Do NOT borrow face, hair, or styling from outfit, pose, or background signals.
+
+[OUTFIT LOCK]
+- Reconstruct the exact visible outfit from the uploaded outfit images.
+- Preserve garment category, sleeve length, neckline/collar shape, color blocking, fabric impression, layering order, and visible styling from the outfit references.
+- Do NOT invent, replace, or swap garments.
+- Do NOT introduce scarves, neckwear, knitwear, jewelry, props, or extra layers unless they are clearly visible in the outfit references.
 - ${
     isMixMode
       ? "This is MIX mode. Respect each item detail text exactly."
@@ -512,21 +494,26 @@ Task: Create a premium FUSION fashion editorial image.
 
 ${fitPromptContext}
 
-[BACKGROUND WORLD]
+[BACKGROUND INFLUENCE]
 - Environment type: ${bgDNA?.environment_type || ""}
 - Architectural language: ${bgDNA?.architectural_language || ""}
 - Lighting DNA: ${lightingStyle}
 - Color / texture DNA: ${textureAndColor}
 - Mood DNA: ${moodStyle}
 - Target location: ${finalBackground}
+- Use background/location only to construct the environment, light, and atmosphere.
+- Background guidance must never change the outfit, identity, or pose logic.
+- Do NOT creatively restyle the wardrobe to match the location.
 
-[POSE / ATTITUDE]
+[POSE INFLUENCE]
 - Pose: ${finalPose}
 - Expression: ${finalExpression}
 - Body attitude: ${finalBodyAttitude}
-
-[POSE STRUCTURE]
-${structuredPosePrompt}
+- Garment interaction: ${finalGarmentInteraction}
+- Use pose guidance only for body stance, asymmetry, hand placement, weight balance, torso lean, head direction, gaze mood, and crop feeling.
+- Pose guidance must not change identity, outfit category, garment styling, or background concept.
+- Keep pose natural, relaxed, and editorial.
+- ${safePoseGenerationPrompt}
 
 [PHOTO GRAMMAR]
 - Camera framing / crop: ${cameraFeel}
@@ -540,25 +527,14 @@ ${structuredPosePrompt}
 - If pose reference suggests full-body, preserve full-body.
 - Pose reference has higher priority than background camera feel.
 
-[POSE PRESERVATION]
-- The pose reference image is the PRIMARY visual authority for body posture.
-- Reconstruct the pose from the pose reference image itself, not from a generic fashion pose assumption.
-- Preserve asymmetry from the pose reference.
-- Preserve body lean, torso rotation, shoulder tilt, and weight balance.
-- Preserve the exact arm logic from the pose reference.
-- If one hand is in a pocket in the pose reference, keep one hand in a pocket.
-- Preserve hand placement, elbow bend, shoulder angle, and body balance from the pose reference image as closely as possible.
-- Do NOT simplify the result into a generic straight standing pose.
-- Do NOT mirror the pose into a more symmetrical stance.
-
 [STYLING CONTAMINATION CONTROL]
-- Use the pose reference for posture only.
+- Use the pose blueprint for posture only.
 - Ignore these non-pose styling items from the pose reference: ${stylingIgnorePrompt}.
 - Do NOT introduce any accessory, prop, or styling item from the pose reference unless it already exists in the actual outfit references.
 
 [BACKGROUND CONTROL]
 - The location should inherit the background DNA, but literal geometry must not be copied.
-- Build a different place within the same neighborhood/world.
+- Build a compatible place within the same neighborhood/world.
 - Avoid repeating one-off windows, doors, corners, or exact facade layout from the background references.
 
 [OUTPUT RULE]
@@ -566,19 +542,18 @@ ${structuredPosePrompt}
 - Keep the image realistic and luxury-brand ready.
 - Avoid generic AI mannequin feel.
 - ${outputRatio} composition.
-- 2K quality.
+- ${defaultImageSize} quality.
 `;
 
   const response = await ai.models.generateContent({
     model: "gemini-3.1-flash-image-preview",
-    contents: {
-      parts: [...parts, { text: prompt }],
-    },
+    contents: [{ role: "user", parts: [...parts, { text: prompt }] }],
     config: {
       imageConfig: {
         aspectRatio: outputRatio,
-        imageSize: "2K",
+        imageSize: defaultImageSize,
       },
+      httpOptions: imageGenerateHttpOptions,
       safetySettings,
     },
   });

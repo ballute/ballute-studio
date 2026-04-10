@@ -1,11 +1,15 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { makeSessionId, uploadTempAssets } from "@/lib/storage";
 import {
+  clearPersistedGenerationBatch,
+  persistGenerationBatch,
   releaseGenerationBatch,
+  releasePersistedGenerationBatch,
+  releaseGenerationBatchWithOptions,
   waitForGenerationBatch,
 } from "@/lib/generation-batch";
 import { getAccessToken } from "@/lib/supabase";
@@ -45,6 +49,7 @@ type LockedVibe = {
 type DigResult = {
   image: string;
   summary: string;
+  elapsedMs?: number;
   direction: DigDirection;
 };
 
@@ -219,10 +224,53 @@ export default function DigPage() {
   const [statusMessage, setStatusMessage] = useState("");
   const [resultSlots, setResultSlots] = useState<ResultSlot[]>([]);
   const [digSessionId, setDigSessionId] = useState<string | null>(null);
+  const [sessionReady, setSessionReady] = useState(false);
+  const batchAccessTokenRef = useRef<string | null>(null);
 
   useEffect(() => {
-    setDigSessionId(makeSessionId("dig"));
+    let cancelled = false;
+
+    const initializeSession = async () => {
+      await releasePersistedGenerationBatch("dig");
+
+      if (cancelled) {
+        return;
+      }
+
+      setDigSessionId(makeSessionId("dig"));
+      setSessionReady(true);
+    };
+
+    void initializeSession();
+
+    return () => {
+      cancelled = true;
+    };
   }, []);
+
+  useEffect(() => {
+    if (!loading || !digSessionId || !batchAccessTokenRef.current) {
+      return;
+    }
+
+    const releaseCurrentBatch = () => {
+      if (!batchAccessTokenRef.current) {
+        return;
+      }
+
+      void releaseGenerationBatchWithOptions(digSessionId, {
+        accessToken: batchAccessTokenRef.current,
+        keepalive: true,
+      });
+    };
+
+    window.addEventListener("beforeunload", releaseCurrentBatch);
+
+    return () => {
+      window.removeEventListener("beforeunload", releaseCurrentBatch);
+      releaseCurrentBatch();
+    };
+  }, [loading, digSessionId]);
 
   const modelGenerationCost = 30;
   const digCostPerImage = 50;
@@ -496,7 +544,7 @@ export default function DigPage() {
   };
 
   const handleRunDig = async () => {
-    if (!digSessionId) {
+    if (!sessionReady || !digSessionId) {
       alert("세션 생성중입니다. 잠시 후 다시 시도해 주세요.");
       return;
     }
@@ -524,11 +572,16 @@ export default function DigPage() {
     }
 
     try {
+      persistGenerationBatch("dig", batchId);
       setLoading(true);
+
+      const accessToken = await getAccessToken();
+      batchAccessTokenRef.current = accessToken;
 
       await waitForGenerationBatch({
         batchId,
         mode: "dig",
+        accessToken,
         onQueued: (position) => {
           setStatusMessage(
             `현재 작업량이 많아 대기 중입니다. 대기 순번 ${position}번. 이 탭을 닫거나 다른 페이지로 이동하지 말아 주세요.`
@@ -538,8 +591,6 @@ export default function DigPage() {
           setStatusMessage("대기가 끝나 작업을 시작합니다.");
         },
       });
-
-      const accessToken = await getAccessToken();
 
       const { uploadedFaces, uploadedOutfits } = await ensureAssetsUploaded();
 
@@ -702,6 +753,8 @@ export default function DigPage() {
       handlePointFailure(message);
     } finally {
       await releaseGenerationBatch(batchId);
+      clearPersistedGenerationBatch("dig", batchId);
+      batchAccessTokenRef.current = null;
       setLoading(false);
     }
   };
@@ -1013,6 +1066,13 @@ export default function DigPage() {
 
                       <div className="text-sm text-gray-700 mb-4">
                         <b>요약:</b> {slot.result.summary}
+                        {typeof slot.result.elapsedMs === "number" && (
+                          <>
+                            <br />
+                            <b>생성 시간:</b>{" "}
+                            {(slot.result.elapsedMs / 1000).toFixed(1)}초
+                          </>
+                        )}
                       </div>
 
                       <button

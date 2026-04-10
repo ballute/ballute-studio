@@ -236,6 +236,8 @@ export async function POST(req: Request) {
 
     const analyzed = await analyzeReferenceWeb(referenceBase64);
 
+    const generationStartedAt = Date.now();
+
     const generated = await generateRefRunImageWeb({
       faceBase64s,
       outfitBase64s,
@@ -248,6 +250,8 @@ export async function POST(req: Request) {
       outputRatio, // ✅ 핵심 추가
     });
 
+    const elapsedMs = Date.now() - generationStartedAt;
+
     await spendUserPoints(user.id, REFRUN_COST_PER_IMAGE, "REFRUN GENERATE");
 
     return NextResponse.json({
@@ -256,6 +260,7 @@ export async function POST(req: Request) {
       result: {
         image: generated.base64,
         summary: generated.summary,
+        elapsedMs,
         direction: analyzed,
       },
     });
