@@ -396,20 +396,25 @@ export async function generateFusionImageWeb(args: {
   const prompt = `
 Task: Create a premium FUSION fashion editorial image.
 
-[⚠️ ABSOLUTE DIRECTIVE: IDENTITY & WARDROBE FIRST ⚠️]
-The highest priority of this generation is preserving the EXACT FACE IDENTITY and the EXACT GARMENT DETAILS. 
-Background and Pose MUST adapt to the Outfit, not the other way around.
+[REFERENCE ROLE SEPARATION]
+Every uploaded reference has one assigned job:
+- FACE references define only the final model identity, face, hair, age impression, and skin tone.
+- OUTFIT references define only the garment identity and construction.
+- BACKGROUND DNA / LOCATION defines the environment, lighting world, color atmosphere, and spatial setting.
+- POSE blueprint defines body posture, crop/framing, camera relation, and attitude.
+The highest priority is preserving the exact face identity and faithful garment design without importing the source context from the wrong reference.
+Final integration must feel like one natural photograph: adapt fabric drape, wrinkles, scale, shadows, and lighting to the selected pose and background.
 
 [FACE IDENTITY LOCK]
 - Maintain exact identity from face references.
 - Preserve face shape, facial proportions, age impression, and hair silhouette.
 
 [OUTFIT LOCK (CRITICAL PRIORITY)]
-- INSTRUCTION: Reconstruct the exact visible outfit from the uploaded outfit images with 100% pixel-perfect fidelity.
-- PRESERVE: Exact garment category, sleeve length, collar shape, fabric texture, pockets, stitching, and layering order.
+- INSTRUCTION: Reconstruct the visible garment design from the uploaded outfit images with faithful fidelity, but do not reconstruct the outfit source scene.
+- PRESERVE: Exact garment category, silhouette, sleeve length, collar shape, fabric texture, color, pattern, pockets, stitching, layering order, and clothing-specific logos/prints.
 - PROHIBITION: Do NOT alter the clothes to fit the pose. If the pose causes the clothes to distort, prioritize the clothes' structural integrity over the pose.
-- WARDROBE-ONLY SOURCE: Treat uploaded outfit images strictly as garment references, not identity references.
-- IGNORE any face, head, hair, skin tone, body identity, age, expression, or person identity visible in outfit images.
+- WARDROBE-ONLY SOURCE: Treat uploaded outfit images strictly as garment references, not identity, pose, background, lighting, camera, or location references.
+- IGNORE any face, head, hair, skin tone, body identity, age, expression, pose, background, room, wall, furniture, scenery, source lighting, camera angle, or color cast visible in outfit images.
 - The final model identity, face, hair, skin tone, and age must come ONLY from the face reference images.
 - ${isMixMode ? "This is MIX mode. Respect each item detail text exactly." : "This is standard outfit mode."}
 
