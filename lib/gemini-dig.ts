@@ -297,6 +297,11 @@ ${fitPromptContext}
 
 ${outfitInstruction}
 
+[OUTFIT PERSON PURGE]
+- Treat uploaded outfit images strictly as wardrobe references, not identity references.
+- Ignore any face, head, hair, skin tone, body identity, age, expression, or person identity visible in outfit images.
+- The final model identity, face, hair, skin tone, and age must come ONLY from the face reference images.
+
 [EDITORIAL ART DIRECTION]
 - BACKGROUND: ${backgroundText}
 - POSE: ${poseText}

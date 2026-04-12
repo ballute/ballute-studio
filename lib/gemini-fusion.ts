@@ -408,6 +408,9 @@ Background and Pose MUST adapt to the Outfit, not the other way around.
 - INSTRUCTION: Reconstruct the exact visible outfit from the uploaded outfit images with 100% pixel-perfect fidelity.
 - PRESERVE: Exact garment category, sleeve length, collar shape, fabric texture, pockets, stitching, and layering order.
 - PROHIBITION: Do NOT alter the clothes to fit the pose. If the pose causes the clothes to distort, prioritize the clothes' structural integrity over the pose.
+- WARDROBE-ONLY SOURCE: Treat uploaded outfit images strictly as garment references, not identity references.
+- IGNORE any face, head, hair, skin tone, body identity, age, expression, or person identity visible in outfit images.
+- The final model identity, face, hair, skin tone, and age must come ONLY from the face reference images.
 - ${isMixMode ? "This is MIX mode. Respect each item detail text exactly." : "This is standard outfit mode."}
 
 ${fitPromptContext}
