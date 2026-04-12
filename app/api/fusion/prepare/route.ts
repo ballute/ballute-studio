@@ -4,6 +4,7 @@ import {
   analyzeBackgroundDNAFromBase64s,
   analyzePoseBlueprintFromBase64,
   searchLocationPrompts,
+  type BackgroundMode,
 } from "@/lib/gemini-fusion";
 import { gcsPathToBase64 } from "@/lib/gcs-storage";
 import {
@@ -28,11 +29,16 @@ function clampCount(value: unknown, fallback = 4) {
   return Math.max(1, Math.min(8, Number.isFinite(n) ? n : fallback));
 }
 
+function normalizeBackgroundMode(value: unknown): BackgroundMode {
+  return value === "extract" ? "extract" : "creative";
+}
+
 const storagePathToBase64 = gcsPathToBase64;
 
 type JsonPrepareBody = {
   batchId?: string;
   count?: number | string;
+  backgroundMode?: BackgroundMode;
   bgPaths?: string[];
   posePaths?: string[];
 };
@@ -60,12 +66,14 @@ export async function POST(req: Request) {
 
     let count = 4;
     let batchId = "";
+    let backgroundMode: BackgroundMode = "creative";
     let bgBase64s: string[] = [];
     let poseBase64s: string[] = [];
 
     if (jsonBody) {
       batchId = (jsonBody.batchId || "").trim();
       count = clampCount(jsonBody.count, 4);
+      backgroundMode = normalizeBackgroundMode(jsonBody.backgroundMode);
 
       const bgPaths = Array.isArray(jsonBody.bgPaths) ? jsonBody.bgPaths : [];
       const posePaths = Array.isArray(jsonBody.posePaths)
@@ -88,6 +96,7 @@ export async function POST(req: Request) {
 
       batchId = ((formData.get("batchId") as string) || "").trim();
       count = clampCount(formData.get("count"), 4);
+      backgroundMode = normalizeBackgroundMode(formData.get("backgroundMode"));
 
       const bgFiles = formData.getAll("bgs") as File[];
       const poseFiles = formData.getAll("poses") as File[];
@@ -105,8 +114,15 @@ export async function POST(req: Request) {
 
     await ensureGenerationSlotActive(user.id, batchId, "fusion");
 
-    const bgDNA = await analyzeBackgroundDNAFromBase64s(bgBase64s);
-    const locationPrompts = await searchLocationPrompts(bgDNA, count);
+    const bgDNA = await analyzeBackgroundDNAFromBase64s(
+      bgBase64s,
+      backgroundMode
+    );
+    const locationPrompts = await searchLocationPrompts(
+      bgDNA,
+      count,
+      backgroundMode
+    );
 
     const poseBlueprints = [];
     for (const poseBase64 of poseBase64s) {
@@ -116,6 +132,7 @@ export async function POST(req: Request) {
 
     return NextResponse.json({
       success: true,
+      backgroundMode,
       bgDNA,
       locationPrompts,
       poseBlueprints,

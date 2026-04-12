@@ -5,6 +5,7 @@ import {
   BackgroundDNA,
   PoseBlueprint,
   LockedVibe,
+  type BackgroundMode,
 } from "@/lib/gemini-fusion";
 import { gcsPathToBase64 } from "@/lib/gcs-storage";
 import {
@@ -35,12 +36,17 @@ function safeJsonParse<T>(raw: string, fallback: T): T {
   }
 }
 
+function normalizeBackgroundMode(value: unknown): BackgroundMode {
+  return value === "extract" ? "extract" : "creative";
+}
+
 type JsonGenerateBody = {
   batchId?: string;
   fitSpec?: string;
   shootingMode?: string;
   customPrompt?: string;
   outfitMode?: string;
+  backgroundMode?: BackgroundMode;
   mixCaptions?: string[];
   bgDNA?: BackgroundDNA;
   poseBlueprint?: PoseBlueprint;
@@ -48,6 +54,7 @@ type JsonGenerateBody = {
   lockedVibe?: LockedVibe | null;
   facePaths?: string[];
   outfitPaths?: string[];
+  bgPaths?: string[];
   posePath?: string;
   outputRatio?: "4:5" | "2:3" | "16:9"; // ✅ 추가
 };
@@ -77,6 +84,7 @@ export async function POST(req: Request) {
     let shootingMode = "default";
     let customPrompt = "";
     let outfitMode = "outfit";
+    let backgroundMode: BackgroundMode = "creative";
     let batchId = "";
     let mixCaptions: string[] = [];
     let bgDNA = {} as BackgroundDNA;
@@ -85,6 +93,7 @@ export async function POST(req: Request) {
     let lockedVibe: LockedVibe | null = null;
     let faceBase64s: string[] = [];
     let outfitBase64s: string[] = [];
+    let backgroundBase64s: string[] = [];
     let outputRatio: "4:5" | "2:3" | "16:9" = "4:5"; // ✅ 추가
 
     if (jsonBody) {
@@ -93,6 +102,7 @@ export async function POST(req: Request) {
       shootingMode = jsonBody.shootingMode || "default";
       customPrompt = jsonBody.customPrompt || "";
       outfitMode = jsonBody.outfitMode || "outfit";
+      backgroundMode = normalizeBackgroundMode(jsonBody.backgroundMode);
       mixCaptions = Array.isArray(jsonBody.mixCaptions)
         ? jsonBody.mixCaptions
         : [];
@@ -109,6 +119,7 @@ export async function POST(req: Request) {
       const outfitPaths = Array.isArray(jsonBody.outfitPaths)
         ? jsonBody.outfitPaths
         : [];
+      const bgPaths = Array.isArray(jsonBody.bgPaths) ? jsonBody.bgPaths : [];
       const posePath = (jsonBody.posePath || "").trim();
 
       if (!facePaths.length) {
@@ -139,10 +150,19 @@ export async function POST(req: Request) {
         );
       }
 
-      assertTempAssetOwnership(user.id, [...facePaths, ...outfitPaths, posePath]);
+      assertTempAssetOwnership(user.id, [
+        ...facePaths,
+        ...outfitPaths,
+        ...bgPaths,
+        posePath,
+      ]);
 
       faceBase64s = await Promise.all(facePaths.map(storagePathToBase64));
       outfitBase64s = await Promise.all(outfitPaths.map(storagePathToBase64));
+      backgroundBase64s =
+        backgroundMode === "extract"
+          ? await Promise.all(bgPaths.map(storagePathToBase64))
+          : [];
     } else {
       const formData = await req.formData();
 
@@ -151,6 +171,7 @@ export async function POST(req: Request) {
       shootingMode = (formData.get("shootingMode") as string) || "default";
       customPrompt = (formData.get("customPrompt") as string) || "";
       outfitMode = (formData.get("outfitMode") as string) || "outfit";
+      backgroundMode = normalizeBackgroundMode(formData.get("backgroundMode"));
       const mixCaptionsRaw = (formData.get("mixCaptions") as string) || "[]";
       const bgDNARaw = (formData.get("bgDNA") as string) || "{}";
       const poseBlueprintRaw = (formData.get("poseBlueprint") as string) || "{}";
@@ -163,6 +184,7 @@ export async function POST(req: Request) {
 
       const faceFiles = formData.getAll("faces") as File[];
       const outfitFiles = formData.getAll("outfits") as File[];
+      const bgFiles = formData.getAll("bgs") as File[];
 
       if (!faceFiles.length) {
         return NextResponse.json(
@@ -187,6 +209,10 @@ export async function POST(req: Request) {
 
       faceBase64s = await Promise.all(faceFiles.map(fileToBase64));
       outfitBase64s = await Promise.all(outfitFiles.map(fileToBase64));
+      backgroundBase64s =
+        backgroundMode === "extract"
+          ? await Promise.all(bgFiles.map(fileToBase64))
+          : [];
 
       mixCaptions = safeJsonParse<string[]>(mixCaptionsRaw, []);
       bgDNA = safeJsonParse<BackgroundDNA>(bgDNARaw, {} as BackgroundDNA);
@@ -206,9 +232,11 @@ export async function POST(req: Request) {
     const generated = await generateFusionImageWeb({
       faceBase64s,
       outfitBase64s,
+      backgroundBase64s,
       poseBlueprint,
       targetLocationText: locationPrompt,
       bgDNA,
+      backgroundMode,
       bodySpecs: fitSpec,
       isMixMode: outfitMode === "mix",
       mixCaptions,
@@ -229,6 +257,7 @@ export async function POST(req: Request) {
         image: generated.base64,
         summary: generated.summary,
         elapsedMs,
+        backgroundMode,
         locationPrompt,
         poseBlueprint,
         bgDNA,

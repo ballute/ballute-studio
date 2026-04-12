@@ -41,6 +41,10 @@ export type BackgroundDNA = {
   color_grading_and_texture?: string;
   spatial_mood?: string;
   camera_feel?: string;
+  source_scene_layout?: string;
+  camera_position_and_crop?: string;
+  stable_scene_anchors?: string[];
+  allowed_micro_variations?: string[];
   do_not_copy?: string[];
 };
 
@@ -65,6 +69,7 @@ export type LockedVibe = {
 };
 
 export type OutputRatio = "4:5" | "2:3" | "16:9";
+export type BackgroundMode = "creative" | "extract";
 
 const buildFitPromptContext = (
   bodySpecs?: string
@@ -120,21 +125,39 @@ const buildFitPromptContext = (
 };
 
 export async function analyzeBackgroundDNAFromBase64s(
-  bgBase64s: string[]
+  bgBase64s: string[],
+  backgroundMode: BackgroundMode = "creative"
 ): Promise<BackgroundDNA> {
   const analyses: BackgroundDNA[] = [];
 
   for (const base64 of bgBase64s) {
-    const response = await withGenAiRetry(
-      () =>
-        ai.models.generateContent({
-          model: "gemini-3-flash-preview",
-          contents: [{ role: "user", parts: [
-          {
-            ...toInlineImagePart(base64),
-          },
-            {
-              text: `Analyze this location/environment image for fashion lookbook worldbuilding.
+    const prompt =
+      backgroundMode === "extract"
+        ? `Analyze this location/environment image for faithful background extraction in a fashion lookbook engine.
+
+CRITICAL:
+- Extract ONLY the environment/background.
+- If a person, model, mannequin, face, hair, skin, clothing, shoes, hands, legs, or body appears in the image, treat it as a temporary foreground occluder, NOT as part of the background.
+- Do not include any human/model/garment information in the reusable background description.
+- Infer the environment behind occluders as a plausible continuation of the visible scene.
+
+Return ONLY raw JSON with:
+{
+  "environment_type": "what kind of place this is",
+  "architectural_language": "materials, shapes, structural language",
+  "lighting_and_exposure": "light quality, direction, time-of-day, and exposure character",
+  "color_grading_and_texture": "color cast, grain, texture, surface feeling",
+  "spatial_mood": "psychological feel of the place",
+  "camera_feel": "framing, lens feel, distance, and crop logic",
+  "source_scene_layout": "near-literal description of the visible non-human spatial layout, horizon, depth, foreground/background relationship, and major planes",
+  "camera_position_and_crop": "camera height, viewpoint, lens distance, crop boundaries, and perspective compression",
+  "stable_scene_anchors": ["major visible non-human environment anchors that should remain stable"],
+  "allowed_micro_variations": ["tiny time-flow, exposure, shadow, or crop changes that may vary naturally"],
+  "do_not_copy": ["all people/models/mannequins", "faces/hair/skin/body parts", "all clothing/shoes/accessories", "temporary foreground blockers", "irrelevant artifacts that are not part of the environment"]
+}
+
+Focus on preserving the source environment as a reusable scene reference. Do not generalize it into a new neighborhood. No people, no clothes.`
+        : `Analyze this location/environment image for fashion lookbook worldbuilding.
 
 Return ONLY raw JSON with:
 {
@@ -147,7 +170,18 @@ Return ONLY raw JSON with:
   "key_non_repeatable_elements": ["specific one-off details that should NOT be copied literally"]
 }
 
-Focus on environmental DNA only. No people, no clothes.`,
+Focus on environmental DNA only. No people, no clothes.`;
+
+    const response = await withGenAiRetry(
+      () =>
+        ai.models.generateContent({
+          model: "gemini-3-flash-preview",
+          contents: [{ role: "user", parts: [
+          {
+            ...toInlineImagePart(base64),
+          },
+            {
+              text: prompt,
             },
           ] }],
           config: {
@@ -174,7 +208,36 @@ Focus on environmental DNA only. No people, no clothes.`,
         model: "gemini-3-flash-preview",
         contents: [{ role: "user", parts: [
           {
-            text: `You are merging multiple environment analyses into one unified background DNA for a fashion lookbook engine.
+            text:
+              backgroundMode === "extract"
+                ? `You are merging environment analyses into one faithful background extraction for a fashion lookbook engine.
+
+Input analyses:
+${JSON.stringify(analyses, null, 2)}
+
+Return ONLY raw JSON:
+{
+  "environment_type": "...",
+  "architectural_language": "...",
+  "lighting_and_exposure": "...",
+  "color_grading_and_texture": "...",
+  "spatial_mood": "...",
+  "camera_feel": "...",
+  "source_scene_layout": "...",
+  "camera_position_and_crop": "...",
+  "stable_scene_anchors": ["..."],
+  "allowed_micro_variations": ["..."],
+  "do_not_copy": ["..."]
+}
+
+Goal:
+- preserve the source scene as faithfully as possible
+- keep the same non-human environment geometry, camera viewpoint, material surfaces, depth layout, and color atmosphere
+- allow only subtle time-flow, exposure, shadow, and crop changes
+- remove all people/models/mannequins, faces, hair, skin, body parts, clothing, shoes, and accessories from the background profile
+- treat any human or garment in the source as an occluder and infer the background behind it
+- do not invent a new location or replace the scene with a generalized background`
+                : `You are merging multiple environment analyses into one unified background DNA for a fashion lookbook engine.
 
 Input analyses:
 ${JSON.stringify(analyses, null, 2)}
@@ -278,9 +341,28 @@ Return ONLY raw JSON:
 
 export async function searchLocationPrompts(
   bgDNA: BackgroundDNA,
-  count: number
+  count: number,
+  backgroundMode: BackgroundMode = "creative"
 ): Promise<string[]> {
-  const systemPrompt = `Background DNA (Material & Lighting World):
+  const systemPrompt =
+    backgroundMode === "extract"
+      ? `Background Extraction Profile:
+${JSON.stringify(bgDNA, null, 2)}
+
+TASK:
+Generate EXACTLY ${count} location directives for a faithful background extraction mode.
+
+RULES:
+- Preserve the same source environment, camera viewpoint, major geometry, material surfaces, depth layout, horizon, crop logic, lighting direction, and color atmosphere.
+- Preserve only the non-human environment. If the source contains a person/model/garment, erase it conceptually and continue the background behind it.
+- Each directive should describe the same place with near-identical scene fidelity.
+- Allow only tiny natural variations: slight time-flow, exposure, shadow softness, atmospheric change, or minimal crop adjustment required by the selected pose.
+- Do not invent a new location, new architecture, new props, or a different neighborhood.
+- Do not include any source person, clothing, body part, face, hair, skin, shoes, or accessory in the directive.
+
+Return ONLY a valid JSON array of strings containing EXACTLY ${count} elements.
+Format: ["faithful location directive 1", "faithful location directive 2", ...]`
+      : `Background DNA (Material & Lighting World):
 ${JSON.stringify(bgDNA, null, 2)}
 
 TASK:
@@ -319,9 +401,11 @@ Format: ["location description 1", "location description 2", ...]`;
 export async function generateFusionImageWeb(args: {
   faceBase64s: string[];
   outfitBase64s: string[];
+  backgroundBase64s?: string[];
   poseBlueprint: PoseBlueprint;
   targetLocationText: string;
   bgDNA: BackgroundDNA;
+  backgroundMode?: BackgroundMode;
   bodySpecs?: string;
   isMixMode?: boolean;
   mixCaptions?: string[];
@@ -333,9 +417,11 @@ export async function generateFusionImageWeb(args: {
   const {
     faceBase64s,
     outfitBase64s,
+    backgroundBase64s = [],
     poseBlueprint,
     targetLocationText,
     bgDNA,
+    backgroundMode = "creative",
     bodySpecs,
     isMixMode = false,
     mixCaptions = [],
@@ -346,6 +432,20 @@ export async function generateFusionImageWeb(args: {
   } = args;
 
   const parts: PromptPart[] = [];
+
+  if (backgroundMode === "extract") {
+    backgroundBase64s.forEach((backgroundBase64, index) => {
+      parts.push({
+        text: `[BACKGROUND REFERENCE ${index + 1} - SCENE EXTRACT]
+Use this image only as the environment source for the final background.
+Preserve only the non-human visible space, camera viewpoint, crop boundaries, depth layout, major surfaces, lighting direction, color atmosphere, and texture with near-identical fidelity.
+Allow only tiny time-flow, exposure, shadow, or crop adjustments needed to integrate the model naturally.
+If this background image contains a person, model, mannequin, face, hair, skin, clothing, shoes, hands, legs, or body parts, erase them completely and reconstruct the environment behind them.
+Do not use face or outfit references as background sources. Do not preserve any person or garment from the background reference.`,
+      });
+      parts.push(toInlineImagePart(backgroundBase64));
+    });
+  }
 
   faceBase64s.forEach((faceBase64) => {
     parts.push(toInlineImagePart(faceBase64));
@@ -400,6 +500,14 @@ export async function generateFusionImageWeb(args: {
     "High-end restrained editorial mood.";
 
   const finalBackground = lockedVibe?.background || targetLocationText;
+  const backgroundModeContext =
+    backgroundMode === "extract"
+      ? `- Mode: Extract. Preserve the BACKGROUND REFERENCE scene with near-identical fidelity.
+- Keep the same visible environment, camera viewpoint, depth layout, major surfaces, lighting direction, color palette, and crop logic.
+- Only allow subtle time-flow, exposure, shadow, and minimal camera crop changes required for a natural fashion image.
+- If the BACKGROUND REFERENCE contains any person/model/body/clothing, remove it completely and inpaint the environment behind it.
+- Do not invent a different location. Do not import any background from FACE or OUTFIT references. Do not copy any person or garment from the BACKGROUND REFERENCE.`
+      : `- Mode: Creative. Use the background DNA as a flexible world reference and create a natural fashion-editorial variation.`;
   
   const poseCore = lockedVibe?.pose || poseBlueprint?.pose_core || "Relaxed natural stance.";
   const poseExpression = lockedVibe?.expression || poseBlueprint?.expression_and_gaze || "Natural editorial gaze.";
@@ -445,6 +553,7 @@ ${fitPromptContext}
 - Set/Location: "${finalBackground}"
 - Lighting: ${lightingStyle}
 - Texture/Color: ${textureAndColor}
+${backgroundModeContext}
 
 [POSE & ATTITUDE - PHOTOGRAPHIC READING]
 - Core: ${poseCore}.
@@ -496,6 +605,6 @@ ${fitPromptContext}
 
   return {
     base64: imageBase64,
-    summary: `${fitSummary} + FUSION`,
+    summary: `${fitSummary} + BG ${backgroundMode === "extract" ? "Extract" : "Creative"} + FUSION`,
   };
 }

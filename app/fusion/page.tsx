@@ -18,6 +18,7 @@ import FaceInputSection, {
 } from "@/components/face-input-section";
 
 type OutputRatio = "4:5" | "2:3" | "16:9";
+type BackgroundMode = "creative" | "extract";
 
 type UploadItem = {
   file: File;
@@ -42,6 +43,7 @@ type FusionResult = {
   image: string;
   summary?: string;
   elapsedMs?: number;
+  backgroundMode?: BackgroundMode;
   locationPrompt?: string;
   poseBlueprint?: {
     pose_core?: string;
@@ -218,6 +220,8 @@ export default function FusionPage() {
   const [poses, setPoses] = useState<UploadItem[]>([]);
 
   const [outfitMode, setOutfitMode] = useState<"outfit" | "mix">("outfit");
+  const [backgroundMode, setBackgroundMode] =
+    useState<BackgroundMode>("creative");
   const [count, setCount] = useState(4);
   const [fitSpec, setFitSpec] = useState("");
   const [shootingMode, setShootingMode] = useState("default");
@@ -686,6 +690,7 @@ export default function FusionPage() {
         body: JSON.stringify({
           batchId,
           count: safeCount,
+          backgroundMode,
           bgPaths,
           posePaths,
         }),
@@ -765,10 +770,15 @@ export default function FusionPage() {
                 shootingMode,
                 customPrompt,
                 outfitMode,
+                backgroundMode,
                 mixCaptions: uploadedOutfits.map((item) => item.caption || ""),
                 lockedVibe,
                 facePaths,
                 outfitPaths,
+                bgPaths:
+                  backgroundMode === "extract"
+                    ? [bgPaths[locationIndex % bgPaths.length]]
+                    : undefined,
                 posePath: posePaths[poseIndex],
                 bgDNA,
                 poseBlueprint: poseBlueprints[poseIndex],
@@ -943,15 +953,54 @@ export default function FusionPage() {
         </div>
 
         <div className="grid grid-cols-1 xl:grid-cols-2 gap-6 mb-6">
-          <UploadSection
-            title="BG 업로드"
-            required
-            description="환경 DNA를 추출할 배경 이미지."
-            items={bgs}
-            onAddFiles={(files) => appendFiles(setBgs, files)}
-            onRemoveItem={(index) => removeItem(setBgs, index)}
-            onClearAll={() => clearAll(setBgs)}
-          />
+          <div className="space-y-4">
+            <div className="border rounded-2xl p-4 bg-white">
+              <div className="font-semibold mb-3">BG 추출 방식</div>
+              <div className="flex flex-wrap gap-3">
+                <button
+                  type="button"
+                  onClick={() => setBackgroundMode("creative")}
+                  className={`px-4 py-2 rounded-xl border ${
+                    backgroundMode === "creative"
+                      ? "bg-black text-white"
+                      : "bg-white text-gray-700"
+                  }`}
+                >
+                  Creative
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setBackgroundMode("extract")}
+                  className={`px-4 py-2 rounded-xl border ${
+                    backgroundMode === "extract"
+                      ? "bg-black text-white"
+                      : "bg-white text-gray-700"
+                  }`}
+                >
+                  Extract
+                </button>
+              </div>
+              <div className="mt-3 text-xs text-gray-600 leading-5">
+                Creative는 배경 DNA를 재해석하고, Extract는 배경 안의
+                사람/의상은 제외한 채 원본 공간의 구도/조명/색감을 최대한
+                유지합니다.
+              </div>
+            </div>
+
+            <UploadSection
+              title="BG 업로드"
+              required
+              description={
+                backgroundMode === "extract"
+                  ? "원본 공간을 거의 유지할 기준 이미지. 사진 안의 사람/의상은 배경으로 쓰지 않습니다."
+                  : "환경 DNA를 추출해 새로운 배경 변주를 만들 기준 이미지."
+              }
+              items={bgs}
+              onAddFiles={(files) => appendFiles(setBgs, files)}
+              onRemoveItem={(index) => removeItem(setBgs, index)}
+              onClearAll={() => clearAll(setBgs)}
+            />
+          </div>
 
           <UploadSection
             title="POSE 업로드"
@@ -1049,6 +1098,7 @@ export default function FusionPage() {
               <div>BG: {bgs.length}장</div>
               <div>POSE: {poses.length}장</div>
               <div>의상 모드: {outfitMode}</div>
+              <div>BG 모드: {backgroundMode}</div>
               <div>Count: {safeCount}</div>
               <div>총 예상 결과 수: {expectedResultCount}장</div>
               <div>핏 보정: {fitSpec || "없음"}</div>
@@ -1161,6 +1211,10 @@ export default function FusionPage() {
                         <ShortTag
                           label="배경"
                           value={shorten(slot.result.locationPrompt)}
+                        />
+                        <ShortTag
+                          label="BG 모드"
+                          value={slot.result.backgroundMode || "creative"}
                         />
                         <ShortTag
                           label="포즈"
