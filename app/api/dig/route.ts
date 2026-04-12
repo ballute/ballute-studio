@@ -1,11 +1,11 @@
 import { NextResponse } from "next/server";
-import { createClient } from "@supabase/supabase-js";
 import { fileToBase64 } from "@/lib/utils";
 import {
   generateDigImageWeb,
   LockedVibe,
   DigDirection,
 } from "@/lib/gemini-dig";
+import { gcsPathToBase64 } from "@/lib/gcs-storage";
 import {
   ApiError,
   assertTempAssetOwnership,
@@ -14,59 +14,10 @@ import {
   spendUserPoints,
 } from "@/lib/server-api";
 
-const TEMP_INPUT_BUCKET = "temp-inputs";
 const DIG_COST_PER_IMAGE = 50;
+export const runtime = "nodejs";
 
-function stripBucketPrefix(path: string) {
-  if (!path) return path;
-  const prefix = `${TEMP_INPUT_BUCKET}/`;
-  return path.startsWith(prefix) ? path.slice(prefix.length) : path;
-}
-
-function arrayBufferToBase64(buffer: ArrayBuffer) {
-  return Buffer.from(buffer).toString("base64");
-}
-
-function getStorageAdmin() {
-  const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
-  const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
-
-  if (!url || !serviceRoleKey) {
-    throw new Error(
-      "Supabase Storage 서버 설정이 없습니다. NEXT_PUBLIC_SUPABASE_URL / SUPABASE_SERVICE_ROLE_KEY를 확인하세요."
-    );
-  }
-
-  return createClient(url, serviceRoleKey, {
-    auth: {
-      persistSession: false,
-      autoRefreshToken: false,
-    },
-  });
-}
-
-async function storagePathToBase64(path: string) {
-  const cleanedPath = stripBucketPrefix(path);
-
-  if (!cleanedPath) {
-    throw new Error("스토리지 경로가 비어 있습니다.");
-  }
-
-  const supabaseAdmin = getStorageAdmin();
-
-  const { data, error } = await supabaseAdmin.storage
-    .from(TEMP_INPUT_BUCKET)
-    .download(cleanedPath);
-
-  if (error || !data) {
-    throw new Error(
-      `스토리지 파일 읽기 실패: ${cleanedPath} / ${error?.message || "unknown"}`
-    );
-  }
-
-  const buffer = await data.arrayBuffer();
-  return arrayBufferToBase64(buffer);
-}
+const storagePathToBase64 = gcsPathToBase64;
 
 function safeJsonParse<T>(raw: string, fallback: T): T {
   try {

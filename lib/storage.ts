@@ -1,4 +1,4 @@
-import { supabase } from "@/lib/supabase";
+import { getAccessToken } from "@/lib/supabase";
 
 export type TempAssetKind =
   | "faces"
@@ -10,7 +10,7 @@ export type TempAssetKind =
 
 export type TempUploadResult = {
   path: string;
-  bucket: "temp-inputs";
+  bucket: string;
   fullPath: string;
   kind: TempAssetKind;
   size: number;
@@ -21,42 +21,14 @@ export type TempUploadResult = {
   expiresAt: string;
 };
 
-const TEMP_INPUT_BUCKET = "temp-inputs";
-const TWO_HOURS_MS = 2 * 60 * 60 * 1000;
-
-function sanitizeFileName(fileName: string) {
-  return fileName
-    .normalize("NFKD")
-    .replace(/[^\w.\-]+/g, "_")
-    .replace(/_+/g, "_")
-    .replace(/^_+|_+$/g, "");
-}
-
-function getExtension(file: File) {
-  const byName = file.name.split(".").pop()?.toLowerCase();
-  if (byName) return byName;
-
-  if (file.type === "image/png") return "png";
-  if (file.type === "image/webp") return "webp";
-  return "jpg";
-}
-
 export function makeSessionId(prefix: string) {
   return `${prefix}_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
 }
 
-export async function getCurrentUserId() {
-  const {
-    data: { user },
-    error,
-  } = await supabase.auth.getUser();
-
-  if (error || !user) {
-    throw new Error("로그인이 필요합니다.");
-  }
-
-  return user.id;
-}
+type SignedUploadResponse = TempUploadResult & {
+  error?: string;
+  uploadUrl: string;
+};
 
 export async function uploadTempAsset(params: {
   file: File;
@@ -65,39 +37,87 @@ export async function uploadTempAsset(params: {
 }) {
   const { file, kind, sessionId } = params;
 
-  const userId = await getCurrentUserId();
-  const now = Date.now();
-  const expiresAt = new Date(now + TWO_HOURS_MS).toISOString();
+  const accessToken = await getAccessToken();
+  const mimeType = file.type || "application/octet-stream";
+  const signRes = await fetch("/api/temp-assets/sign-upload", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${accessToken}`,
+    },
+    body: JSON.stringify({
+      fileName: file.name,
+      kind,
+      mimeType,
+      sessionId,
+      size: file.size,
+    }),
+  });
 
-  const ext = getExtension(file);
-  const safeName = sanitizeFileName(file.name.replace(/\.[^/.]+$/, ""));
-  const uniqueName = `${now}_${Math.random().toString(36).slice(2, 8)}_${safeName}.${ext}`;
-  const path = `${userId}/${sessionId}/${kind}/${uniqueName}`;
+  const signed = (await signRes.json().catch(() => null)) as
+    | SignedUploadResponse
+    | null;
 
-  const { error } = await supabase.storage
-    .from(TEMP_INPUT_BUCKET)
-    .upload(path, file, {
-      cacheControl: "3600",
-      upsert: false,
-      contentType: file.type || "application/octet-stream",
-    });
+  if (!signRes.ok || !signed?.uploadUrl) {
+    throw new Error(signed?.error || "GCS 업로드 URL 발급 실패");
+  }
 
-  if (error) {
-    throw new Error(`스토리지 업로드 실패: ${error.message}`);
+  const uploadRes = await fetch(signed.uploadUrl, {
+    method: "PUT",
+    headers: {
+      "Content-Type": mimeType,
+    },
+    body: file,
+  }).catch(() => null);
+
+  if (!uploadRes?.ok) {
+    return uploadTempAssetViaServer({ file, kind, sessionId, accessToken });
   }
 
   return {
-    path,
-    bucket: TEMP_INPUT_BUCKET,
-    fullPath: `${TEMP_INPUT_BUCKET}/${path}`,
-    kind,
-    size: file.size,
-    mimeType: file.type || "application/octet-stream",
-    fileName: file.name,
-    sessionId,
-    userId,
-    expiresAt,
+    path: signed.path,
+    bucket: signed.bucket,
+    fullPath: signed.fullPath,
+    kind: signed.kind,
+    size: signed.size,
+    mimeType: signed.mimeType,
+    fileName: signed.fileName,
+    sessionId: signed.sessionId,
+    userId: signed.userId,
+    expiresAt: signed.expiresAt,
   } satisfies TempUploadResult;
+}
+
+async function uploadTempAssetViaServer(params: {
+  accessToken: string;
+  file: File;
+  kind: TempAssetKind;
+  sessionId: string;
+}) {
+  const { accessToken, file, kind, sessionId } = params;
+  const formData = new FormData();
+
+  formData.append("file", file);
+  formData.append("kind", kind);
+  formData.append("sessionId", sessionId);
+
+  const res = await fetch("/api/temp-assets/upload", {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${accessToken}`,
+    },
+    body: formData,
+  });
+
+  const data = (await res.json().catch(() => null)) as
+    | (TempUploadResult & { error?: string })
+    | null;
+
+  if (!res.ok || !data?.path) {
+    throw new Error(data?.error || "GCS 서버 업로드 실패");
+  }
+
+  return data satisfies TempUploadResult;
 }
 
 export async function uploadTempAssets(params: {
@@ -109,16 +129,4 @@ export async function uploadTempAssets(params: {
   return Promise.all(
     files.map((file) => uploadTempAsset({ file, kind, sessionId }))
   );
-}
-
-export async function removeTempPaths(paths: string[]) {
-  if (!paths.length) return;
-
-  const { error } = await supabase.storage
-    .from(TEMP_INPUT_BUCKET)
-    .remove(paths);
-
-  if (error) {
-    throw new Error(`스토리지 삭제 실패: ${error.message}`);
-  }
 }

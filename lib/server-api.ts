@@ -104,6 +104,12 @@ export function stripTempInputPrefix(path: string) {
   if (!path) return path;
 
   const prefix = `${TEMP_INPUT_BUCKET}/`;
+  const gcsMatch = path.match(/^gs:\/\/[^/]+\/(.+)$/);
+
+  if (gcsMatch?.[1]) {
+    return gcsMatch[1];
+  }
+
   return path.startsWith(prefix) ? path.slice(prefix.length) : path;
 }
 

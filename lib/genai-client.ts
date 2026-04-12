@@ -1,4 +1,4 @@
-import { GoogleGenAI } from "@google/genai";
+import { GoogleGenAI, ThinkingLevel } from "@google/genai";
 
 const useVertexAi =
   process.env.GOOGLE_GENAI_USE_VERTEXAI === "true" ||
@@ -43,7 +43,7 @@ export const imageGenerateHttpOptions = {
 export const imageGenerateConfig = useVertexAi
   ? {
       thinkingConfig: {
-        thinkingLevel: "MINIMAL" as const,
+        thinkingLevel: ThinkingLevel.MINIMAL,
       },
     }
   : {};

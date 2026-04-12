@@ -1,9 +1,10 @@
 "use client";
 
+import { Suspense } from "react";
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 
-export default function FailPage() {
+function FailContent() {
   const searchParams = useSearchParams();
   const code = searchParams.get("code") || "-";
   const message = searchParams.get("message") || "알 수 없는 오류";
@@ -49,5 +50,13 @@ export default function FailPage() {
         </div>
       </div>
     </main>
+  );
+}
+
+export default function FailPage() {
+  return (
+    <Suspense fallback={null}>
+      <FailContent />
+    </Suspense>
   );
 }
