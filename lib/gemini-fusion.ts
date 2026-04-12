@@ -10,6 +10,7 @@ import {
   pickGeneratedInlineImage,
   type GenAiResponsePart,
 } from "./genai-response";
+import { EmptyGenAiImageError, withGenAiRetry } from "./genai-retry";
 import { toInlineImagePart } from "./image-mime";
 
 type PromptPart = ReturnType<typeof toInlineImagePart> | { text: string };
@@ -124,14 +125,16 @@ export async function analyzeBackgroundDNAFromBase64s(
   const analyses: BackgroundDNA[] = [];
 
   for (const base64 of bgBase64s) {
-    const response = await ai.models.generateContent({
-      model: "gemini-3-flash-preview",
-      contents: [{ role: "user", parts: [
-        {
-          ...toInlineImagePart(base64),
-        },
+    const response = await withGenAiRetry(
+      () =>
+        ai.models.generateContent({
+          model: "gemini-3-flash-preview",
+          contents: [{ role: "user", parts: [
           {
-            text: `Analyze this location/environment image for fashion lookbook worldbuilding.
+            ...toInlineImagePart(base64),
+          },
+            {
+              text: `Analyze this location/environment image for fashion lookbook worldbuilding.
 
 Return ONLY raw JSON with:
 {
@@ -145,12 +148,14 @@ Return ONLY raw JSON with:
 }
 
 Focus on environmental DNA only. No people, no clothes.`,
+            },
+          ] }],
+          config: {
+            safetySettings,
           },
-        ] }],
-      config: {
-        safetySettings,
-      },
-    });
+        }),
+      { label: "FUSION background analysis" }
+    );
 
     let text = response.candidates?.[0]?.content?.parts?.[0]?.text || "{}";
     const jsonStart = text.indexOf("{");
@@ -163,11 +168,13 @@ Focus on environmental DNA only. No people, no clothes.`,
     analyses.push(JSON.parse(text));
   }
 
-  const summaryResp = await ai.models.generateContent({
-    model: "gemini-3-flash-preview",
-    contents: [{ role: "user", parts: [
-        {
-          text: `You are merging multiple environment analyses into one unified background DNA for a fashion lookbook engine.
+  const summaryResp = await withGenAiRetry(
+    () =>
+      ai.models.generateContent({
+        model: "gemini-3-flash-preview",
+        contents: [{ role: "user", parts: [
+          {
+            text: `You are merging multiple environment analyses into one unified background DNA for a fashion lookbook engine.
 
 Input analyses:
 ${JSON.stringify(analyses, null, 2)}
@@ -187,12 +194,14 @@ Goal:
 - keep shared DNA
 - remove one-off literal geometry
 - produce a reusable neighborhood/world description`,
+          },
+        ] }],
+        config: {
+          safetySettings,
         },
-      ] }],
-    config: {
-      safetySettings,
-    },
-  });
+      }),
+    { label: "FUSION background merge" }
+  );
 
   let summaryText =
     summaryResp.candidates?.[0]?.content?.parts?.[0]?.text || "{}";
@@ -209,14 +218,16 @@ Goal:
 export async function analyzePoseBlueprintFromBase64(
   poseBase64: string
 ): Promise<PoseBlueprint> {
-  const response = await ai.models.generateContent({
-    model: "gemini-3-flash-preview",
-    contents: [{ role: "user", parts: [
-        {
-          ...toInlineImagePart(poseBase64),
-        },
-        {
-          text: `Analyze this pose reference image as a HIGH-END FASHION EDITORIAL POSE.
+  const response = await withGenAiRetry(
+    () =>
+      ai.models.generateContent({
+        model: "gemini-3-flash-preview",
+        contents: [{ role: "user", parts: [
+          {
+            ...toInlineImagePart(poseBase64),
+          },
+          {
+            text: `Analyze this pose reference image as a HIGH-END FASHION EDITORIAL POSE.
 IMPORTANT:
 Do NOT reduce the pose into only dry skeletal coordinates.
 Read it like a fashion photographer for a luxury brand (Lemaire, The Row style).
@@ -244,13 +255,15 @@ Return ONLY raw JSON:
   "camera_relation": "lens feel, camera height, and the specific angle to the subject",
   "pose_purge_notes": "items that MUST be erased from the source"
 }`,
+          },
+        ] }],
+        config: {
+          responseMimeType: "application/json",
+          safetySettings,
         },
-      ] }],
-    config: {
-      responseMimeType: "application/json",
-      safetySettings,
-    },
-  });
+      }),
+    { label: "FUSION pose analysis" }
+  );
 
   let text = response.candidates?.[0]?.content?.parts?.[0]?.text || "{}";
   const jsonStart = text.indexOf("{");
@@ -279,13 +292,17 @@ If generating multiple locations, each prompt must focus on a DIFFERENT structur
 Return ONLY a valid JSON array of strings containing EXACTLY ${count} elements.
 Format: ["location description 1", "location description 2", ...]`;
 
-  const response = await ai.models.generateContent({
-    model: "gemini-3-flash-preview",
-    contents: [{ role: "user", parts: [{ text: systemPrompt }] }],
-    config: {
-      safetySettings,
-    },
-  });
+  const response = await withGenAiRetry(
+    () =>
+      ai.models.generateContent({
+        model: "gemini-3-flash-preview",
+        contents: [{ role: "user", parts: [{ text: systemPrompt }] }],
+        config: {
+          safetySettings,
+        },
+      }),
+    { label: "FUSION location prompts" }
+  );
 
   const rawText = response.candidates?.[0]?.content?.parts?.[0]?.text || "[]";
   const jsonStart = rawText.indexOf("[");
@@ -451,27 +468,31 @@ ${fitPromptContext}
 - ${defaultImageSize} quality.
 `;
 
-  const response = await ai.models.generateContent({
-    model: imageGenerationModel,
-    contents: [{ role: "user", parts: [...parts, { text: prompt }] }],
-    config: {
-      imageConfig: {
-        aspectRatio: outputRatio,
-        imageSize: defaultImageSize,
+  const imageBase64 = await withGenAiRetry(async () => {
+    const response = await ai.models.generateContent({
+      model: imageGenerationModel,
+      contents: [{ role: "user", parts: [...parts, { text: prompt }] }],
+      config: {
+        imageConfig: {
+          aspectRatio: outputRatio,
+          imageSize: defaultImageSize,
+        },
+        httpOptions: imageGenerateHttpOptions,
+        ...imageGenerateConfig,
+        safetySettings,
       },
-      httpOptions: imageGenerateHttpOptions,
-      ...imageGenerateConfig,
-      safetySettings,
-    },
-  });
+    });
 
-  const responseParts = (response.candidates?.[0]?.content?.parts ??
-    []) as GenAiResponsePart[];
-  const imageBase64 = pickGeneratedInlineImage(responseParts)?.data || null;
+    const responseParts = (response.candidates?.[0]?.content?.parts ??
+      []) as GenAiResponsePart[];
+    const generatedImage = pickGeneratedInlineImage(responseParts)?.data || null;
 
-  if (!imageBase64) {
-    throw new Error("FUSION 이미지 생성 결과가 비어 있다.");
-  }
+    if (!generatedImage) {
+      throw new EmptyGenAiImageError("FUSION");
+    }
+
+    return generatedImage;
+  }, { label: "FUSION image" });
 
   return {
     base64: imageBase64,

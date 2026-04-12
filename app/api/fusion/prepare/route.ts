@@ -17,6 +17,7 @@ import {
   buildGenAiErrorLog,
   formatGenAiErrorMessage,
 } from "@/lib/genai-response";
+import { withPointNotChargedNotice } from "@/lib/genai-retry";
 
 const FUSION_COST_PER_IMAGE = 60;
 export const runtime = "nodejs";
@@ -131,6 +132,9 @@ export async function POST(req: Request) {
       "알 수 없는 FUSION 준비 오류"
     );
 
-    return NextResponse.json({ error: message }, { status: 500 });
+    return NextResponse.json(
+      { error: withPointNotChargedNotice(message) },
+      { status: 500 }
+    );
   }
 }

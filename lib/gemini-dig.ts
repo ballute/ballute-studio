@@ -10,6 +10,7 @@ import {
   pickGeneratedInlineImage,
   type GenAiResponsePart,
 } from "./genai-response";
+import { EmptyGenAiImageError, withGenAiRetry } from "./genai-retry";
 import { toInlineImagePart } from "./image-mime";
 
 type PromptPart = ReturnType<typeof toInlineImagePart> | { text: string };
@@ -156,12 +157,16 @@ Format:
   }
 ]`;
 
-  const response = await ai.models.generateContent({
-    model: "gemini-3-flash-preview",
-    contents: [{ role: "user", parts: [{ text: systemPrompt }] }],
-    // @ts-expect-error The SDK supports googleSearch at runtime.
-    tools: [{ googleSearch: {} }],
-  });
+  const response = await withGenAiRetry(
+    () =>
+      ai.models.generateContent({
+        model: "gemini-3-flash-preview",
+        contents: [{ role: "user", parts: [{ text: systemPrompt }] }],
+        // @ts-expect-error The SDK supports googleSearch at runtime.
+        tools: [{ googleSearch: {} }],
+      }),
+    { label: "DIG directions" }
+  );
 
   const rawText = response.candidates?.[0]?.content?.parts?.[0]?.text || "";
   const jsonStart = rawText.indexOf("[");
@@ -320,27 +325,31 @@ ${outfitInstruction}
 - Output should feel like a luxury editorial lookbook image.
 `;
 
-  const response = await ai.models.generateContent({
-    model: imageGenerationModel,
-    contents: [{ role: "user", parts: [...parts, { text: prompt }] }],
-    config: {
-      imageConfig: {
-        aspectRatio: outputRatio,
-        imageSize: defaultImageSize,
+  const imageBase64 = await withGenAiRetry(async () => {
+    const response = await ai.models.generateContent({
+      model: imageGenerationModel,
+      contents: [{ role: "user", parts: [...parts, { text: prompt }] }],
+      config: {
+        imageConfig: {
+          aspectRatio: outputRatio,
+          imageSize: defaultImageSize,
+        },
+        httpOptions: imageGenerateHttpOptions,
+        ...imageGenerateConfig,
+        safetySettings,
       },
-      httpOptions: imageGenerateHttpOptions,
-      ...imageGenerateConfig,
-      safetySettings,
-    },
-  });
+    });
 
-  const responseParts = (response.candidates?.[0]?.content?.parts ??
-    []) as GenAiResponsePart[];
-  const imageBase64 = pickGeneratedInlineImage(responseParts)?.data || null;
+    const responseParts = (response.candidates?.[0]?.content?.parts ??
+      []) as GenAiResponsePart[];
+    const generatedImage = pickGeneratedInlineImage(responseParts)?.data || null;
 
-  if (!imageBase64) {
-    throw new Error("DIG 이미지 생성 결과가 비어 있다.");
-  }
+    if (!generatedImage) {
+      throw new EmptyGenAiImageError("DIG");
+    }
+
+    return generatedImage;
+  }, { label: "DIG image" });
 
   return {
     base64: imageBase64,

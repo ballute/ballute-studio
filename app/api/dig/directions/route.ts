@@ -10,6 +10,7 @@ import {
   buildGenAiErrorLog,
   formatGenAiErrorMessage,
 } from "@/lib/genai-response";
+import { withPointNotChargedNotice } from "@/lib/genai-retry";
 
 const DIG_COST_PER_IMAGE = 50;
 export const maxDuration = 300;
@@ -53,6 +54,9 @@ export async function POST(req: Request) {
       "알 수 없는 directions 오류"
     );
 
-    return NextResponse.json({ error: message }, { status: 500 });
+    return NextResponse.json(
+      { error: withPointNotChargedNotice(message) },
+      { status: 500 }
+    );
   }
 }

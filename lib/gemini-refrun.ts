@@ -10,6 +10,7 @@ import {
   pickGeneratedInlineImage,
   type GenAiResponsePart,
 } from "./genai-response";
+import { EmptyGenAiImageError, withGenAiRetry } from "./genai-retry";
 import { toInlineImagePart } from "./image-mime";
 
 type PromptPart = ReturnType<typeof toInlineImagePart> | { text: string };
@@ -144,10 +145,14 @@ Return ONLY raw JSON with:
   "overall_mood": "overall mood"
 }`;
 
-  const response = await ai.models.generateContent({
-    model: "gemini-3-flash-preview",
-    contents: [{ role: "user", parts: [...parts, { text: systemPrompt }] }],
-  });
+  const response = await withGenAiRetry(
+    () =>
+      ai.models.generateContent({
+        model: "gemini-3-flash-preview",
+        contents: [{ role: "user", parts: [...parts, { text: systemPrompt }] }],
+      }),
+    { label: "REFRUN reference analysis" }
+  );
 
   let text = "";
   for (const part of response.candidates?.[0]?.content?.parts || []) {
@@ -294,27 +299,31 @@ ${outfitInstruction}
 - Output ${defaultImageSize} museum quality.
 `;
 
-  const response = await ai.models.generateContent({
-    model: imageGenerationModel,
-    contents: [{ role: "user", parts: [...parts, { text: prompt }] }],
-    config: {
-      imageConfig: {
-        aspectRatio: outputRatio,
-        imageSize: defaultImageSize,
+  const imageBase64 = await withGenAiRetry(async () => {
+    const response = await ai.models.generateContent({
+      model: imageGenerationModel,
+      contents: [{ role: "user", parts: [...parts, { text: prompt }] }],
+      config: {
+        imageConfig: {
+          aspectRatio: outputRatio,
+          imageSize: defaultImageSize,
+        },
+        httpOptions: imageGenerateHttpOptions,
+        ...imageGenerateConfig,
+        safetySettings,
       },
-      httpOptions: imageGenerateHttpOptions,
-      ...imageGenerateConfig,
-      safetySettings,
-    },
-  });
+    });
 
-  const responseParts = (response.candidates?.[0]?.content?.parts ??
-    []) as GenAiResponsePart[];
-  const imageBase64 = pickGeneratedInlineImage(responseParts)?.data || null;
+    const responseParts = (response.candidates?.[0]?.content?.parts ??
+      []) as GenAiResponsePart[];
+    const generatedImage = pickGeneratedInlineImage(responseParts)?.data || null;
 
-  if (!imageBase64) {
-    throw new Error("REFRUN 이미지 생성 결과가 비어 있다.");
-  }
+    if (!generatedImage) {
+      throw new EmptyGenAiImageError("REFRUN");
+    }
+
+    return generatedImage;
+  }, { label: "REFRUN image" });
 
   return {
     base64: imageBase64,

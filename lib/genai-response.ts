@@ -8,6 +8,7 @@ export type GenAiResponsePart = {
 };
 
 type ErrorLike = {
+  attempts?: unknown;
   cause?: unknown;
   code?: unknown;
   config?: {
@@ -21,6 +22,7 @@ type ErrorLike = {
     status?: unknown;
     statusText?: unknown;
   };
+  reason?: unknown;
   stack?: unknown;
   status?: unknown;
 };
@@ -108,6 +110,8 @@ export function buildGenAiErrorLog(error: unknown) {
       message: err.message,
       cause: extractCauseMessage(err),
       code: err.code ?? null,
+      attempts: err.attempts ?? null,
+      retryReason: err.reason ?? null,
       status: err.status ?? err.response?.status ?? null,
       responseStatusText: err.response?.statusText ?? null,
       requestMethod: err.config?.method ?? null,
