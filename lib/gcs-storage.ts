@@ -38,6 +38,7 @@ function getStorage() {
   }
 
   const key = parseServiceAccountKey();
+  const keyFilename = process.env.GCS_SERVICE_ACCOUNT_KEY_FILE;
 
   cachedStorage = new Storage(
     key
@@ -51,6 +52,12 @@ function getStorage() {
             private_key: key.private_key,
           },
         }
+      : keyFilename
+        ? {
+            projectId:
+              process.env.GCP_PROJECT_ID || process.env.GOOGLE_CLOUD_PROJECT,
+            keyFilename,
+          }
       : {
           projectId: process.env.GCP_PROJECT_ID || process.env.GOOGLE_CLOUD_PROJECT,
         }
