@@ -412,6 +412,8 @@ Final integration must feel like one natural photograph: adapt fabric drape, wri
 [OUTFIT LOCK (CRITICAL PRIORITY)]
 - INSTRUCTION: Reconstruct the visible garment design from the uploaded outfit images with faithful fidelity, but do not reconstruct the outfit source scene.
 - PRESERVE: Exact garment category, silhouette, sleeve length, collar shape, fabric texture, color, pattern, pockets, stitching, layering order, and clothing-specific logos/prints.
+- DETAIL PRIORITY: Preserve the garment's local hue, saturation, contrast, material behavior, fit tension, hem length, seam placement, button/zipper placement, print scale, and distinctive construction details with maximum fidelity.
+- COLOR DISCIPLINE: Do not recolor the garment to match the background color grade. Let scene lighting affect highlights and shadows naturally while keeping the garment's original local color identity.
 - PROHIBITION: Do NOT alter the clothes to fit the pose. If the pose causes the clothes to distort, prioritize the clothes' structural integrity over the pose.
 - WARDROBE-ONLY SOURCE: Treat uploaded outfit images strictly as garment references, not identity, pose, background, lighting, camera, or location references.
 - IGNORE any face, head, hair, skin tone, body identity, age, expression, pose, background, room, wall, furniture, scenery, source lighting, camera angle, or color cast visible in outfit images.

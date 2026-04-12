@@ -247,15 +247,17 @@ export async function generateRefRunImageWeb(args: {
   const outfitInstruction = isMixMode
     ? `
 [MIX MODE]
-- Use only the uploaded outfit items.
+- Use only the uploaded outfit items as wardrobe references.
 - Respect each item instruction exactly.
-- Preserve layer order and item hierarchy.
+- Preserve each item's garment category, silhouette, fit, local color, material, pattern, construction details, layer order, and hierarchy.
+- Do not import source background, lighting, camera, pose, or person identity from outfit images.
 - Do not invent extra garments.
 `
     : `
 [OUTFIT MODE]
-- Reconstruct the exact uploaded outfit references.
-- Preserve pattern, material read, silhouette, drape, and key construction details.
+- Reconstruct the uploaded outfit's garment design faithfully without reconstructing the outfit source scene.
+- Preserve local hue, saturation, contrast, material read, silhouette, fit, drape, pattern scale, hems, seams, pockets, closures, stitching, and key construction details.
+- Do not recolor the garment to match the background color grade. Let scene lighting affect highlights and shadows naturally while keeping the garment's original local color identity.
 - Do not invent extra garments.
 `;
 
@@ -270,8 +272,8 @@ ${fitPromptContext}
 ${outfitInstruction}
 
 [OUTFIT PERSON PURGE]
-- Treat uploaded outfit images strictly as wardrobe references, not identity references.
-- Ignore any face, head, hair, skin tone, body identity, age, expression, or person identity visible in outfit images.
+- Treat uploaded outfit images strictly as wardrobe references, not identity, pose, background, lighting, camera, or location references.
+- Ignore any face, head, hair, skin tone, body identity, age, expression, pose, background, room, wall, furniture, scenery, source lighting, camera angle, or color cast visible in outfit images.
 - The final model identity, face, hair, skin tone, and age must come ONLY from the face reference images.
 
 [REFERENCE STRUCTURE]
