@@ -94,6 +94,7 @@ export async function POST(req: Request) {
     let faceBase64s: string[] = [];
     let outfitBase64s: string[] = [];
     let backgroundBase64s: string[] = [];
+    let poseBase64 = "";
     let outputRatio: "4:5" | "2:3" | "16:9" = "4:5"; // ✅ 추가
 
     if (jsonBody) {
@@ -163,6 +164,7 @@ export async function POST(req: Request) {
         backgroundMode === "extract"
           ? await Promise.all(bgPaths.map(storagePathToBase64))
           : [];
+      poseBase64 = await storagePathToBase64(posePath);
     } else {
       const formData = await req.formData();
 
@@ -185,6 +187,7 @@ export async function POST(req: Request) {
       const faceFiles = formData.getAll("faces") as File[];
       const outfitFiles = formData.getAll("outfits") as File[];
       const bgFiles = formData.getAll("bgs") as File[];
+      const poseFile = formData.get("pose") as File | null;
 
       if (!faceFiles.length) {
         return NextResponse.json(
@@ -213,6 +216,10 @@ export async function POST(req: Request) {
         backgroundMode === "extract"
           ? await Promise.all(bgFiles.map(fileToBase64))
           : [];
+      poseBase64 =
+        poseFile instanceof File && poseFile.size > 0
+          ? await fileToBase64(poseFile)
+          : "";
 
       mixCaptions = safeJsonParse<string[]>(mixCaptionsRaw, []);
       bgDNA = safeJsonParse<BackgroundDNA>(bgDNARaw, {} as BackgroundDNA);
@@ -233,6 +240,7 @@ export async function POST(req: Request) {
       faceBase64s,
       outfitBase64s,
       backgroundBase64s,
+      poseBase64,
       poseBlueprint,
       targetLocationText: locationPrompt,
       bgDNA,

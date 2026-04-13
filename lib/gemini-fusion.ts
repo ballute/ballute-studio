@@ -299,11 +299,13 @@ You must preserve:
 - Body attitude: The specific energy (nonchalant, tense, slouchy, elegant).
 - Narrative tension: The relationship between the subject and the negative space.
 - Weight distribution and torso lean.
+- Pose silhouette and limb geometry: standing/sitting state, shoulder/hip rotation, knee and leg spacing, elbow bend, hand contact points, and body axis.
 - Hand placement feeling: The "accidental" yet precise touch.
-- Facial mood: Subdued gaze, chin angle, fatigue or alertness.
+- Facial mood: Subdued gaze, chin angle, fatigue or alertness as abstract direction only, not face identity.
 - Camera relation: The psychological distance (voyeuristic, intimate, formal).
 
 You must IGNORE / PURGE:
+- All face identity, hair identity, skin tone, and age impression from the pose source.
 - All original background/architecture.
 - All original clothing/textures/logos.
 - All accessories (sunglasses, bags, jewelry).
@@ -402,6 +404,7 @@ export async function generateFusionImageWeb(args: {
   faceBase64s: string[];
   outfitBase64s: string[];
   backgroundBase64s?: string[];
+  poseBase64?: string;
   poseBlueprint: PoseBlueprint;
   targetLocationText: string;
   bgDNA: BackgroundDNA;
@@ -418,6 +421,7 @@ export async function generateFusionImageWeb(args: {
     faceBase64s,
     outfitBase64s,
     backgroundBase64s = [],
+    poseBase64,
     poseBlueprint,
     targetLocationText,
     bgDNA,
@@ -462,6 +466,17 @@ Do not use face or outfit references as background sources. Do not preserve any 
       });
     }
   });
+
+  if (poseBase64) {
+    parts.push({
+      text: `[POSE STRUCTURE REFERENCE ONLY]
+Use this image only for body posture, limb geometry, weight distribution, hand placement, camera distance, camera angle, and crop/framing.
+Use expression only as abstract gaze direction and head/chin attitude when it matches the pose blueprint.
+Do not use face identity, facial features, hair, skin tone, age, clothing, accessories, background, lighting, color grading, or model identity from this pose image.
+FACE references remain the only source for identity. OUTFIT references remain the only source for garments. BACKGROUND references/DNA remain the only source for the environment.`,
+    });
+    parts.push(toInlineImagePart(poseBase64));
+  }
 
   const { fitPromptContext, fitSummarySuffix } =
     buildFitPromptContext(bodySpecs);
@@ -526,20 +541,22 @@ Every uploaded reference has one assigned job:
 - FACE references define only the final model identity, face, hair, age impression, and skin tone.
 - OUTFIT references define only the garment identity and construction.
 - BACKGROUND DNA / LOCATION defines the environment, lighting world, color atmosphere, and spatial setting.
-- POSE blueprint defines body posture, crop/framing, camera relation, and attitude.
+- POSE blueprint defines body posture, limb geometry, hand placement, crop/framing, camera relation, and attitude.
 The highest priority is preserving the exact face identity and faithful garment design without importing the source context from the wrong reference.
 Final integration must feel like one natural photograph: adapt fabric drape, wrinkles, scale, shadows, and lighting to the selected pose and background.
+If an outfit reference visually suggests a different body pose, the POSE blueprint wins. Re-drape the garment onto the selected pose instead of preserving the outfit source posture.
 
 [FACE IDENTITY LOCK]
 - Maintain exact identity from face references.
 - Preserve face shape, facial proportions, age impression, and hair silhouette.
+- Use pose expression only as abstract mood and gaze direction. Never import face structure, facial identity, hair, skin tone, or age from the pose source.
 
 [OUTFIT LOCK (CRITICAL PRIORITY)]
 - INSTRUCTION: Reconstruct the visible garment design from the uploaded outfit images with faithful fidelity, but do not reconstruct the outfit source scene.
 - PRESERVE: Exact garment category, silhouette, sleeve length, collar shape, fabric texture, color, pattern, pockets, stitching, layering order, and clothing-specific logos/prints.
 - DETAIL PRIORITY: Preserve the garment's local hue, saturation, contrast, material behavior, fit tension, hem length, seam placement, button/zipper placement, print scale, and distinctive construction details with maximum fidelity.
 - COLOR DISCIPLINE: Do not recolor the garment to match the background color grade. Let scene lighting affect highlights and shadows naturally while keeping the garment's original local color identity.
-- PROHIBITION: Do NOT alter the clothes to fit the pose. If the pose causes the clothes to distort, prioritize the clothes' structural integrity over the pose.
+- DRAPE DISCIPLINE: Re-drape the clothes naturally onto the selected POSE blueprint while preserving garment construction. Do not keep the outfit source body's stance, hand placement, crop, or camera angle just to protect the garment shape.
 - WARDROBE-ONLY SOURCE: Treat uploaded outfit images strictly as garment references, not identity, pose, background, lighting, camera, or location references.
 - IGNORE any face, head, hair, skin tone, body identity, age, expression, pose, background, room, wall, furniture, scenery, source lighting, camera angle, or color cast visible in outfit images.
 - The final model identity, face, hair, skin tone, and age must come ONLY from the face reference images.
@@ -559,8 +576,11 @@ ${backgroundModeContext}
 - Core: ${poseCore}.
 - Energy: ${poseAttitude}.
 - Hands/Arms: ${handsArms}.
-- Face/Gaze: ${poseExpression}.
+- Face/Gaze: ${poseExpression}. This is only mood/gaze direction; keep face identity from FACE references.
 - Angle: ${cameraRelation}.
+- POSE AUTHORITY: Follow this blueprint for body posture, weight distribution, limb geometry, hand placement, crop/framing, and camera relation.
+- Ignore any posture, hand placement, crop/framing, facial expression, or camera relation visible in OUTFIT references.
+- Treat the person in the outfit image as a temporary garment mannequin only, not as the final pose source.
 - CRITICAL VIBE: The model's posture MUST feel fluid, organic, and effortlessly natural. AVOID stiff, robotic, mannequin-like rigidity. Let the body weight shift naturally.
 
 [CRITICAL CAMERA CROP LOCK]
