@@ -322,14 +322,12 @@ export default function DigPage() {
   ) => {
     if (!files || files.length === 0) return;
 
-    const MAX_SIZE = 4.5 * 1024 * 1024;
+    const MAX_SIZE = 10 * 1024 * 1024;
     const newItems: UploadItem[] = [];
 
     for (const file of Array.from(files)) {
       if (file.size > MAX_SIZE) {
-        alert(
-          "GUIDE: 현재는 4.5MB 이하의 이미지만 작업 가능합니다.\n\n고해상도 원본 업로드 기능은 현재 설계 단계에 있으며, 준비되는 대로 순차적으로 업데이트될 예정입니다."
-        );
+        alert("이미지는 10MB 이하만 업로드할 수 있습니다.");
         return;
       }
 
