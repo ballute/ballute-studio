@@ -1,10 +1,10 @@
-import { HarmCategory, HarmBlockThreshold } from "@google/genai";
 import {
   ai,
   defaultImageSize,
   imageGenerateConfig,
   imageGenerateHttpOptions,
   imageGenerationModel,
+  safetySettings,
 } from "./genai-client";
 import {
   pickGeneratedInlineImage,
@@ -15,24 +15,6 @@ import { toInlineImagePart } from "./image-mime";
 
 type PromptPart = ReturnType<typeof toInlineImagePart> | { text: string };
 
-const safetySettings = [
-  {
-    category: HarmCategory.HARM_CATEGORY_HARASSMENT,
-    threshold: HarmBlockThreshold.BLOCK_ONLY_HIGH,
-  },
-  {
-    category: HarmCategory.HARM_CATEGORY_HATE_SPEECH,
-    threshold: HarmBlockThreshold.BLOCK_ONLY_HIGH,
-  },
-  {
-    category: HarmCategory.HARM_CATEGORY_SEXUALLY_EXPLICIT,
-    threshold: HarmBlockThreshold.BLOCK_ONLY_HIGH,
-  },
-  {
-    category: HarmCategory.HARM_CATEGORY_DANGEROUS_CONTENT,
-    threshold: HarmBlockThreshold.BLOCK_ONLY_HIGH,
-  },
-];
 
 export type BackgroundDNA = {
   environment_type?: string;

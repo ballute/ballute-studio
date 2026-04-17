@@ -3,7 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { makeSessionId, uploadTempAssets } from "@/lib/storage";
+import { makeSessionId } from "@/lib/storage";
 import {
   clearPersistedGenerationBatch,
   persistGenerationBatch,
@@ -16,17 +16,9 @@ import { getAccessToken } from "@/lib/supabase";
 import FaceInputSection, {
   ModelGenerateOptions,
 } from "@/components/face-input-section";
-
-type OutputRatio = "4:5" | "2:3" | "16:9";
-
-type UploadItem = {
-  file: File;
-  preview: string;
-  caption?: string;
-  storagePath?: string;
-  uploaded?: boolean;
-  expiresAt?: string;
-};
+import UploadSection from "@/components/upload-section";
+import { useUploadItems, uploadItemsToStorage } from "@/hooks/useUploadItems";
+import type { UploadItem, OutputRatio } from "@/lib/types";
 
 type RefRunDirection = {
   background: string;
@@ -53,121 +45,6 @@ type ResultSlot = {
   cutIndex: number;
 };
 
-type UploadSectionProps = {
-  title: string;
-  required?: boolean;
-  description: string;
-  items: UploadItem[];
-  onAddFiles: (files: FileList | null) => void;
-  onRemoveItem: (index: number) => void;
-  onClearAll: () => void;
-  showCaptionInput?: boolean;
-  onCaptionChange?: (index: number, value: string) => void;
-};
-
-function UploadSection({
-  title,
-  required = false,
-  description,
-  items,
-  onAddFiles,
-  onRemoveItem,
-  onClearAll,
-  showCaptionInput = false,
-  onCaptionChange,
-}: UploadSectionProps) {
-  return (
-    <div className="border rounded-2xl p-6 bg-white">
-      <div className="flex items-center gap-2 mb-2">
-        <h2 className="text-xl font-bold">{title}</h2>
-        {required ? (
-          <span className="text-xs px-2 py-1 rounded-full bg-black text-white">
-            필수
-          </span>
-        ) : (
-          <span className="text-xs px-2 py-1 rounded-full border text-gray-600">
-            선택
-          </span>
-        )}
-      </div>
-
-      <p className="text-sm text-gray-700 mb-4 leading-6">{description}</p>
-
-      <div className="flex gap-3 mb-4">
-        <label className="block cursor-pointer">
-          <div className="px-4 py-3 border-2 border-dashed rounded-xl text-sm text-gray-500">
-            여러 장 추가 업로드
-          </div>
-          <input
-            type="file"
-            accept="image/*"
-            multiple
-            className="hidden"
-            onChange={(e) => onAddFiles(e.target.files)}
-          />
-        </label>
-
-        <button
-          type="button"
-          onClick={onClearAll}
-          className="px-4 py-3 border rounded-xl text-sm text-gray-700"
-        >
-          전체 삭제
-        </button>
-      </div>
-
-      <div className="mt-2 text-sm text-gray-600">
-        현재 업로드 수: <b>{items.length}장</b>
-      </div>
-
-      {items.length > 0 ? (
-        <div className="grid grid-cols-2 md:grid-cols-3 gap-3 mt-4">
-          {items.map((item, index) => (
-            <div
-              key={`${item.file.name}-${index}`}
-              className="border rounded-xl p-2"
-            >
-              <img
-                src={item.preview}
-                alt={item.file.name}
-                className="w-full h-32 object-cover rounded-lg"
-              />
-              <div className="mt-2 text-xs text-gray-600 truncate">
-                {item.file.name}
-              </div>
-
-              {item.uploaded ? (
-                <div className="mt-2 text-[11px] text-green-600">
-                  temp 업로드 완료
-                </div>
-              ) : null}
-
-              {showCaptionInput && onCaptionChange ? (
-                <textarea
-                  value={item.caption || ""}
-                  onChange={(e) => onCaptionChange(index, e.target.value)}
-                  placeholder="예: untucked / unbuttoned / layered under jacket"
-                  className="mt-2 w-full border rounded-lg px-2 py-2 text-xs"
-                  rows={3}
-                />
-              ) : null}
-
-              <button
-                type="button"
-                onClick={() => onRemoveItem(index)}
-                className="mt-2 w-full bg-red-500 text-white text-xs py-2 rounded-lg"
-              >
-                이 사진 삭제
-              </button>
-            </div>
-          ))}
-        </div>
-      ) : (
-        <div className="mt-4 text-sm text-gray-400">아직 업로드 안 됨</div>
-      )}
-    </div>
-  );
-}
 
 function ShortTag({ label, value }: { label: string; value: string }) {
   return (
@@ -201,9 +78,9 @@ function parseJsonSafely(raw: string) {
 export default function RefRunPage() {
   const router = useRouter();
 
-  const [faces, setFaces] = useState<UploadItem[]>([]);
-  const [outfits, setOutfits] = useState<UploadItem[]>([]);
-  const [references, setReferences] = useState<UploadItem[]>([]);
+  const faces = useUploadItems();
+  const outfits = useUploadItems();
+  const references = useUploadItems();
 
   const [outfitMode, setOutfitMode] = useState<"outfit" | "mix">("outfit");
   const [fitSpec, setFitSpec] = useState("");
@@ -268,7 +145,7 @@ export default function RefRunPage() {
   const modelGenerationCost = 30;
   const refrunCostPerImage = 50;
   const safeCount = Math.max(1, Math.min(20, Number(perReferenceCount) || 1));
-  const totalResults = references.length * safeCount;
+  const totalResults = references.items.length * safeCount;
   const totalCost = totalResults * refrunCostPerImage;
 
   const handlePointFailure = (message: string) => {
@@ -310,110 +187,23 @@ export default function RefRunPage() {
     return nextHeaders;
   };
 
-  const appendFiles = (
-    setter: React.Dispatch<React.SetStateAction<UploadItem[]>>,
-    files: FileList | null
-  ) => {
-    if (!files || files.length === 0) return;
-
-    const MAX_SIZE = 10 * 1024 * 1024;
-    const newItems: UploadItem[] = [];
-
-    for (const file of Array.from(files)) {
-      if (file.size > MAX_SIZE) {
-        alert("이미지는 10MB 이하만 업로드할 수 있습니다.");
-        return;
-      }
-
-      newItems.push({
-        file,
-        preview: URL.createObjectURL(file),
-        caption: "",
-      });
-    }
-
-    setter((prev) => [...prev, ...newItems]);
-  };
-
-  const removeItem = (
-    setter: React.Dispatch<React.SetStateAction<UploadItem[]>>,
-    index: number
-  ) => {
-    setter((prev) => prev.filter((_, i) => i !== index));
-  };
-
-  const clearAll = (
-    setter: React.Dispatch<React.SetStateAction<UploadItem[]>>
-  ) => {
-    setter([]);
-  };
-
-  const updateOutfitCaption = (index: number, value: string) => {
-    setOutfits((prev) =>
-      prev.map((item, i) => (i === index ? { ...item, caption: value } : item))
-    );
-  };
-
   const updateSlot = (index: number, patch: Partial<ResultSlot>) => {
     setResultSlots((prev) =>
       prev.map((slot, i) => (i === index ? { ...slot, ...patch } : slot))
     );
   };
 
-  const uploadItemsToStorage = async (
-    items: UploadItem[],
-    kind: "faces" | "outfits" | "references"
-  ) => {
-    const currentSessionId = refRunSessionId;
-
-    if (!currentSessionId) {
-      throw new Error("세션 생성중입니다. 잠시 후 다시 시도해 주세요.");
-    }
-
-    const pending = items.filter((item) => !item.uploaded || !item.storagePath);
-
-    if (!pending.length) {
-      return items;
-    }
-
-    const uploaded = await uploadTempAssets({
-      files: pending.map((item) => item.file),
-      kind,
-      sessionId: currentSessionId,
-    });
-
-    let uploadIndex = 0;
-
-    return items.map((item) => {
-      if (item.uploaded && item.storagePath) {
-        return item;
-      }
-
-      const asset = uploaded[uploadIndex++];
-
-      return {
-        ...item,
-        storagePath: asset.path,
-        uploaded: true,
-        expiresAt: asset.expiresAt,
-      };
-    });
-  };
-
   const ensureAssetsUploaded = async () => {
     setStatusMessage("임시 스토리지 업로드중...");
 
-    const uploadedFaces = await uploadItemsToStorage(faces, "faces");
-    setFaces(uploadedFaces);
+    const uploadedFaces = await uploadItemsToStorage(faces.items, "faces", refRunSessionId!);
+    faces.setItems(uploadedFaces);
 
-    const uploadedOutfits = await uploadItemsToStorage(outfits, "outfits");
-    setOutfits(uploadedOutfits);
+    const uploadedOutfits = await uploadItemsToStorage(outfits.items, "outfits", refRunSessionId!);
+    outfits.setItems(uploadedOutfits);
 
-    const uploadedReferences = await uploadItemsToStorage(
-      references,
-      "references"
-    );
-    setReferences(uploadedReferences);
+    const uploadedReferences = await uploadItemsToStorage(references.items, "references", refRunSessionId!);
+    references.setItems(uploadedReferences);
 
     return {
       uploadedFaces,
@@ -459,32 +249,16 @@ export default function RefRunPage() {
   };
 
   const resetUploadedStorageState = () => {
-    setFaces((prev) =>
-      prev.map((item) => ({
-        ...item,
-        storagePath: undefined,
-        uploaded: false,
-        expiresAt: undefined,
-      }))
-    );
+    const resetStorage = (item: UploadItem) => ({
+      ...item,
+      storagePath: undefined,
+      uploaded: false,
+      expiresAt: undefined,
+    });
 
-    setOutfits((prev) =>
-      prev.map((item) => ({
-        ...item,
-        storagePath: undefined,
-        uploaded: false,
-        expiresAt: undefined,
-      }))
-    );
-
-    setReferences((prev) =>
-      prev.map((item) => ({
-        ...item,
-        storagePath: undefined,
-        uploaded: false,
-        expiresAt: undefined,
-      }))
-    );
+    faces.setItems((prev) => prev.map(resetStorage));
+    outfits.setItems((prev) => prev.map(resetStorage));
+    references.setItems((prev) => prev.map(resetStorage));
   };
 
   const handleGenerateModel = async (options: ModelGenerateOptions) => {
@@ -531,7 +305,7 @@ export default function RefRunPage() {
         preview: URL.createObjectURL(file),
       };
 
-      setFaces((prev) => [...prev, newItem]);
+      faces.setItems((prev) => [...prev, newItem]);
       setStatusMessage(`모델 생성 완료 (${modelGenerationCost}P 차감)`);
     } catch (error) {
       const message =
@@ -550,13 +324,13 @@ export default function RefRunPage() {
 
     const batchId = refRunSessionId;
 
-    if (faces.length === 0 || outfits.length === 0 || references.length === 0) {
+    if (faces.items.length === 0 || outfits.items.length === 0 || references.items.length === 0) {
       alert("얼굴 / 의상 / 레퍼런스는 최소 1장씩 필요하다.");
       return;
     }
 
     if (outfitMode === "mix") {
-      const hasEmptyCaption = outfits.some(
+      const hasEmptyCaption = outfits.items.some(
         (item) => !(item.caption || "").trim()
       );
       if (hasEmptyCaption) {
@@ -761,10 +535,10 @@ export default function RefRunPage() {
 
         <div className="grid grid-cols-1 xl:grid-cols-3 gap-6 mb-6">
           <FaceInputSection
-            items={faces}
-            onAddFiles={(files) => appendFiles(setFaces, files)}
-            onRemoveItem={(index) => removeItem(setFaces, index)}
-            onClearAll={() => clearAll(setFaces)}
+            items={faces.items}
+            onAddFiles={faces.appendFiles}
+            onRemoveItem={faces.removeItem}
+            onClearAll={faces.clearAll}
             onGenerate={handleGenerateModel}
             generating={modelGenerating}
             disabled={loading}
@@ -807,12 +581,12 @@ export default function RefRunPage() {
                   ? "아이템 여러 장을 조립하는 모드. 각 이미지마다 설명을 꼭 입력해야 한다."
                   : "의상 재구성 기준 이미지. 정면/측면/디테일 등 여러 장 넣을 수 있다."
               }
-              items={outfits}
-              onAddFiles={(files) => appendFiles(setOutfits, files)}
-              onRemoveItem={(index) => removeItem(setOutfits, index)}
-              onClearAll={() => clearAll(setOutfits)}
+              items={outfits.items}
+              onAddFiles={outfits.appendFiles}
+              onRemoveItem={outfits.removeItem}
+              onClearAll={outfits.clearAll}
               showCaptionInput={outfitMode === "mix"}
-              onCaptionChange={updateOutfitCaption}
+              onCaptionChange={outfits.updateCaption}
             />
           </div>
 
@@ -820,10 +594,10 @@ export default function RefRunPage() {
             title="레퍼런스 업로드"
             required
             description="구도, 무드, 사진 문법을 따라갈 기준 레퍼런스 이미지."
-            items={references}
-            onAddFiles={(files) => appendFiles(setReferences, files)}
-            onRemoveItem={(index) => removeItem(setReferences, index)}
-            onClearAll={() => clearAll(setReferences)}
+            items={references.items}
+            onAddFiles={references.appendFiles}
+            onRemoveItem={references.removeItem}
+            onClearAll={references.clearAll}
           />
         </div>
 
@@ -909,9 +683,9 @@ export default function RefRunPage() {
           <div className="border rounded-xl p-4 bg-[#fafaf8]">
             <div className="font-semibold mb-2">현재 설정 요약</div>
             <div className="text-sm text-gray-700 space-y-1">
-              <div>얼굴: {faces.length}장</div>
-              <div>의상: {outfits.length}장</div>
-              <div>레퍼런스: {references.length}장</div>
+              <div>얼굴: {faces.items.length}장</div>
+              <div>의상: {outfits.items.length}장</div>
+              <div>레퍼런스: {references.items.length}장</div>
               <div>의상 모드: {outfitMode}</div>
               <div>Reference당 생성 수: {safeCount}</div>
               <div>총 예상 결과 수: {totalResults}장</div>
