@@ -17,6 +17,7 @@ import FaceInputSection, {
   ModelGenerateOptions,
 } from "@/components/face-input-section";
 import UploadSection from "@/components/upload-section";
+import { RetouchPanel } from "@/components/retouch-panel";
 import { useUploadItems, uploadItemsToStorage } from "@/hooks/useUploadItems";
 import type { UploadItem, OutputRatio } from "@/lib/types";
 
@@ -57,6 +58,8 @@ type ResultSlot = {
   error?: string;
   poseIndex: number;
   locationIndex: number;
+  retouchedImage?: string;
+  retouchOpen?: boolean;
 };
 
 
@@ -102,10 +105,11 @@ export default function FusionPage() {
     useState<BackgroundMode>("creative");
   const [count, setCount] = useState(4);
   const [fitSpec, setFitSpec] = useState("");
-  const [shootingMode, setShootingMode] = useState("default");
+  const [shootingMode, setShootingMode] = useState("portra");
   const [customPrompt, setCustomPrompt] = useState("");
   const [outputRatio, setOutputRatio] = useState<OutputRatio>("4:5");
   const [lockedVibe, setLockedVibe] = useState<LockedVibe | null>(null);
+  const [skinMode, setSkinMode] = useState<"clean" | "natural">("clean");
 
   const [loading, setLoading] = useState(false);
   const [modelGenerating, setModelGenerating] = useState(false);
@@ -539,6 +543,7 @@ export default function FusionPage() {
                 customPrompt,
                 outfitMode,
                 backgroundMode,
+                skinMode,
                 mixCaptions: uploadedOutfits.map((item) => item.caption || ""),
                 lockedVibe,
                 facePaths,
@@ -821,13 +826,45 @@ export default function FusionPage() {
                 onChange={(e) => setShootingMode(e.target.value)}
                 className="w-full border rounded-xl px-4 py-3"
               >
-                <option value="default">default</option>
+                <option value="portra">portra</option>
                 <option value="fuji">fuji</option>
+
                 <option value="mono">mono</option>
                 <option value="studio">studio</option>
                 <option value="raw">raw</option>
+                <option value="retro-film">retro-film</option>
                 <option value="custom">custom</option>
               </select>
+            </div>
+
+            <div>
+              <label className="block text-sm font-semibold mb-2">
+                Skin Mode
+              </label>
+              <div className="flex gap-2">
+                <button
+                  type="button"
+                  onClick={() => setSkinMode("clean")}
+                  className={`px-4 py-2 rounded-xl border text-sm ${
+                    skinMode === "clean"
+                      ? "bg-black text-white"
+                      : "bg-white text-gray-700"
+                  }`}
+                >
+                  클린
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setSkinMode("natural")}
+                  className={`px-4 py-2 rounded-xl border text-sm ${
+                    skinMode === "natural"
+                      ? "bg-black text-white"
+                      : "bg-white text-gray-700"
+                  }`}
+                >
+                  내추럴
+                </button>
+              </div>
             </div>
 
             <div>
@@ -971,7 +1008,7 @@ export default function FusionPage() {
                   {slot.status === "done" && slot.result && (
                     <>
                       <img
-                        src={`data:${getImageMime(slot.result.image)};base64,${slot.result.image}`}
+                        src={`data:${getImageMime(slot.retouchedImage ?? slot.result.image)};base64,${slot.retouchedImage ?? slot.result.image}`}
                         alt={`fusion-result-${index}`}
                         className="w-full rounded-xl border mb-4"
                       />
@@ -1016,16 +1053,53 @@ export default function FusionPage() {
                         )}
                       </div>
 
-                      <button
-                        type="button"
-                        onClick={() => {
-                          if (!slot.result) return;
-                          handleSetVibe(slot.result);
-                        }}
-                        className="w-full bg-black text-white py-3 rounded-xl"
-                      >
-                        이 컷으로 Set Vibe
-                      </button>
+                      <div className="flex gap-2 mb-2">
+                        <button
+                          type="button"
+                          onClick={() => {
+                            if (!slot.result) return;
+                            handleSetVibe(slot.result);
+                          }}
+                          className="flex-1 bg-black text-white py-3 rounded-xl text-sm"
+                        >
+                          이 컷으로 Set Vibe
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() =>
+                            setResultSlots((prev) =>
+                              prev.map((s, i) =>
+                                i === index ? { ...s, retouchOpen: !s.retouchOpen } : s
+                              )
+                            )
+                          }
+                          className="px-4 py-3 rounded-xl border text-sm font-semibold"
+                        >
+                          리터치
+                        </button>
+                      </div>
+
+                      {slot.retouchOpen && (
+                        <RetouchPanel
+                          imageBase64={slot.retouchedImage ?? slot.result.image}
+                          onRetouched={(newBase64) =>
+                            setResultSlots((prev) =>
+                              prev.map((s, i) =>
+                                i === index
+                                  ? { ...s, retouchedImage: newBase64, retouchOpen: false }
+                                  : s
+                              )
+                            )
+                          }
+                          onClose={() =>
+                            setResultSlots((prev) =>
+                              prev.map((s, i) =>
+                                i === index ? { ...s, retouchOpen: false } : s
+                              )
+                            )
+                          }
+                        />
+                      )}
                     </>
                   )}
                 </div>

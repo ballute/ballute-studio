@@ -45,7 +45,8 @@ type JsonGenerateBody = {
   mixCaptions?: string[];
   facePaths?: string[];
   outfitPaths?: string[];
-  outputRatio?: "4:5" | "2:3" | "16:9"; // ✅ 추가
+  outputRatio?: "4:5" | "2:3" | "16:9";
+  skinMode?: "clean" | "natural";
 };
 
 async function readJsonBody(req: Request): Promise<JsonGenerateBody | null> {
@@ -70,7 +71,7 @@ export async function POST(req: Request) {
     const jsonBody = await readJsonBody(req);
 
     let fitSpec = "";
-    let shootingMode = "default";
+    let shootingMode = "portra";
     let customPrompt = "";
     let outfitMode = "outfit";
     let batchId = "";
@@ -79,12 +80,13 @@ export async function POST(req: Request) {
     let mixCaptions: string[] = [];
     let faceBase64s: string[] = [];
     let outfitBase64s: string[] = [];
-    let outputRatio: "4:5" | "2:3" | "16:9" = "4:5"; // ✅ 추가
+    let outputRatio: "4:5" | "2:3" | "16:9" = "4:5";
+    let skinMode: "clean" | "natural" = "clean";
 
     if (jsonBody) {
       batchId = (jsonBody.batchId || "").trim();
       fitSpec = jsonBody.fitSpec || "";
-      shootingMode = jsonBody.shootingMode || "default";
+      shootingMode = jsonBody.shootingMode || "portra";
       customPrompt = jsonBody.customPrompt || "";
       outfitMode = jsonBody.outfitMode || "outfit";
       lockedVibe = (jsonBody.lockedVibe || null) as LockedVibe | null;
@@ -93,7 +95,8 @@ export async function POST(req: Request) {
         ? jsonBody.mixCaptions
         : [];
 
-      outputRatio = jsonBody.outputRatio || "4:5"; // ✅ 추가
+      outputRatio = jsonBody.outputRatio || "4:5";
+      skinMode = jsonBody.skinMode === "natural" ? "natural" : "clean";
 
       const facePaths = Array.isArray(jsonBody.facePaths)
         ? jsonBody.facePaths
@@ -139,7 +142,7 @@ export async function POST(req: Request) {
 
       batchId = ((formData.get("batchId") as string) || "").trim();
       fitSpec = (formData.get("fitSpec") as string) || "";
-      shootingMode = (formData.get("shootingMode") as string) || "default";
+      shootingMode = (formData.get("shootingMode") as string) || "portra";
       customPrompt = (formData.get("customPrompt") as string) || "";
       outfitMode = (formData.get("outfitMode") as string) || "outfit";
       const lockedVibeRaw = (formData.get("lockedVibe") as string) || "";
@@ -148,7 +151,8 @@ export async function POST(req: Request) {
       const outputRatioRaw =
         (formData.get("outputRatio") as string) || "4:5"; // ✅ 추가
 
-      outputRatio = outputRatioRaw as "4:5" | "2:3" | "16:9"; // ✅ 추가
+      outputRatio = outputRatioRaw as "4:5" | "2:3" | "16:9";
+      skinMode = (formData.get("skinMode") as string) === "natural" ? "natural" : "clean";
 
       const faceFiles = formData.getAll("faces") as File[];
       const outfitFiles = formData.getAll("outfits") as File[];
@@ -205,7 +209,8 @@ export async function POST(req: Request) {
       lockedVibe,
       isMixMode: outfitMode === "mix",
       mixCaptions,
-      outputRatio, // ✅ 핵심 추가
+      outputRatio,
+      skinMode,
     });
 
     const elapsedMs = Date.now() - generationStartedAt;

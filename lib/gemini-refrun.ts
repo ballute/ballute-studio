@@ -119,7 +119,7 @@ Ignore all details regarding clothing or accessories worn by the model.
 Return ONLY raw JSON with:
 {
   "background": "describe the environment and set design",
-  "pose": "describe the subject's posture, limb positioning, and attitude",
+  "pose": "describe ONLY the body posture and limb positioning — weight distribution, arm angle, leg stance, head tilt angle. Do NOT describe the face, expression, or any facial features.",
   "expression": "describe the facial expression and gaze direction",
   "camera_angle_and_crop": "camera angle and crop",
   "lighting_and_exposure": "lighting setup and exposure character",
@@ -165,17 +165,19 @@ export async function generateRefRunImageWeb(args: {
   isMixMode?: boolean;
   mixCaptions?: string[];
   outputRatio?: OutputRatio;
+  skinMode?: "clean" | "natural";
 }): Promise<{ base64: string; summary: string }> {
   const {
     faceBase64s,
     outfitBase64s,
     dirSet,
     bodySpecs,
-    shootingMode = "default",
+    shootingMode = "portra",
     customPrompt,
     isMixMode = false,
     mixCaptions = [],
     outputRatio = "4:5",
+    skinMode = "clean",
   } = args;
 
   if (!faceBase64s.length) {
@@ -188,11 +190,17 @@ export async function generateRefRunImageWeb(args: {
 
   const parts: PromptPart[] = [];
 
-  faceBase64s.forEach((faceBase64) => {
+  faceBase64s.forEach((faceBase64, index) => {
+    parts.push({
+      text: `[FACE IDENTITY REFERENCE ${index + 1} — This is the SOLE source for the model's face, identity, and skin tone. No other image may influence the face.]`,
+    });
     parts.push(toInlineImagePart(faceBase64));
   });
 
   outfitBase64s.forEach((outfitBase64, index) => {
+    parts.push({
+      text: `[OUTFIT REFERENCE ${index + 1} — GARMENT DESIGN ONLY. STRICTLY IGNORE: face, person identity, hair, skin tone, body, pose, background, lighting, and color cast from this image.]`,
+    });
     parts.push(toInlineImagePart(outfitBase64));
 
     if (isMixMode) {
@@ -206,23 +214,28 @@ export async function generateRefRunImageWeb(args: {
 
   const faceContext =
     faceBase64s.length === 1
-      ? "Use face reference."
-      : "3D FACE ID ENGINE ACTIVE to maintain identity.";
+      ? `Use face reference.${skinMode === "natural" ? " Skin rendering: Apply the shooting mode's grain and tonal response to skin surfaces only. Do NOT alter face shape, features, or proportions." : ""}`
+      : `3D FACE ID ENGINE ACTIVE to maintain identity.${skinMode === "natural" ? " Skin rendering: Apply the shooting mode's grain and tonal response to skin surfaces only. Do NOT alter face shape, features, or proportions." : ""}`;
 
   const { fitPromptContext, fitSummarySuffix } =
     buildFitPromptContext(bodySpecs);
 
   const modeDict: Record<string, string> = {
-    fuji: "Texture: Fujifilm 400H (Cool greens, cyan shadows, high contrast cinematic film).",
-    mono: "Texture: Ilford HP5 Plus (High-end monochrome, heavy grain, deep noir look). FORCE STRICT BLACK AND WHITE. NO COLOR.",
+    portra:
+      "MOOD: 90s lifestyle editorial — warm sunlight, Polo/Levi's ad energy, nostalgic magazine feel. Skin tones glow naturally, colors slightly faded. | RENDERING: Lighting: Soft, diffused natural daylight. Low dynamic range. Color: Washed out, faded warm tones. Flattened shadows with zero deep blacks. NO digital micro-contrast, NO sharp edges. The image must look naturally soft and optically imperfect without using heavy grain overlays. APPLY THIS COLOR SCIENCE UNIFORMLY TO THE ENTIRE IMAGE INCLUDING ALL GARMENTS — preserve each garment's original hue but reduce saturation and flatten brightness to match this film palette.",
+    fuji:
+      "MOOD: Lemaire / Margaret Howell minimalism — overcast city-boy, Popeye magazine energy. Silhouette and tone-on-tone over color. Matte and restrained. | RENDERING: Regardless of scene brightness, pull all colors toward cool, muted, and desaturated. Direct sunlight rendered as flat and grey-toned rather than warm. Lifted matte black levels. Render as a soft, low-contrast matte print. Do not add artificial noise or grain, focus on flat color science. APPLY THIS COLOR SCIENCE UNIFORMLY TO THE ENTIRE IMAGE INCLUDING ALL GARMENTS — preserve each garment's original hue but reduce saturation and flatten brightness to match this film palette.",
+    mono:
+      "MOOD: Peter Lindbergh / classic film still — form, texture, expression only. No color, pure identity. | RENDERING: Texture: Ilford HP5 Plus (High-end monochrome, heavy grain, deep noir look). FORCE STRICT BLACK AND WHITE. NO COLOR.",
     studio:
-      "Texture: Sharp high-key studio lighting. Zero grain, high-end digital clarity.",
-    raw: "Texture: Natural raw light. iPhone-style snapshot clarity, zero film simulation.",
-    default:
-      "Texture: Kodak Portra 400 (Warm skin tones, subtle analog grain, soft cinematic light).",
+      "MOOD: E-commerce / Acronym tech-wear — clean, sharp, detail-forward. Stitching and fabric texture above all. | RENDERING: Texture: Sharp high-key studio lighting. Zero grain, high-end digital clarity. Maximize micro-contrast and edge sharpness to perfectly showcase fabric textures and stitching details.",
+    raw:
+      "MOOD: Instagram daily snap / iPhone unedited — candid, relatable, no filter. Real-life wearability over editorial. | RENDERING: Texture: Natural raw light. iPhone-style snapshot clarity, zero film simulation.",
+    "retro-film":
+      "MOOD: Comoli / old Celine — quiet, cinematic, single-source light. Half-stop under, optically soft, understated. Ballute's core aesthetic. | RENDERING: Lighting: Single-direction natural light source, either window or outdoor. Soft highlight rolloff — bright areas gently overexpose without harsh clipping. No fill light, no flash. Preserve natural shadows where direct light creates contrast — do not flatten all shadows. Color: Low saturation, muted and slightly faded. Flat tonal curve — compressed midtones, lifted blacks. Render through an optical lens response: slight softness in focus edges, no digital sharpening. The overall image must feel underexposed by half a stop with a matte, non-glossy finish. APPLY THIS COLOR SCIENCE UNIFORMLY TO THE ENTIRE IMAGE INCLUDING ALL GARMENTS — preserve each garment's original hue but render through this flat, muted film tonal response. Overall rendering: The entire image must feel physically soft throughout — fabric surfaces, skin, and edges should lack digital sharpness. Every surface rendered as if light passed through an imperfect optical lens, not a digital sensor. No edge enhancement, no digital micro-detail on fabric or skin.",
   };
 
-  let textureAndColor = modeDict.default;
+  let textureAndColor = modeDict.portra;
   if (shootingMode === "custom" && customPrompt) {
     textureAndColor = `Texture & Photography Style: ${customPrompt}`;
   } else if (modeDict[shootingMode]) {
@@ -251,8 +264,11 @@ export async function generateRefRunImageWeb(args: {
   const prompt = `
 Task: Exact Reference-Run Fashion Editorial Generation.
 
-[IDENTITY]
+[FACE IDENTITY LOCK]
 - ${faceContext}
+- CRITICAL: The face reference image(s) are the SOLE and ABSOLUTE source for the model's face, identity, hair, and skin tone.
+- Do NOT blend, merge, or import any facial feature from outfit images or any other source.
+- Reconstruct the face reference identity faithfully under the new scene's lighting and shooting mode.
 
 ${fitPromptContext}
 
@@ -260,8 +276,8 @@ ${outfitInstruction}
 
 [OUTFIT PERSON PURGE]
 - Treat uploaded outfit images strictly as wardrobe references, not identity, pose, background, lighting, camera, or location references.
-- Ignore any face, head, hair, skin tone, body identity, age, expression, pose, background, room, wall, furniture, scenery, source lighting, camera angle, or color cast visible in outfit images.
-- The final model identity, face, hair, skin tone, and age must come ONLY from the face reference images.
+- HARD BLOCK: Any face, head, hair, skin tone, or body identity visible in outfit images must be 100% ignored and never imported.
+- The final model identity, face, hair, skin tone, and age must come ONLY from the face reference images labeled [FACE IDENTITY REFERENCE].
 
 [REFERENCE STRUCTURE]
 - BACKGROUND: ${dirSet.background}
@@ -278,7 +294,7 @@ ${outfitInstruction}
 - Ignore the original reference clothing and accessories.
 - Prioritize atmospheric realism over digital sharpness.
 - ${outputRatio} composition.
-- Output ${defaultImageSize} museum quality.
+- The final rendering must fully embody the MOOD and RENDERING style defined by the shooting mode above.
 `;
 
   const imageBase64 = await withGenAiRetry(async () => {

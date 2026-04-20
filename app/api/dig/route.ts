@@ -37,6 +37,7 @@ type JsonGenerateBody = {
   mixCaptions?: string[];
   facePaths?: string[];
   outfitPaths?: string[];
+  skinMode?: "clean" | "natural";
 };
 
 async function readJsonBody(req: Request): Promise<JsonGenerateBody | null> {
@@ -61,7 +62,7 @@ export async function POST(req: Request) {
     const jsonBody = await readJsonBody(req);
 
     let fitSpec = "";
-    let shootingMode = "default";
+    let shootingMode = "portra";
     let customPrompt = "";
     let outfitMode = "outfit";
     let lockedVibe: LockedVibe | null = null;
@@ -69,10 +70,12 @@ export async function POST(req: Request) {
     let mixCaptions: string[] = [];
     let faceBase64s: string[] = [];
     let outfitBase64s: string[] = [];
+    let skinMode: "clean" | "natural" = "clean";
 
     if (jsonBody) {
       fitSpec = jsonBody.fitSpec || "";
-      shootingMode = jsonBody.shootingMode || "default";
+      shootingMode = jsonBody.shootingMode || "portra";
+
       customPrompt = jsonBody.customPrompt || "";
       outfitMode = jsonBody.outfitMode || "outfit";
       lockedVibe = (jsonBody.lockedVibe || null) as LockedVibe | null;
@@ -80,6 +83,7 @@ export async function POST(req: Request) {
       mixCaptions = Array.isArray(jsonBody.mixCaptions)
         ? jsonBody.mixCaptions
         : [];
+      skinMode = jsonBody.skinMode === "natural" ? "natural" : "clean";
 
       const facePaths = Array.isArray(jsonBody.facePaths)
         ? jsonBody.facePaths
@@ -124,7 +128,7 @@ export async function POST(req: Request) {
       const formData = await req.formData();
 
       fitSpec = (formData.get("fitSpec") as string) || "";
-      shootingMode = (formData.get("shootingMode") as string) || "default";
+      shootingMode = (formData.get("shootingMode") as string) || "portra";
       customPrompt = (formData.get("customPrompt") as string) || "";
       outfitMode = (formData.get("outfitMode") as string) || "outfit";
       const lockedVibeRaw = (formData.get("lockedVibe") as string) || "";
@@ -182,6 +186,7 @@ export async function POST(req: Request) {
       lockedVibe,
       isMixMode: outfitMode === "mix",
       mixCaptions,
+      skinMode,
     });
 
     await spendUserPoints(user.id, DIG_COST_PER_IMAGE, "DIG GENERATE");

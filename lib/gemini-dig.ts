@@ -178,18 +178,20 @@ export async function generateDigImageWeb(args: {
   isMixMode?: boolean;
   mixCaptions?: string[];
   outputRatio?: OutputRatio;
+  skinMode?: "clean" | "natural";
 }): Promise<{ base64: string; summary: string }> {
   const {
     faceBase64s,
     outfitBase64s,
     dirSet,
     bodySpecs,
-    shootingMode = "default",
+    shootingMode = "portra",
     customPrompt,
     lockedVibe,
     isMixMode = false,
     mixCaptions = [],
     outputRatio = "4:5",
+    skinMode = "clean",
   } = args;
 
   if (!faceBase64s.length) {
@@ -202,11 +204,17 @@ export async function generateDigImageWeb(args: {
 
   const parts: PromptPart[] = [];
 
-  for (const faceBase64 of faceBase64s) {
+  faceBase64s.forEach((faceBase64, index) => {
+    parts.push({
+      text: `[FACE IDENTITY REFERENCE ${index + 1} — This is the SOLE source for the model's face, identity, and skin tone. No other image may influence the face.]`,
+    });
     parts.push(toInlineImagePart(faceBase64));
-  }
+  });
 
   outfitBase64s.forEach((outfitBase64, index) => {
+    parts.push({
+      text: `[OUTFIT REFERENCE ${index + 1} — GARMENT DESIGN ONLY. STRICTLY IGNORE: face, person identity, hair, skin tone, body, pose, background, lighting, and color cast from this image.]`,
+    });
     parts.push(toInlineImagePart(outfitBase64));
 
     if (isMixMode) {
@@ -220,29 +228,34 @@ export async function generateDigImageWeb(args: {
 
   const faceContext =
     faceBase64s.length === 1
-      ? "Use the single face reference precisely."
-      : "3D FACE ID ENGINE ACTIVE. Maintain the exact identity consistently across all results.";
+      ? `Use the single face reference precisely.${skinMode === "natural" ? " Skin rendering: Apply the shooting mode's grain and tonal response to skin surfaces only. Do NOT alter face shape, features, or proportions." : ""}`
+      : `3D FACE ID ENGINE ACTIVE. Maintain the exact identity consistently across all results.${skinMode === "natural" ? " Skin rendering: Apply the shooting mode's grain and tonal response to skin surfaces only. Do NOT alter face shape, features, or proportions." : ""}`;
 
   const { fitPromptContext, fitSummarySuffix } =
     buildFitPromptContext(bodySpecs);
 
   const modeDict: Record<string, string> = {
-    fuji: "Texture: Fujifilm 400H (cool greens, cyan shadows, high contrast cinematic film).",
-    mono: "Texture: Ilford HP5 Plus. Force strict black and white. No color.",
+    portra:
+      "MOOD: 90s lifestyle editorial — warm sunlight, Polo/Levi's ad energy, nostalgic magazine feel. Skin tones glow naturally, colors slightly faded. | RENDERING: Lighting: Soft, diffused natural daylight. Low dynamic range. Color: Washed out, faded warm tones. Flattened shadows with zero deep blacks. NO digital micro-contrast, NO sharp edges. The image must look naturally soft and optically imperfect without using heavy grain overlays. APPLY THIS COLOR SCIENCE UNIFORMLY TO THE ENTIRE IMAGE INCLUDING ALL GARMENTS — preserve each garment's original hue but reduce saturation and flatten brightness to match this film palette.",
+    fuji:
+      "MOOD: Lemaire / Margaret Howell minimalism — overcast city-boy, Popeye magazine energy. Silhouette and tone-on-tone over color. Matte and restrained. | RENDERING: Regardless of scene brightness, pull all colors toward cool, muted, and desaturated. Direct sunlight rendered as flat and grey-toned rather than warm. Lifted matte black levels. Render as a soft, low-contrast matte print. Do not add artificial noise or grain, focus on flat color science. APPLY THIS COLOR SCIENCE UNIFORMLY TO THE ENTIRE IMAGE INCLUDING ALL GARMENTS — preserve each garment's original hue but reduce saturation and flatten brightness to match this film palette.",
+    mono:
+      "MOOD: Peter Lindbergh / classic film still — form, texture, expression only. No color, pure identity. | RENDERING: Texture: Ilford HP5 Plus (High-end monochrome, heavy grain, deep noir look). FORCE STRICT BLACK AND WHITE. NO COLOR.",
     studio:
-      "Texture: clean commercial high-key studio lighting. Zero grain. High-end digital clarity.",
-    raw: "Texture: natural raw light. Minimal grading. Realistic exposure.",
-    default:
-      "Texture: Kodak Portra 400 (warm skin tones, subtle analog grain, soft cinematic light).",
+      "MOOD: E-commerce / Acronym tech-wear — clean, sharp, detail-forward. Stitching and fabric texture above all. | RENDERING: Texture: Sharp high-key studio lighting. Zero grain, high-end digital clarity. Maximize micro-contrast and edge sharpness to perfectly showcase fabric textures and stitching details.",
+    raw:
+      "MOOD: Instagram daily snap / iPhone unedited — candid, relatable, no filter. Real-life wearability over editorial. | RENDERING: Texture: Natural raw light. Minimal grading. Realistic exposure. No film simulation.",
+    "retro-film":
+      "MOOD: Comoli / old Celine — quiet, cinematic, single-source light. Half-stop under, optically soft, understated. Ballute's core aesthetic. | RENDERING: Lighting: Single-direction natural light source, either window or outdoor. Soft highlight rolloff — bright areas gently overexpose without harsh clipping. No fill light, no flash. Preserve natural shadows where direct light creates contrast — do not flatten all shadows. Color: Low saturation, muted and slightly faded. Flat tonal curve — compressed midtones, lifted blacks. Render through an optical lens response: slight softness in focus edges, no digital sharpening. The overall image must feel underexposed by half a stop with a matte, non-glossy finish. APPLY THIS COLOR SCIENCE UNIFORMLY TO THE ENTIRE IMAGE INCLUDING ALL GARMENTS — preserve each garment's original hue but render through this flat, muted film tonal response. Overall rendering: The entire image must feel physically soft throughout — fabric surfaces, skin, and edges should lack digital sharpness. Every surface rendered as if light passed through an imperfect optical lens, not a digital sensor. No edge enhancement, no digital micro-detail on fabric or skin.",
   };
 
-  let textureAndColor = modeDict.default;
+  let textureAndColor = modeDict.portra;
 
   if (lockedVibe?.color_grading_and_texture) {
     textureAndColor = lockedVibe.color_grading_and_texture;
   } else if (shootingMode === "custom" && customPrompt) {
     textureAndColor = `Texture & Photography Style: ${customPrompt}`;
-  } else if (shootingMode !== "default" && modeDict[shootingMode]) {
+  } else if (shootingMode !== "portra" && modeDict[shootingMode]) {
     textureAndColor = modeDict[shootingMode];
   }
 
@@ -301,10 +314,8 @@ ${outfitInstruction}
 - ${textureAndColor}
 - CAMERA / PHOTOGRAPHY: ${cameraText}
 - LIGHTING: ${lightingText}
-- Render as a real premium fashion photograph.
-- Avoid generic AI 3D / plastic skin look.
 - ${outputRatio} composition.
-- Output should feel like a luxury editorial lookbook image.
+- The final rendering must fully embody the MOOD and RENDERING style defined by the shooting mode above.
 `;
 
   const imageBase64 = await withGenAiRetry(async () => {

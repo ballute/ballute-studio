@@ -19,6 +19,7 @@ import FaceInputSection, {
 import UploadSection from "@/components/upload-section";
 import { useUploadItems, uploadItemsToStorage } from "@/hooks/useUploadItems";
 import type { UploadItem, OutputRatio } from "@/lib/types";
+import { RetouchPanel } from "@/components/retouch-panel";
 
 type RefRunDirection = {
   background: string;
@@ -41,6 +42,8 @@ type ResultSlot = {
   status: "waiting" | "generating" | "done" | "error";
   result: RefRunResult | null;
   error?: string;
+  retouchedImage?: string;
+  retouchOpen?: boolean;
   referenceIndex: number;
   cutIndex: number;
 };
@@ -84,10 +87,11 @@ export default function RefRunPage() {
 
   const [outfitMode, setOutfitMode] = useState<"outfit" | "mix">("outfit");
   const [fitSpec, setFitSpec] = useState("");
-  const [shootingMode, setShootingMode] = useState("default");
+  const [shootingMode, setShootingMode] = useState("portra");
   const [customPrompt, setCustomPrompt] = useState("");
   const [outputRatio, setOutputRatio] = useState<OutputRatio>("4:5");
   const [perReferenceCount, setPerReferenceCount] = useState(2);
+  const [skinMode, setSkinMode] = useState<"clean" | "natural">("clean");
 
   const [loading, setLoading] = useState(false);
   const [modelGenerating, setModelGenerating] = useState(false);
@@ -422,6 +426,7 @@ export default function RefRunPage() {
                 shootingMode,
                 customPrompt,
                 outfitMode,
+                skinMode,
                 mixCaptions: uploadedOutfits.map((item) => item.caption || ""),
                 facePaths,
                 outfitPaths,
@@ -642,13 +647,45 @@ export default function RefRunPage() {
                 onChange={(e) => setShootingMode(e.target.value)}
                 className="w-full border rounded-xl px-4 py-3"
               >
-                <option value="default">default</option>
+                <option value="portra">portra</option>
                 <option value="fuji">fuji</option>
+
                 <option value="mono">mono</option>
                 <option value="studio">studio</option>
                 <option value="raw">raw</option>
+                <option value="retro-film">retro-film</option>
                 <option value="custom">custom</option>
               </select>
+            </div>
+
+            <div>
+              <label className="block text-sm font-semibold mb-2">
+                Skin Mode
+              </label>
+              <div className="flex gap-2">
+                <button
+                  type="button"
+                  onClick={() => setSkinMode("clean")}
+                  className={`px-4 py-2 rounded-xl border text-sm ${
+                    skinMode === "clean"
+                      ? "bg-black text-white"
+                      : "bg-white text-gray-700"
+                  }`}
+                >
+                  클린
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setSkinMode("natural")}
+                  className={`px-4 py-2 rounded-xl border text-sm ${
+                    skinMode === "natural"
+                      ? "bg-black text-white"
+                      : "bg-white text-gray-700"
+                  }`}
+                >
+                  내추럴
+                </button>
+              </div>
             </div>
 
             <div>
@@ -763,7 +800,7 @@ export default function RefRunPage() {
                   {slot.status === "done" && slot.result && (
                     <>
                       <img
-                        src={`data:${getImageMime(slot.result.image)};base64,${slot.result.image}`}
+                        src={`data:${getImageMime(slot.retouchedImage ?? slot.result.image)};base64,${slot.retouchedImage ?? slot.result.image}`}
                         alt={`refrun-result-${index}`}
                         className="w-full rounded-xl border mb-4"
                       />
@@ -809,6 +846,42 @@ export default function RefRunPage() {
                           </>
                         )}
                       </div>
+
+                      <button
+                        type="button"
+                        onClick={() =>
+                          setResultSlots((prev) =>
+                            prev.map((s, i) =>
+                              i === index ? { ...s, retouchOpen: !s.retouchOpen } : s
+                            )
+                          )
+                        }
+                        className="w-full border py-3 rounded-xl text-sm font-semibold mb-2"
+                      >
+                        리터치
+                      </button>
+
+                      {slot.retouchOpen && (
+                        <RetouchPanel
+                          imageBase64={slot.retouchedImage ?? slot.result.image}
+                          onRetouched={(newBase64) =>
+                            setResultSlots((prev) =>
+                              prev.map((s, i) =>
+                                i === index
+                                  ? { ...s, retouchedImage: newBase64, retouchOpen: false }
+                                  : s
+                              )
+                            )
+                          }
+                          onClose={() =>
+                            setResultSlots((prev) =>
+                              prev.map((s, i) =>
+                                i === index ? { ...s, retouchOpen: false } : s
+                              )
+                            )
+                          }
+                        />
+                      )}
                     </>
                   )}
                 </div>
