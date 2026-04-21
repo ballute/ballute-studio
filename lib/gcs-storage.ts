@@ -13,6 +13,7 @@ let cachedStorage: Storage | null = null;
 function parseServiceAccountKey() {
   const raw =
     process.env.GCS_SERVICE_ACCOUNT_KEY ||
+    process.env.VERTEX_SERVICE_ACCOUNT_KEY ||
     process.env.GOOGLE_SERVICE_ACCOUNT_KEY ||
     "";
 
@@ -38,7 +39,10 @@ function getStorage() {
   }
 
   const key = parseServiceAccountKey();
-  const keyFilename = process.env.GCS_SERVICE_ACCOUNT_KEY_FILE;
+  const keyFilename =
+    process.env.GCS_SERVICE_ACCOUNT_KEY_FILE ||
+    process.env.VERTEX_SERVICE_ACCOUNT_KEY_FILE ||
+    process.env.GOOGLE_APPLICATION_CREDENTIALS;
 
   cachedStorage = new Storage(
     key
