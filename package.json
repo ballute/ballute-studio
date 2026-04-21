@@ -9,7 +9,6 @@
     "lint": "eslint"
   },
   "dependencies": {
-    "@fal-ai/client": "^1.9.5",
     "@google-cloud/storage": "^7.19.0",
     "@google/genai": "^1.46.0",
     "@supabase/supabase-js": "^2.100.1",
