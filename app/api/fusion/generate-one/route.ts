@@ -3,6 +3,7 @@ import { fileToBase64 } from "@/lib/utils";
 import {
   generateFusionImageWeb,
   BackgroundDNA,
+  FaceBlueprint,
   PoseBlueprint,
   LockedVibe,
   type BackgroundMode,
@@ -49,6 +50,7 @@ type JsonGenerateBody = {
   backgroundMode?: BackgroundMode;
   mixCaptions?: string[];
   bgDNA?: BackgroundDNA;
+  faceBlueprint?: FaceBlueprint;
   poseBlueprint?: PoseBlueprint;
   locationPrompt?: string;
   lockedVibe?: LockedVibe | null;
@@ -89,6 +91,7 @@ export async function POST(req: Request) {
     let batchId = "";
     let mixCaptions: string[] = [];
     let bgDNA = {} as BackgroundDNA;
+    let faceBlueprint: FaceBlueprint | undefined = undefined;
     let poseBlueprint = {} as PoseBlueprint;
     let locationPrompt = "";
     let lockedVibe: LockedVibe | null = null;
@@ -110,6 +113,7 @@ export async function POST(req: Request) {
         ? jsonBody.mixCaptions
         : [];
       bgDNA = (jsonBody.bgDNA || {}) as BackgroundDNA;
+      faceBlueprint = jsonBody.faceBlueprint as FaceBlueprint | undefined;
       poseBlueprint = (jsonBody.poseBlueprint || {}) as PoseBlueprint;
       locationPrompt = (jsonBody.locationPrompt || "").trim();
       lockedVibe = (jsonBody.lockedVibe || null) as LockedVibe | null;
@@ -242,6 +246,7 @@ export async function POST(req: Request) {
 
     const generated = await generateFusionImageWeb({
       faceBase64s,
+      faceBlueprint,
       outfitBase64s,
       backgroundBase64s,
       poseBase64,

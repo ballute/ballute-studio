@@ -12,6 +12,7 @@ import {
 } from "./genai-response";
 import { EmptyGenAiImageError, withGenAiRetry } from "./genai-retry";
 import { toInlineImagePart } from "./image-mime";
+import { buildFaceDescriptionText, type FaceBlueprint } from "./gemini-fusion";
 
 type PromptPart = ReturnType<typeof toInlineImagePart> | { text: string };
 
@@ -113,14 +114,15 @@ export async function analyzeReferenceWeb(
   const systemPrompt = `Analyze the provided reference fashion photograph meticulously.
 Extract the exact visual structure, aesthetic, and mood.
 
-CRITICAL RULE (NEGATIVE CONSTRAINT):
-Ignore all details regarding clothing or accessories worn by the model.
+CRITICAL RULES (NEGATIVE CONSTRAINTS):
+- Ignore all details regarding clothing or accessories worn by the model.
+- Do NOT describe the model's face shape, facial features, age, ethnicity, hair style, hair color, skin tone, or any identifying physical characteristics. The model in the final image will be a DIFFERENT person.
 
 Return ONLY raw JSON with:
 {
   "background": "describe the environment and set design",
   "pose": "describe ONLY the body posture and limb positioning — weight distribution, arm angle, leg stance, head tilt angle. Do NOT describe the face, expression, or any facial features.",
-  "expression": "describe the facial expression and gaze direction",
+  "expression": "describe ONLY the emotional state — eye direction (where they are looking), eyelid state (wide/relaxed/droopy), mouth state (closed/parted/tense), and overall mood (bored/confident/serene). Do NOT mention face shape, features, age, ethnicity, hair, or any identifying characteristics.",
   "camera_angle_and_crop": "camera angle and crop",
   "lighting_and_exposure": "lighting setup and exposure character",
   "color_grading_and_texture": "color grading and texture",
@@ -158,6 +160,7 @@ Return ONLY raw JSON with:
 export async function generateRefRunImageWeb(args: {
   faceBase64s: string[];
   outfitBase64s: string[];
+  faceBlueprint?: FaceBlueprint;
   dirSet: RefRunDirection;
   bodySpecs?: string;
   shootingMode?: string;
@@ -169,6 +172,7 @@ export async function generateRefRunImageWeb(args: {
 }): Promise<{ base64: string; summary: string }> {
   const {
     faceBase64s,
+    faceBlueprint,
     outfitBase64s,
     dirSet,
     bodySpecs,
@@ -190,9 +194,11 @@ export async function generateRefRunImageWeb(args: {
 
   const parts: PromptPart[] = [];
 
+  const faceDescriptionText = buildFaceDescriptionText(faceBlueprint);
+
   faceBase64s.forEach((faceBase64, index) => {
     parts.push({
-      text: `[FACE IDENTITY REFERENCE ${index + 1} — This is the SOLE source for the model's face, identity, and skin tone. No other image may influence the face.]`,
+      text: `[FACE IDENTITY REFERENCE ${index + 1} — This is the SOLE source for the model's face, identity, and skin tone. No other image may influence the face.]${faceDescriptionText}`,
     });
     parts.push(toInlineImagePart(faceBase64));
   });
@@ -287,6 +293,12 @@ ${outfitInstruction}
 - LIGHTING / EXPOSURE: ${dirSet.lighting_and_exposure}
 - COLOR / TEXTURE: ${dirSet.color_grading_and_texture}
 - OVERALL MOOD: ${dirSet.overall_mood}
+
+[REFERENCE PERSON CONTAMINATION BLOCK]
+- The reference photograph was used ONLY to extract scene structure, pose, expression mood, and photographic language.
+- The PERSON in the reference image is NOT the final model.
+- The final face must come 100% from [FACE IDENTITY REFERENCE]. The reference person's face shape, eye shape, nose, mouth, jawline, hair, skin tone, age, and ethnicity must have ZERO influence on the result.
+- Treat the reference's expression as ABSTRACT MOOD ONLY (e.g. "calm gaze toward camera"), not as facial structure.
 
 [TECHNICAL EXECUTION]
 - ${textureAndColor}

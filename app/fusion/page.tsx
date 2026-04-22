@@ -465,6 +465,7 @@ export default function FusionPage() {
           backgroundMode,
           bgPaths,
           posePaths,
+          facePaths,
         }),
       });
 
@@ -489,11 +490,17 @@ export default function FusionPage() {
         bgDNA,
         locationPrompts,
         poseBlueprints,
+        faceBlueprint,
       }: {
         bgDNA: FusionResult["bgDNA"];
         locationPrompts: string[];
         poseBlueprints: FusionResult["poseBlueprint"][];
+        faceBlueprint: Record<string, string> | undefined;
       } = prepareData;
+
+      if (facePaths.length > 0 && (!faceBlueprint || Object.keys(faceBlueprint).length === 0)) {
+        console.warn("[FUSION] 얼굴 분석 결과가 비어있습니다. 얼굴 일관성이 떨어질 수 있습니다.");
+      }
 
       const initialSlots: ResultSlot[] = [];
       for (let poseIndex = 0; poseIndex < poseBlueprints.length; poseIndex++) {
@@ -554,6 +561,7 @@ export default function FusionPage() {
                     : undefined,
                 posePath: posePaths[poseIndex],
                 bgDNA,
+                faceBlueprint,
                 poseBlueprint: poseBlueprints[poseIndex],
                 locationPrompt: locationPrompts[locationIndex],
                 outputRatio,

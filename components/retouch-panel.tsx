@@ -12,6 +12,47 @@ interface RetouchPanelProps {
   onClose: () => void;
 }
 
+/** base64 첫 몇 바이트로 이미지 mime 타입 감지 (png/jpeg/webp/gif) */
+function detectMimeFromBase64(base64: string): string {
+  const head = base64.slice(0, 16);
+  if (head.startsWith("iVBORw0KGgo")) return "image/png";
+  if (head.startsWith("/9j/")) return "image/jpeg";
+  if (head.startsWith("UklGR")) return "image/webp";
+  if (head.startsWith("R0lGOD")) return "image/gif";
+  return "image/jpeg"; // 알 수 없으면 jpeg로 기본
+}
+
+/** base64 이미지가 maxBytes보다 크면 canvas로 리사이즈해서 줄인다 */
+async function compressBase64(base64: string, maxBytes = 3_500_000): Promise<string> {
+  // 이미 작으면 그대로 반환
+  if (base64.length * 0.75 <= maxBytes) return base64;
+
+  const mime = detectMimeFromBase64(base64);
+
+  return new Promise((resolve) => {
+    const img = new Image();
+    img.onload = () => {
+      let { width, height } = img;
+      // 긴 변 2048 이하로 축소
+      const maxDim = 2048;
+      if (width > maxDim || height > maxDim) {
+        const ratio = Math.min(maxDim / width, maxDim / height);
+        width = Math.round(width * ratio);
+        height = Math.round(height * ratio);
+      }
+      const canvas = document.createElement("canvas");
+      canvas.width = width;
+      canvas.height = height;
+      const ctx = canvas.getContext("2d")!;
+      ctx.drawImage(img, 0, 0, width, height);
+      // quality 0.85 JPEG로 출력 (압축률 좋음)
+      const dataUrl = canvas.toDataURL("image/jpeg", 0.85);
+      resolve(dataUrl.split(",")[1]);
+    };
+    img.src = `data:${mime};base64,${base64}`;
+  });
+}
+
 export function RetouchPanel({ imageBase64, onRetouched, onClose }: RetouchPanelProps) {
   const [tab, setTab] = useState<RetouchTab>("style");
   const [loading, setLoading] = useState(false);
@@ -58,7 +99,8 @@ export function RetouchPanel({ imageBase64, onRetouched, onClose }: RetouchPanel
     setError("");
     setLoading(true);
     try {
-      let body: Record<string, unknown> = { imageBase64 };
+      const compressedImage = await compressBase64(imageBase64);
+      let body: Record<string, unknown> = { imageBase64: compressedImage };
 
       if (tab === "style") {
         if (!instruction.trim()) { setError("Enter an edit instruction."); setLoading(false); return; }
@@ -100,7 +142,9 @@ export function RetouchPanel({ imageBase64, onRetouched, onClose }: RetouchPanel
         body: JSON.stringify(body),
       });
 
-      const data = await res.json();
+      const raw = await res.text();
+      let data;
+      try { data = JSON.parse(raw); } catch { throw new Error(raw.slice(0, 200) || "서버 응답 파싱 실패"); }
       if (!res.ok) throw new Error(data.error ?? "Retouch failed");
       onRetouched(data.result.image);
     } catch (e) {

@@ -456,6 +456,7 @@ export default function DigPage() {
       let chargedPoints = 0;
       let stopMessage = "";
       let stoppedByChargeFailure = false;
+      let cachedFaceBlueprint: Record<string, string> | undefined = undefined;
 
       for (let index = 0; index < directions.length; index++) {
         const direction = directions[index];
@@ -480,6 +481,7 @@ export default function DigPage() {
               facePaths,
               outfitPaths,
               outputRatio,
+              faceBlueprint: cachedFaceBlueprint,
             }),
           });
 
@@ -505,6 +507,10 @@ export default function DigPage() {
             }
 
             throw new Error(message);
+          }
+
+          if (!cachedFaceBlueprint && data?.result?.faceBlueprint) {
+            cachedFaceBlueprint = data.result.faceBlueprint;
           }
 
           updateSlot(index, {

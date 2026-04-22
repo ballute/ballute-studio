@@ -260,6 +260,102 @@ Goal:
   return JSON.parse(summaryText);
 }
 
+export type FaceBlueprint = {
+  face_shape?: string;
+  eyes?: string;
+  nose?: string;
+  mouth_and_lips?: string;
+  eyebrows?: string;
+  skin?: string;
+  hair?: string;
+  age_impression?: string;
+  distinctive_features?: string;
+};
+
+export function buildFaceDescriptionText(faceBlueprint?: FaceBlueprint): string {
+  if (!faceBlueprint || Object.keys(faceBlueprint).length === 0) return "";
+  return `\n⚠️ MANDATORY FACE STRUCTURE — the generated face MUST match ALL of these STRUCTURAL features. Expression/mood comes from the pose/direction reference, not here:
+- Face shape: ${faceBlueprint.face_shape || "N/A"}
+- Eyes: ${faceBlueprint.eyes || "N/A"}
+- Nose: ${faceBlueprint.nose || "N/A"}
+- Mouth/Lips: ${faceBlueprint.mouth_and_lips || "N/A"}
+- Eyebrows: ${faceBlueprint.eyebrows || "N/A"}
+- Skin: ${faceBlueprint.skin || "N/A"}
+- Hair: ${faceBlueprint.hair || "N/A"}
+- Age: ${faceBlueprint.age_impression || "N/A"}
+- Distinctive features: ${faceBlueprint.distinctive_features || "N/A"}`;
+}
+
+export async function analyzeFaceBlueprintFromBase64(
+  faceBase64: string
+): Promise<FaceBlueprint> {
+  const response = await withGenAiRetry(
+    () =>
+      ai.models.generateContent({
+        model: "gemini-3-flash-preview",
+        contents: [{ role: "user", parts: [
+          {
+            ...toInlineImagePart(faceBase64),
+          },
+          {
+            text: `Analyze this face reference image for PRECISE IDENTITY REPLICATION.
+You are a portrait artist. Describe every physical facial feature so another artist can recreate this exact face without seeing the original.
+
+[FACIAL STRUCTURE — BE EXTREMELY SPECIFIC]
+- Face shape: oval / round / square / heart / oblong, width-to-height ratio
+- Eyes: size (small/medium/large relative to face), shape (monolid/double eyelid/hooded), spacing (close-set/wide-set), eye corner angle (upturned/downturned/straight)
+- Nose: bridge height (flat/low/medium/high), width, tip shape (rounded/pointed/bulbous), nostril visibility
+- Mouth & lips: lip thickness (thin/medium/full), lip shape, mouth width, philtrum definition
+- Eyebrows: thickness, shape (straight/arched/angled), spacing from eyes, density
+- Skin: tone (specific shade description), texture, any visible marks or features
+- Hair: style, length, color, texture, parting, volume
+- Age impression: approximate perceived age range
+- Distinctive features: anything unique that makes this face recognizable (moles, dimples, asymmetry, bone structure)
+
+[RULES]
+- Describe ONLY permanent physical STRUCTURE. No ethnicity labels, no beauty judgments.
+- Do NOT describe any expression, mood, gaze direction, or emotional state. These will come from a separate pose reference.
+- Do NOT describe mouth openness, smile, frown, or any transient facial state.
+- Be precise enough that two different AI models reading your description would generate the same face.
+- Focus on PROPORTIONS and RELATIONSHIPS between features (e.g. "eyes spaced wider than average, occupying ~45% of face width").
+
+Return ONLY raw JSON:
+{
+  "face_shape": "precise shape with proportions",
+  "eyes": "size, shape, lid type, spacing, corner angle, iris color",
+  "nose": "bridge height, width, tip shape, nostril visibility",
+  "mouth_and_lips": "lip thickness, shape, mouth width relative to face",
+  "eyebrows": "thickness, shape, arch position, density",
+  "skin": "tone description, texture, visible marks",
+  "hair": "style, length, color, texture, parting",
+  "age_impression": "perceived age range",
+  "distinctive_features": "unique identifying characteristics"
+}`,
+          },
+        ] }],
+        config: {
+          responseMimeType: "application/json",
+          safetySettings,
+        },
+      }),
+    { label: "FUSION face analysis" }
+  );
+
+  let text = response.candidates?.[0]?.content?.parts?.[0]?.text || "{}";
+  const jsonStart = text.indexOf("{");
+  const jsonEnd = text.lastIndexOf("}") + 1;
+
+  if (jsonStart !== -1 && jsonEnd !== -1) {
+    text = text.substring(jsonStart, jsonEnd);
+  }
+
+  try {
+    return JSON.parse(text);
+  } catch {
+    return {};
+  }
+}
+
 export async function analyzePoseBlueprintFromBase64(
   poseBase64: string
 ): Promise<PoseBlueprint> {
@@ -272,35 +368,49 @@ export async function analyzePoseBlueprintFromBase64(
             ...toInlineImagePart(poseBase64),
           },
           {
-            text: `Analyze this pose reference image as a HIGH-END FASHION EDITORIAL POSE.
-IMPORTANT:
-Do NOT reduce the pose into only dry skeletal coordinates.
-Read it like a fashion photographer for a luxury brand (Lemaire, The Row style).
+            text: `Analyze this pose reference image for PRECISE PHYSICAL REPLICATION.
+You are a fashion photography director. Extract every physical detail so another photographer can recreate this exact pose without seeing the original image.
 
-You must preserve:
-- Body attitude: The specific energy (nonchalant, tense, slouchy, elegant).
-- Narrative tension: The relationship between the subject and the negative space.
-- Weight distribution and torso lean.
-- Pose silhouette and limb geometry: standing/sitting state, shoulder/hip rotation, knee and leg spacing, elbow bend, hand contact points, and body axis.
-- Hand placement feeling: The "accidental" yet precise touch.
-- Facial mood: Subdued gaze, chin angle, fatigue or alertness as abstract direction only, not face identity.
-- Camera relation: The psychological distance (voyeuristic, intimate, formal).
+[PHYSICAL POSE — BE EXTREMELY SPECIFIC]
+- Standing or sitting state
+- Weight distribution: which foot carries more weight (e.g. "60% left foot"), lean direction and degree
+- Torso: upright / leaning forward / leaning back, rotation angle (e.g. "torso turned 15° left")
+- Shoulder asymmetry: which shoulder is higher, by how much
+- Hip position: tilted or level, pushed to which side
+- Left arm: exact position (e.g. "left hand inserted in front pants pocket up to knuckles, elbow bent ~100°")
+- Right arm: exact position (e.g. "right hand gripping jacket lapel, elbow at side")
+- Leg stance: spacing between feet, knee bend, foot direction
+- Head tilt: direction and degree (e.g. "chin tilted down ~5°, head turned 10° right")
+- Spine curvature: straight / slight S-curve / slouched
 
-You must IGNORE / PURGE:
-- All face identity, hair identity, skin tone, and age impression from the pose source.
-- All original background/architecture.
-- All original clothing/textures/logos.
-- All accessories (sunglasses, bags, jewelry).
+[EXPRESSION & GAZE — MOOD ONLY, NOT IDENTITY]
+- Eye direction: where exactly are they looking (camera, ground, left, distant)
+- Eyelid state: wide open / relaxed / slightly droopy
+- Mouth: closed neutral / slightly parted / subtle tension
+- Overall facial energy: bored, confident, fatigued, defiant, serene, etc.
+- Do NOT describe face shape, features, skin, hair, or age.
+
+[CAMERA ANGLE — PRECISE]
+- Camera height relative to subject's eyes (e.g. "camera 10cm above eye level", "camera at waist height looking up")
+- Camera distance feeling: intimate (close), mid-range, far
+- Lens perspective: any visible wide-angle distortion or telephoto compression
+
+[MUST IGNORE — DO NOT MENTION THESE]
+- Face identity, hair style/color, skin tone, age, ethnicity
+- Specific clothing items, brands, textures, colors, logos
+- Accessories (sunglasses, bags, jewelry, watches, hats)
+- Background, architecture, location, furniture
+- Lighting setup, color grading
 
 Return ONLY raw JSON:
 {
-  "pose_core": "precise body posture using editorial photography terms",
-  "body_attitude": "detailed energy reading: weight balance, lean, slouch, psychological tension",
-  "arm_and_hand_behavior": "narrative reading of hands/arms relationship to the model's presence",
-  "expression_and_gaze": "subtle facial mood, gaze direction, and emotional vibe",
-  "framing_and_scale": "STRICT CROP LEVEL (Choose one: Extreme Close-up / Bust / Waist-up / Knee-up / Full-body) AND photographic framing logic",
-  "camera_relation": "lens feel, camera height, and the specific angle to the subject",
-  "pose_purge_notes": "items that MUST be erased from the source"
+  "pose_core": "complete physical body position with angles and percentages",
+  "body_attitude": "the energy/vibe: weight balance, lean, slouch, tension level — editorial feel",
+  "arm_and_hand_behavior": "EXACT left arm and right arm positions with joint angles and contact points. No accessories.",
+  "expression_and_gaze": "precise eye direction, eyelid state, mouth state, and emotional energy. No face identity.",
+  "framing_and_scale": "STRICT CROP LEVEL (Extreme Close-up / Bust / Waist-up / Knee-up / Full-body) AND subject's position in frame (centered, left-third, etc.)",
+  "camera_relation": "camera height in cm relative to eye level, distance feel, lens compression",
+  "pose_purge_notes": "items from the source that must NOT appear in the final image (specific clothing, accessories, background elements)"
 }`,
           },
         ] }],
@@ -320,7 +430,11 @@ Return ONLY raw JSON:
     text = text.substring(jsonStart, jsonEnd);
   }
 
-  return JSON.parse(text);
+  try {
+    return JSON.parse(text);
+  } catch {
+    return {};
+  }
 }
 
 export async function searchLocationPrompts(
@@ -384,6 +498,7 @@ Format: ["location description 1", "location description 2", ...]`;
 
 export async function generateFusionImageWeb(args: {
   faceBase64s: string[];
+  faceBlueprint?: FaceBlueprint;
   outfitBase64s: string[];
   backgroundBase64s?: string[];
   poseBase64?: string;
@@ -402,6 +517,7 @@ export async function generateFusionImageWeb(args: {
 }): Promise<{ base64: string; summary: string }> {
   const {
     faceBase64s,
+    faceBlueprint,
     outfitBase64s,
     backgroundBase64s = [],
     poseBase64,
@@ -424,10 +540,10 @@ export async function generateFusionImageWeb(args: {
   if (backgroundMode === "extract") {
     backgroundBase64s.forEach((backgroundBase64, index) => {
       parts.push({
-        text: `[BACKGROUND REFERENCE ${index + 1} - SCENE GEOMETRY EXTRACT]
-Use this image for its SPATIAL STRUCTURE ONLY: scene geometry, architecture, depth layout, camera viewpoint, crop boundaries, and major surfaces.
-DO NOT import the color temperature, lighting mood, color cast, or color atmosphere from this image. The shooting mode controls all color rendering.
-Allow only tiny time-flow, shadow, or crop adjustments needed to integrate the model naturally.
+        text: `[BACKGROUND REFERENCE ${index + 1} - SCENE EXTRACT]
+Use this image only as the environment source for the final background.
+Preserve only the non-human visible space, camera viewpoint, crop boundaries, depth layout, major surfaces, lighting direction, color atmosphere, and texture with near-identical fidelity.
+Allow only tiny time-flow, exposure, shadow, or crop adjustments needed to integrate the model naturally.
 If this background image contains a person, model, mannequin, face, hair, skin, clothing, shoes, hands, legs, or body parts, erase them completely and reconstruct the environment behind them.
 Do not use face or outfit references as background sources. Do not preserve any person or garment from the background reference.`,
       });
@@ -435,9 +551,11 @@ Do not use face or outfit references as background sources. Do not preserve any 
     });
   }
 
+  const faceDescriptionText = buildFaceDescriptionText(faceBlueprint);
+
   faceBase64s.forEach((faceBase64, index) => {
     parts.push({
-      text: `[FACE IDENTITY REFERENCE ${index + 1} — This is the SOLE source for the model's face, identity, and skin tone. No other image may influence the face.]`,
+      text: `[FACE IDENTITY REFERENCE ${index + 1} — This is the SOLE source for the model's face, identity, and skin tone. No other image may influence the face.]${faceDescriptionText}`,
     });
     parts.push(toInlineImagePart(faceBase64));
   });
@@ -459,11 +577,23 @@ Do not use face or outfit references as background sources. Do not preserve any 
 
   if (poseBase64) {
     parts.push({
-      text: `[POSE STRUCTURE REFERENCE ONLY]
-Use this image only for body posture, limb geometry, weight distribution, hand placement, camera distance, camera angle, and crop/framing.
-Use expression only as abstract gaze direction and head/chin attitude when it matches the pose blueprint.
-Do not use face identity, facial features, hair, skin tone, age, clothing, accessories, background, lighting, color grading, or model identity from this pose image.
-FACE references remain the only source for identity. OUTFIT references remain the only source for garments. BACKGROUND references/DNA remain the only source for the environment.`,
+      text: `[POSE REFERENCE IMAGE — BODY SKELETON ONLY]
+⚠️ CRITICAL: You MUST match the EXACT body posture from this image:
+- Same weight distribution and lean direction
+- Same arm positions and hand placements (e.g. if hands are in pockets, they MUST be in pockets)
+- Same leg stance and spacing
+- Same shoulder asymmetry and torso rotation
+- Same head tilt angle and gaze direction
+- Same camera height and angle relative to the subject
+
+DO NOT simplify, generalize, or "improve" the pose. Copy it physically.
+
+⚠️ CONTAMINATION BLOCK — extract ONLY the body skeleton from this image. COMPLETELY IGNORE everything else:
+- FACE: Do NOT use this person's face. The final face must come 100% from [FACE IDENTITY REFERENCE].
+- BACKGROUND: Do NOT use this image's background, architecture, walls, floor, sky, or any environment. The background comes from [BACKGROUND WORLD DNA & LOCATION].
+- COLOR/GRADING: Do NOT use this image's color grading, color cast, lighting tone, warmth, or film look. Color comes from [SHOOTING MODE].
+- CLOTHING: Do NOT use this image's clothing. Garments come from [OUTFIT REFERENCE].
+- Think of this as an invisible wireframe skeleton floating in empty space — only the joint positions and body angles matter.`,
     });
     parts.push(toInlineImagePart(poseBase64));
   }
@@ -498,12 +628,12 @@ FACE references remain the only source for identity. OUTFIT references remain th
 
   const lightingStyle =
     lockedVibe?.lighting_and_exposure ||
-    (backgroundMode !== "extract" ? bgDNA?.lighting_and_exposure : null) ||
+    bgDNA?.lighting_and_exposure ||
     "Soft editorial natural lighting.";
 
   const moodStyle =
     lockedVibe?.overall_mood ||
-    (backgroundMode !== "extract" ? bgDNA?.spatial_mood : null) ||
+    bgDNA?.spatial_mood ||
     "High-end restrained editorial mood.";
 
   const finalBackground = lockedVibe?.background || targetLocationText;
@@ -513,8 +643,7 @@ FACE references remain the only source for identity. OUTFIT references remain th
 - Keep the same visible environment geometry, camera viewpoint, depth layout, major surfaces, architectural elements, and crop logic.
 - Only allow subtle time-flow, shadow, and minimal camera crop changes required for a natural fashion image.
 - If the BACKGROUND REFERENCE contains any person/model/body/clothing, remove it completely and inpaint the environment behind it.
-- Do not invent a different location. Do not import any background from FACE or OUTFIT references. Do not copy any person or garment from the BACKGROUND REFERENCE.
-- ⚠️ COLOR AUTHORITY: The background reference image's color temperature, lighting mood, and color atmosphere are for scene geometry reference ONLY. All color rendering is exclusively controlled by the SHOOTING MODE section below.`
+- Do not invent a different location. Do not import any background from FACE or OUTFIT references. Do not copy any person or garment from the BACKGROUND REFERENCE.`
       : `- Mode: Creative. Use the background DNA as a flexible world reference and create a natural fashion-editorial variation.`;
   
   const poseCore = lockedVibe?.pose || poseBlueprint?.pose_core || "Relaxed natural stance.";
@@ -523,7 +652,7 @@ FACE references remain the only source for identity. OUTFIT references remain th
   const poseAttitude = poseBlueprint?.body_attitude || "Nonchalant and natural.";
   const handsArms = poseBlueprint?.arm_and_hand_behavior || "Natural placement.";
   const cameraRelation = poseBlueprint?.camera_relation || "Natural photographic angle.";
-  const purgeNotes = poseBlueprint?.pose_purge_notes || "All original background, clothing, and accessories.";
+  const purgeNotes = poseBlueprint?.pose_purge_notes || "All original background and accessories from the pose source.";
 
   // 🚨 [낮에 바꿨던 감도 핵심 프롬프트 복구]
   const prompt = `
@@ -565,20 +694,20 @@ ${fitPromptContext}
 - Lighting: ${lightingStyle}
 ${backgroundModeContext}
 
-[SHOOTING MODE - COLOR & RENDERING AUTHORITY]
+[SHOOTING MODE]
 - ${textureAndColor}
-- CRITICAL: This shooting mode is the SOLE authority for all color rendering, color temperature, and lighting mood in the final image. It overrides any color cast or lighting atmosphere from the background reference.
 
-[POSE & ATTITUDE - PHOTOGRAPHIC READING]
-- Core: ${poseCore}.
-- Energy: ${poseAttitude}.
-- Hands/Arms: ${handsArms}.
-- Face/Gaze: ${poseExpression}. This is only mood/gaze direction; keep face identity from FACE references.
-- Angle: ${cameraRelation}.
-- POSE AUTHORITY: Follow this blueprint for body posture, weight distribution, limb geometry, hand placement, crop/framing, and camera relation.
-- Ignore any posture, hand placement, crop/framing, facial expression, or camera relation visible in OUTFIT references.
-- Treat the person in the outfit image as a temporary garment mannequin only, not as the final pose source.
-- CRITICAL VIBE: The model's posture MUST feel fluid, organic, and effortlessly natural. AVOID stiff, robotic, mannequin-like rigidity. Let the body weight shift naturally.
+[POSE — PHYSICAL REPLICATION (HIGHEST PRIORITY)]
+⚠️ The pose blueprint below contains EXACT physical measurements. You MUST replicate them precisely.
+- Body position: ${poseCore}.
+- Energy/Attitude: ${poseAttitude}.
+- Arms & Hands: ${handsArms}. ← REPLICATE EXACTLY. If hands are in pockets, generate hands in pockets. If arms are crossed, generate crossed arms.
+- Expression: ${poseExpression}. ← This defines mood/gaze direction ONLY. Face identity comes from FACE references.
+- Camera angle: ${cameraRelation}. ← REPLICATE EXACTLY. If camera is above eye level, shoot from above. If below, shoot from below.
+- POSE AUTHORITY: The pose reference image + this blueprint define ALL body positioning. NEVER substitute with a generic standing pose.
+- ⚠️ FACE SOURCE REMINDER: The FACE in the final image must come 100% from [FACE IDENTITY REFERENCE] images. The pose reference person's face must have ZERO influence on the result.
+- OUTFIT images are garment mannequins only — ignore their body pose, hand placement, camera angle, and expression.
+- Keep the pose feeling natural and editorial, but do NOT deviate from the physical positions described above.
 
 [CRITICAL CAMERA CROP LOCK]
 - Framing directive: ${cameraFeel}
@@ -587,6 +716,10 @@ ${backgroundModeContext}
 - If the framing is a close-up, DO NOT show the full torso. 
 - DO NOT widen the frame or zoom out just to show more of the background. The background must adapt to the camera crop, not vice versa.
 - Purge from pose reference: ${purgeNotes}
+
+[FOOTWEAR RULE]
+- If no shoes/footwear are provided in the outfit references, generate appropriate shoes that match the outfit's style and the overall editorial mood.
+- NEVER generate barefoot unless the scene explicitly requires it (e.g. beach). The model must always wear shoes in urban/street/studio settings.
 
 [OUTPUT RULE]
 - ${outputRatio} composition.

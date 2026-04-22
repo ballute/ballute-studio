@@ -167,8 +167,11 @@ Format:
   return parsed.slice(0, count);
 }
 
+import { buildFaceDescriptionText, type FaceBlueprint } from "./gemini-fusion";
+
 export async function generateDigImageWeb(args: {
   faceBase64s: string[];
+  faceBlueprint?: FaceBlueprint;
   outfitBase64s: string[];
   dirSet: DigDirection;
   bodySpecs?: string;
@@ -182,6 +185,7 @@ export async function generateDigImageWeb(args: {
 }): Promise<{ base64: string; summary: string }> {
   const {
     faceBase64s,
+    faceBlueprint,
     outfitBase64s,
     dirSet,
     bodySpecs,
@@ -204,9 +208,11 @@ export async function generateDigImageWeb(args: {
 
   const parts: PromptPart[] = [];
 
+  const faceDescriptionText = buildFaceDescriptionText(faceBlueprint);
+
   faceBase64s.forEach((faceBase64, index) => {
     parts.push({
-      text: `[FACE IDENTITY REFERENCE ${index + 1} — This is the SOLE source for the model's face, identity, and skin tone. No other image may influence the face.]`,
+      text: `[FACE IDENTITY REFERENCE ${index + 1} — This is the SOLE source for the model's face, identity, and skin tone. No other image may influence the face.]${faceDescriptionText}`,
     });
     parts.push(toInlineImagePart(faceBase64));
   });

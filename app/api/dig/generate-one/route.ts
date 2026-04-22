@@ -5,6 +5,7 @@ import {
   LockedVibe,
   DigDirection,
 } from "@/lib/gemini-dig";
+import { analyzeFaceBlueprintFromBase64, type FaceBlueprint } from "@/lib/gemini-fusion";
 import { gcsPathToBase64 } from "@/lib/gcs-storage";
 import {
   ApiError,
@@ -45,6 +46,7 @@ type JsonGenerateBody = {
   mixCaptions?: string[];
   facePaths?: string[];
   outfitPaths?: string[];
+  faceBlueprint?: FaceBlueprint;
   outputRatio?: "4:5" | "2:3" | "16:9";
   skinMode?: "clean" | "natural";
 };
@@ -197,10 +199,15 @@ export async function POST(req: Request) {
 
     await ensureGenerationSlotActive(user.id, batchId, "dig");
 
+    // 얼굴 분석 — 클라이언트에서 안 보냈으면 서버에서 분석
+    const faceBlueprint = jsonBody?.faceBlueprint
+      ?? (faceBase64s.length > 0 ? await analyzeFaceBlueprintFromBase64(faceBase64s[0]) : undefined);
+
     const generationStartedAt = Date.now();
 
     const generated = await generateDigImageWeb({
       faceBase64s,
+      faceBlueprint,
       outfitBase64s,
       dirSet: direction,
       bodySpecs: fitSpec,
@@ -225,6 +232,7 @@ export async function POST(req: Request) {
         summary: generated.summary,
         elapsedMs,
         direction,
+        faceBlueprint,
       },
     });
   } catch (error) {

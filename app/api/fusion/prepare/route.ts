@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { fileToBase64 } from "@/lib/utils";
 import {
   analyzeBackgroundDNAFromBase64s,
+  analyzeFaceBlueprintFromBase64,
   analyzePoseBlueprintFromBase64,
   searchLocationPrompts,
   type BackgroundMode,
@@ -41,6 +42,7 @@ type JsonPrepareBody = {
   backgroundMode?: BackgroundMode;
   bgPaths?: string[];
   posePaths?: string[];
+  facePaths?: string[];
 };
 
 async function readJsonBody(req: Request): Promise<JsonPrepareBody | null> {
@@ -69,6 +71,7 @@ export async function POST(req: Request) {
     let backgroundMode: BackgroundMode = "creative";
     let bgBase64s: string[] = [];
     let poseBase64s: string[] = [];
+    let facePaths: string[] = [];
 
     if (jsonBody) {
       batchId = (jsonBody.batchId || "").trim();
@@ -87,7 +90,9 @@ export async function POST(req: Request) {
         );
       }
 
-      assertTempAssetOwnership(user.id, [...bgPaths, ...posePaths]);
+      facePaths = Array.isArray(jsonBody.facePaths) ? jsonBody.facePaths : [];
+
+      assertTempAssetOwnership(user.id, [...bgPaths, ...posePaths, ...facePaths]);
 
       bgBase64s = await Promise.all(bgPaths.map(storagePathToBase64));
       poseBase64s = await Promise.all(posePaths.map(storagePathToBase64));
@@ -130,12 +135,20 @@ export async function POST(req: Request) {
       poseBlueprints.push(blueprint);
     }
 
+    // 얼굴 분석 — 첫 번째 얼굴 이미지로 분석 (있을 때만)
+    let faceBlueprint = undefined;
+    if (facePaths.length > 0) {
+      const firstFaceBase64 = await storagePathToBase64(facePaths[0]);
+      faceBlueprint = await analyzeFaceBlueprintFromBase64(firstFaceBase64);
+    }
+
     return NextResponse.json({
       success: true,
       backgroundMode,
       bgDNA,
       locationPrompts,
       poseBlueprints,
+      faceBlueprint,
     });
   } catch (error) {
     console.error("FUSION_PREPARE_ERROR:", buildGenAiErrorLog(error));
