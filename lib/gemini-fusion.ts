@@ -272,6 +272,21 @@ export type FaceBlueprint = {
   distinctive_features?: string;
 };
 
+export function buildOutfitReferenceLabel(index: number, isMixMode = false): string {
+  const baseLabel = `[OUTFIT REFERENCE ${index + 1} — GARMENT DESIGN ONLY]
+⚠️ FACE CONTAMINATION BLOCK: The person wearing this garment is NOT the final model. EVEN IF a face is visible in this image:
+- COMPLETELY IGNORE this person's face shape, eye shape, nose, mouth, jawline, skin tone, hair style, hair color, age, ethnicity, and all facial features.
+- The final face must come 100% from [FACE IDENTITY REFERENCE] images.
+- If you find yourself generating a face that resembles this outfit person instead of the face reference, you are doing it WRONG.
+- Treat this image as a HEADLESS MANNEQUIN — extract only the garment design.
+
+⚠️ ALSO IGNORE from this image: body pose, hand placement, body proportions, background, walls, floor, lighting setup, and any color grading or filter applied to the photo.`;
+  const mixIsolationLabel = isMixMode
+    ? `\n⚠️ MIX ISOLATION: Extract ONLY the single specified garment from this image. If this image shows the model wearing OTHER clothing items (e.g. a top tucked into pants, a layered shirt, a jacket, accessories), COMPLETELY IGNORE those other items. Do NOT use the styling relationship (tucked/untucked, layered, belted) shown here — that is decided by the [MIX TUCK-IN RULE] and the user's caption only.`
+    : "";
+  return `${baseLabel}${mixIsolationLabel}`;
+}
+
 export function buildFaceDescriptionText(faceBlueprint?: FaceBlueprint): string {
   if (!faceBlueprint || Object.keys(faceBlueprint).length === 0) return "";
   return `\n⚠️ MANDATORY FACE STRUCTURE — the generated face MUST match ALL of these STRUCTURAL features. Expression/mood comes from the pose/direction reference, not here:
@@ -562,7 +577,7 @@ Do not use face or outfit references as background sources. Do not preserve any 
 
   outfitBase64s.forEach((outfitBase64, index) => {
     parts.push({
-      text: `[OUTFIT REFERENCE ${index + 1} — GARMENT DESIGN ONLY. STRICTLY IGNORE: face, person identity, hair, skin tone, body, pose, background, lighting, and color cast from this image.]`,
+      text: buildOutfitReferenceLabel(index, isMixMode),
     });
     parts.push(toInlineImagePart(outfitBase64));
 
@@ -684,6 +699,12 @@ ${skinMode === "natural" ? "- Skin rendering: Apply the shooting mode's grain an
 - IGNORE any face, head, hair, skin tone, body identity, age, expression, pose, background, room, wall, furniture, scenery, source lighting, camera angle, or color cast visible in outfit images.
 - The final model identity, face, hair, skin tone, and age must come ONLY from the face reference images.
 - ${isMixMode ? "This is MIX mode. Respect each item detail text exactly." : "This is standard outfit mode."}
+${isMixMode ? `
+[MIX TUCK-IN RULE — DEFAULT UNTUCKED]
+- DEFAULT BEHAVIOR: All tops MUST be worn UNTUCKED (hem hangs freely outside bottoms). The hemline must be visibly separated from the waistband.
+- IMPORTANT: Ignore the visual cropping or hem position shown in the outfit reference image. The hem may appear cut off or visually tucked in the source photo because of how the garment was photographed — this is irrelevant. Reconstruct the top with its full natural length hanging outside.
+- EXCEPTION: Only tuck in a top if the user's caption for that item explicitly contains words like "tuck", "tucked", "tuck in", "넣어", or similar tuck-in directives.
+- If the caption is empty or doesn't mention tucking, the top stays OUTSIDE the bottom.` : ""}
 
 ${fitPromptContext}
 

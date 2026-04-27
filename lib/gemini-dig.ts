@@ -167,7 +167,7 @@ Format:
   return parsed.slice(0, count);
 }
 
-import { buildFaceDescriptionText, type FaceBlueprint } from "./gemini-fusion";
+import { buildFaceDescriptionText, buildOutfitReferenceLabel, type FaceBlueprint } from "./gemini-fusion";
 
 export async function generateDigImageWeb(args: {
   faceBase64s: string[];
@@ -219,7 +219,7 @@ export async function generateDigImageWeb(args: {
 
   outfitBase64s.forEach((outfitBase64, index) => {
     parts.push({
-      text: `[OUTFIT REFERENCE ${index + 1} — GARMENT DESIGN ONLY. STRICTLY IGNORE: face, person identity, hair, skin tone, body, pose, background, lighting, and color cast from this image.]`,
+      text: buildOutfitReferenceLabel(index, isMixMode),
     });
     parts.push(toInlineImagePart(outfitBase64));
 

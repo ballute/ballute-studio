@@ -720,7 +720,7 @@ export default function FusionPage() {
               required
               description={
                 outfitMode === "mix"
-                  ? "아이템 여러 장을 조립하는 모드. 각 이미지마다 설명을 꼭 입력해야 한다."
+                  ? "아이템 여러 장을 조립하는 모드. 디폴트는 빼서 입음(untucked). 넣어 입을 때만 캡션에 'tuck in' 표시."
                   : "의상 재구성 기준 이미지. 정면/측면/디테일 등 여러 장 넣을 수 있다."
               }
               items={outfits.items}
@@ -728,7 +728,7 @@ export default function FusionPage() {
               onRemoveItem={outfits.removeItem}
               onClearAll={outfits.clearAll}
               showCaptionInput={outfitMode === "mix"}
-              captionPlaceholder="예: shirt untucked / layered under blazer"
+              captionPlaceholder="비워두면 빼서 입음. 넣어 입을 땐 'tuck in' 명시"
               onCaptionChange={outfits.updateCaption}
             />
           </div>

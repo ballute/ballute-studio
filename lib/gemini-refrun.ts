@@ -12,7 +12,7 @@ import {
 } from "./genai-response";
 import { EmptyGenAiImageError, withGenAiRetry } from "./genai-retry";
 import { toInlineImagePart } from "./image-mime";
-import { buildFaceDescriptionText, type FaceBlueprint } from "./gemini-fusion";
+import { buildFaceDescriptionText, buildOutfitReferenceLabel, type FaceBlueprint } from "./gemini-fusion";
 
 type PromptPart = ReturnType<typeof toInlineImagePart> | { text: string };
 
@@ -205,7 +205,7 @@ export async function generateRefRunImageWeb(args: {
 
   outfitBase64s.forEach((outfitBase64, index) => {
     parts.push({
-      text: `[OUTFIT REFERENCE ${index + 1} — GARMENT DESIGN ONLY. STRICTLY IGNORE: face, person identity, hair, skin tone, body, pose, background, lighting, and color cast from this image.]`,
+      text: buildOutfitReferenceLabel(index, isMixMode),
     });
     parts.push(toInlineImagePart(outfitBase64));
 

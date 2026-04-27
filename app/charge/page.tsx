@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import Script from "next/script";
 import { useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { supabase } from "@/lib/supabase";
@@ -87,6 +88,7 @@ export default function ChargePage() {
 
   return (
     <main className="min-h-screen bg-[#f7f7f5] px-6 py-16">
+      <Script src="https://js.tosspayments.com/v1" strategy="afterInteractive" />
       <div className="max-w-6xl mx-auto">
         <div className="mb-10">
           <Link
