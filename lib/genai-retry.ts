@@ -139,7 +139,7 @@ export async function withGenAiRetry<T>(
 ) {
   const maxRetries = options.maxRetries ?? 2;
   const maxAttempts = maxRetries + 1;
-  const baseDelayMs = options.baseDelayMs ?? 900;
+  const baseDelayMs = options.baseDelayMs ?? 5000;
   let lastReason = "unknown retryable failure";
 
   for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {

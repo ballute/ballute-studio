@@ -22,6 +22,10 @@ import {
   formatGenAiErrorMessage,
 } from "@/lib/genai-response";
 import { withPointNotChargedNotice } from "@/lib/genai-retry";
+import {
+  resizeBase64ForGenAI,
+  resizeBase64sForGenAI,
+} from "@/lib/image-resize";
 
 const FUSION_COST_PER_IMAGE = 60;
 export const runtime = "nodejs";
@@ -241,6 +245,15 @@ export async function POST(req: Request) {
     }
 
     await ensureGenerationSlotActive(user.id, batchId, "fusion");
+
+    // Gemini 전송용 리사이즈 (GCS 원본은 그대로). 용도별 max dimension 다름.
+    faceBase64s = await resizeBase64sForGenAI(faceBase64s, "face");
+    outfitBase64s = await resizeBase64sForGenAI(outfitBase64s, "outfit");
+    backgroundBase64s = await resizeBase64sForGenAI(
+      backgroundBase64s,
+      backgroundMode === "extract" ? "bg-extract" : "bg-creative"
+    );
+    poseBase64 = poseBase64 ? await resizeBase64ForGenAI(poseBase64, "pose") : "";
 
     const generationStartedAt = Date.now();
 

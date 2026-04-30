@@ -5,8 +5,20 @@ import {
   analyzeFaceBlueprintFromBase64,
   analyzePoseBlueprintFromBase64,
   searchLocationPrompts,
+  type BackgroundDNA,
   type BackgroundMode,
+  type FaceBlueprint,
+  type PoseBlueprint,
 } from "@/lib/gemini-fusion";
+import {
+  getCachedAnalysis,
+  setCachedAnalysis,
+  sha256,
+} from "@/lib/blueprint-cache";
+import {
+  resizeBase64ForGenAI,
+  resizeBase64sForGenAI,
+} from "@/lib/image-resize";
 import { gcsPathToBase64 } from "@/lib/gcs-storage";
 import {
   ApiError,
@@ -117,29 +129,60 @@ export async function POST(req: Request) {
       poseBase64s = await Promise.all(poseFiles.map(fileToBase64));
     }
 
+    // Gemini 전송용 리사이즈 (GCS 원본은 그대로). prepare는 분석 단계라 더 작게.
+    bgBase64s = await resizeBase64sForGenAI(
+      bgBase64s,
+      backgroundMode === "extract" ? "bg-extract" : "bg-creative"
+    );
+    poseBase64s = await resizeBase64sForGenAI(poseBase64s, "pose");
+
     await ensureGenerationSlotActive(user.id, batchId, "fusion");
 
-    const bgDNA = await analyzeBackgroundDNAFromBase64s(
-      bgBase64s,
-      backgroundMode
-    );
-    const locationPrompts = await searchLocationPrompts(
-      bgDNA,
-      count,
-      backgroundMode
-    );
+    // ─── bg DNA: 같은 bg 이미지 셋이면 캐시 재사용 ───
+    const bgKey = `bg:${sha256(bgBase64s.join("|"))}:${backgroundMode}:v2`;
+    let bgDNA = await getCachedAnalysis<BackgroundDNA>(bgKey);
+    if (!bgDNA) {
+      bgDNA = await analyzeBackgroundDNAFromBase64s(bgBase64s, backgroundMode);
+      void setCachedAnalysis(bgKey, bgDNA);
+    }
 
-    const poseBlueprints = [];
+    // ─── location prompts: 같은 bgDNA + count + mode면 캐시 재사용 ───
+    const locKey = `loc:${sha256(JSON.stringify(bgDNA))}:${count}:${backgroundMode}:v2`;
+    let locationPrompts = await getCachedAnalysis<string[]>(locKey);
+    if (!locationPrompts) {
+      locationPrompts = await searchLocationPrompts(
+        bgDNA,
+        count,
+        backgroundMode
+      );
+      void setCachedAnalysis(locKey, locationPrompts);
+    }
+
+    // ─── pose blueprints: 각 pose 이미지마다 캐시 재사용 ───
+    const poseBlueprints: PoseBlueprint[] = [];
     for (const poseBase64 of poseBase64s) {
-      const blueprint = await analyzePoseBlueprintFromBase64(poseBase64);
+      const poseKey = `pose:${sha256(poseBase64)}:v2`;
+      let blueprint = await getCachedAnalysis<PoseBlueprint>(poseKey);
+      if (!blueprint) {
+        blueprint = await analyzePoseBlueprintFromBase64(poseBase64);
+        void setCachedAnalysis(poseKey, blueprint);
+      }
       poseBlueprints.push(blueprint);
     }
 
-    // 얼굴 분석 — 첫 번째 얼굴 이미지로 분석 (있을 때만)
-    let faceBlueprint = undefined;
+    // ─── face blueprint: 같은 face 이미지면 캐시 재사용 ───
+    let faceBlueprint: FaceBlueprint | undefined = undefined;
     if (facePaths.length > 0) {
-      const firstFaceBase64 = await storagePathToBase64(facePaths[0]);
-      faceBlueprint = await analyzeFaceBlueprintFromBase64(firstFaceBase64);
+      const rawFaceBase64 = await storagePathToBase64(facePaths[0]);
+      const firstFaceBase64 = await resizeBase64ForGenAI(rawFaceBase64, "face");
+      const faceKey = `face:${sha256(firstFaceBase64)}:v2`;
+      const cachedFace = await getCachedAnalysis<FaceBlueprint>(faceKey);
+      if (cachedFace) {
+        faceBlueprint = cachedFace;
+      } else {
+        faceBlueprint = await analyzeFaceBlueprintFromBase64(firstFaceBase64);
+        void setCachedAnalysis(faceKey, faceBlueprint);
+      }
     }
 
     return NextResponse.json({
