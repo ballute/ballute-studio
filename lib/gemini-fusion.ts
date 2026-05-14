@@ -287,18 +287,33 @@ export function buildOutfitReferenceLabel(index: number, isMixMode = false): str
   return `${baseLabel}${mixIsolationLabel}`;
 }
 
-export function buildFaceDescriptionText(faceBlueprint?: FaceBlueprint): string {
-  if (!faceBlueprint || Object.keys(faceBlueprint).length === 0) return "";
+// 두 가지 형태 모두 받음:
+//   - string: 사용자가 직접 친 얼굴 묘사 (fusion에서 사용. 빈 문자열이면 image only fallback)
+//   - FaceBlueprint: 자동 분석된 객체 (dig/refrun legacy 호환)
+export function buildFaceDescriptionText(
+  input?: string | FaceBlueprint
+): string {
+  if (!input) return "";
+
+  if (typeof input === "string") {
+    const trimmed = input.trim();
+    if (!trimmed) return "";
+    return `\n⚠️ MANDATORY FACE NOTES — the generated face MUST match these features described by the user. Expression/mood comes from the pose/direction reference, not here:
+${trimmed}`;
+  }
+
+  // legacy: FaceBlueprint 자동 분석 객체 (dig/refrun에서 사용 중)
+  if (Object.keys(input).length === 0) return "";
   return `\n⚠️ MANDATORY FACE STRUCTURE — the generated face MUST match ALL of these STRUCTURAL features. Expression/mood comes from the pose/direction reference, not here:
-- Face shape: ${faceBlueprint.face_shape || "N/A"}
-- Eyes: ${faceBlueprint.eyes || "N/A"}
-- Nose: ${faceBlueprint.nose || "N/A"}
-- Mouth/Lips: ${faceBlueprint.mouth_and_lips || "N/A"}
-- Eyebrows: ${faceBlueprint.eyebrows || "N/A"}
-- Skin: ${faceBlueprint.skin || "N/A"}
-- Hair: ${faceBlueprint.hair || "N/A"}
-- Age: ${faceBlueprint.age_impression || "N/A"}
-- Distinctive features: ${faceBlueprint.distinctive_features || "N/A"}`;
+- Face shape: ${input.face_shape || "N/A"}
+- Eyes: ${input.eyes || "N/A"}
+- Nose: ${input.nose || "N/A"}
+- Mouth/Lips: ${input.mouth_and_lips || "N/A"}
+- Eyebrows: ${input.eyebrows || "N/A"}
+- Skin: ${input.skin || "N/A"}
+- Hair: ${input.hair || "N/A"}
+- Age: ${input.age_impression || "N/A"}
+- Distinctive features: ${input.distinctive_features || "N/A"}`;
 }
 
 export async function analyzeFaceBlueprintFromBase64(
@@ -513,7 +528,7 @@ Format: ["location description 1", "location description 2", ...]`;
 
 export async function generateFusionImageWeb(args: {
   faceBase64s: string[];
-  faceBlueprint?: FaceBlueprint;
+  faceDescription?: string;
   outfitBase64s: string[];
   backgroundBase64s?: string[];
   poseBase64?: string;
@@ -532,7 +547,7 @@ export async function generateFusionImageWeb(args: {
 }): Promise<{ base64: string; summary: string }> {
   const {
     faceBase64s,
-    faceBlueprint,
+    faceDescription,
     outfitBase64s,
     backgroundBase64s = [],
     poseBase64,
@@ -566,7 +581,7 @@ Do not use face or outfit references as background sources. Do not preserve any 
     });
   }
 
-  const faceDescriptionText = buildFaceDescriptionText(faceBlueprint);
+  const faceDescriptionText = buildFaceDescriptionText(faceDescription);
 
   faceBase64s.forEach((faceBase64, index) => {
     parts.push({

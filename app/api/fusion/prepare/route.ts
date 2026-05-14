@@ -2,12 +2,10 @@ import { NextResponse } from "next/server";
 import { fileToBase64 } from "@/lib/utils";
 import {
   analyzeBackgroundDNAFromBase64s,
-  analyzeFaceBlueprintFromBase64,
   analyzePoseBlueprintFromBase64,
   searchLocationPrompts,
   type BackgroundDNA,
   type BackgroundMode,
-  type FaceBlueprint,
   type PoseBlueprint,
 } from "@/lib/gemini-fusion";
 import {
@@ -15,10 +13,7 @@ import {
   setCachedAnalysis,
   sha256,
 } from "@/lib/blueprint-cache";
-import {
-  resizeBase64ForGenAI,
-  resizeBase64sForGenAI,
-} from "@/lib/image-resize";
+import { resizeBase64sForGenAI } from "@/lib/image-resize";
 import { gcsPathToBase64 } from "@/lib/gcs-storage";
 import {
   ApiError,
@@ -170,20 +165,8 @@ export async function POST(req: Request) {
       poseBlueprints.push(blueprint);
     }
 
-    // ─── face blueprint: 같은 face 이미지면 캐시 재사용 ───
-    let faceBlueprint: FaceBlueprint | undefined = undefined;
-    if (facePaths.length > 0) {
-      const rawFaceBase64 = await storagePathToBase64(facePaths[0]);
-      const firstFaceBase64 = await resizeBase64ForGenAI(rawFaceBase64, "face");
-      const faceKey = `face:${sha256(firstFaceBase64)}:v2`;
-      const cachedFace = await getCachedAnalysis<FaceBlueprint>(faceKey);
-      if (cachedFace) {
-        faceBlueprint = cachedFace;
-      } else {
-        faceBlueprint = await analyzeFaceBlueprintFromBase64(firstFaceBase64);
-        void setCachedAnalysis(faceKey, faceBlueprint);
-      }
-    }
+    // 얼굴 분석 제거 — 사용자가 직접 텍스트로 묘사하거나 비워두면 image only로 fallback.
+    // 이전 자동 분석은 점/디테일 좌표를 부정확하게 표현해서 오히려 합성 정확도를 떨어뜨림.
 
     return NextResponse.json({
       success: true,
@@ -191,7 +174,6 @@ export async function POST(req: Request) {
       bgDNA,
       locationPrompts,
       poseBlueprints,
-      faceBlueprint,
     });
   } catch (error) {
     console.error("FUSION_PREPARE_ERROR:", buildGenAiErrorLog(error));

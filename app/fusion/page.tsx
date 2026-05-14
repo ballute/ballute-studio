@@ -107,6 +107,7 @@ export default function FusionPage() {
   const [fitSpec, setFitSpec] = useState("");
   const [shootingMode, setShootingMode] = useState("portra");
   const [customPrompt, setCustomPrompt] = useState("");
+  const [faceDescription, setFaceDescription] = useState("");
   const [outputRatio, setOutputRatio] = useState<OutputRatio>("4:5");
   const [lockedVibe, setLockedVibe] = useState<LockedVibe | null>(null);
   const [skinMode, setSkinMode] = useState<"clean" | "natural">("clean");
@@ -490,17 +491,11 @@ export default function FusionPage() {
         bgDNA,
         locationPrompts,
         poseBlueprints,
-        faceBlueprint,
       }: {
         bgDNA: FusionResult["bgDNA"];
         locationPrompts: string[];
         poseBlueprints: FusionResult["poseBlueprint"][];
-        faceBlueprint: Record<string, string> | undefined;
       } = prepareData;
-
-      if (facePaths.length > 0 && (!faceBlueprint || Object.keys(faceBlueprint).length === 0)) {
-        console.warn("[FUSION] 얼굴 분석 결과가 비어있습니다. 얼굴 일관성이 떨어질 수 있습니다.");
-      }
 
       const initialSlots: ResultSlot[] = [];
       for (let poseIndex = 0; poseIndex < poseBlueprints.length; poseIndex++) {
@@ -561,7 +556,7 @@ export default function FusionPage() {
                     : undefined,
                 posePath: posePaths[poseIndex],
                 bgDNA,
-                faceBlueprint,
+                faceDescription,
                 poseBlueprint: poseBlueprints[poseIndex],
                 locationPrompt: locationPrompts[locationIndex],
                 outputRatio,
@@ -676,15 +671,29 @@ export default function FusionPage() {
         </div>
 
         <div className="grid grid-cols-1 xl:grid-cols-2 gap-6 mb-6">
-          <FaceInputSection
-            items={faces.items}
-            onAddFiles={faces.appendFiles}
-            onRemoveItem={faces.removeItem}
-            onClearAll={faces.clearAll}
-            onGenerate={handleGenerateModel}
-            generating={modelGenerating}
-            disabled={loading}
-          />
+          <div className="space-y-4">
+            <FaceInputSection
+              items={faces.items}
+              onAddFiles={faces.appendFiles}
+              onRemoveItem={faces.removeItem}
+              onClearAll={faces.clearAll}
+              onGenerate={handleGenerateModel}
+              generating={modelGenerating}
+              disabled={loading}
+            />
+            <div className="border rounded-2xl p-4 bg-white">
+              <label className="block text-sm font-semibold mb-2">
+                얼굴 묘사 (선택)
+              </label>
+              <textarea
+                value={faceDescription}
+                onChange={(e) => setFaceDescription(e.target.value)}
+                placeholder="비워두면 얼굴 이미지만 사용 (점/디테일이 시각적으로 더 잘 보존됨).&#10;직접 묘사 시 예: '왼쪽 광대 위에 작은 점 2개, 입술 도톰함, 모노리드'"
+                rows={3}
+                className="w-full border rounded-xl px-4 py-3 text-sm"
+              />
+            </div>
+          </div>
 
           <div className="space-y-4">
             <div className="border rounded-2xl p-4 bg-white">
@@ -902,6 +911,7 @@ export default function FusionPage() {
                 className="w-full border rounded-xl px-4 py-3"
               />
             </div>
+
           </div>
 
           <div className="border rounded-xl p-4 bg-[#fafaf8]">
