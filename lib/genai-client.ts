@@ -103,7 +103,7 @@ export const ai = createClient();
 export const isVertexAiEnabled = useVertexAi;
 export const defaultImageSize = "2K";
 export const imageGenerationModel =
-  process.env.GEMINI_IMAGE_MODEL || "gemini-3.1-flash-image-preview";
+  process.env.GEMINI_IMAGE_MODEL || "gemini-3.1-flash-image";
 export const imageGenerateHttpOptions = {
   timeout: useVertexAi ? 1000 * 60 * 3 : 1000 * 60 * 5,
   retryOptions: {

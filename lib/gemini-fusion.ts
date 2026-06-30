@@ -267,6 +267,7 @@ export type FaceBlueprint = {
   mouth_and_lips?: string;
   eyebrows?: string;
   skin?: string;
+  facial_marks?: string;
   hair?: string;
   age_impression?: string;
   distinctive_features?: string;
@@ -287,18 +288,47 @@ export function buildOutfitReferenceLabel(index: number, isMixMode = false): str
   return `${baseLabel}${mixIsolationLabel}`;
 }
 
-export function buildFaceDescriptionText(faceBlueprint?: FaceBlueprint): string {
-  if (!faceBlueprint || Object.keys(faceBlueprint).length === 0) return "";
+// 두 가지 형태 모두 받음:
+//   - string: 사용자가 직접 친 얼굴 묘사 (fusion에서 사용. 빈 문자열이면 image only fallback)
+//   - FaceBlueprint: 자동 분석된 객체 (dig/refrun legacy 호환)
+export function buildFaceDescriptionText(
+  input?: string | FaceBlueprint
+): string {
+  if (!input) return "";
+
+  if (typeof input === "string") {
+    const trimmed = input.trim();
+    if (!trimmed) return "";
+    return `\n⚠️ MANDATORY FACE NOTES — the generated face MUST match these features described by the user. Expression/mood comes from the pose/direction reference, not here:
+${trimmed}
+
+SKIN MARK DISCIPLINE:
+- Do NOT invent freckles, acne, extra moles, beauty marks, dark spots, or skin blemishes.
+- If the notes mention exactly one mole / beauty mark / visible dot, render exactly ONE at that described location.
+- Never multiply a single mole into multiple dots across the face.
+- Treat film grain, skin texture, and sensor noise as texture only, not as facial marks.`;
+  }
+
+  // legacy: FaceBlueprint 자동 분석 객체 (dig/refrun에서 사용 중)
+  if (Object.keys(input).length === 0) return "";
   return `\n⚠️ MANDATORY FACE STRUCTURE — the generated face MUST match ALL of these STRUCTURAL features. Expression/mood comes from the pose/direction reference, not here:
-- Face shape: ${faceBlueprint.face_shape || "N/A"}
-- Eyes: ${faceBlueprint.eyes || "N/A"}
-- Nose: ${faceBlueprint.nose || "N/A"}
-- Mouth/Lips: ${faceBlueprint.mouth_and_lips || "N/A"}
-- Eyebrows: ${faceBlueprint.eyebrows || "N/A"}
-- Skin: ${faceBlueprint.skin || "N/A"}
-- Hair: ${faceBlueprint.hair || "N/A"}
-- Age: ${faceBlueprint.age_impression || "N/A"}
-- Distinctive features: ${faceBlueprint.distinctive_features || "N/A"}`;
+- Face shape: ${input.face_shape || "N/A"}
+- Eyes: ${input.eyes || "N/A"}
+- Nose: ${input.nose || "N/A"}
+- Mouth/Lips: ${input.mouth_and_lips || "N/A"}
+- Eyebrows: ${input.eyebrows || "N/A"}
+- Skin: ${input.skin || "N/A"}
+- Facial marks: ${input.facial_marks || "none specified"}
+- Hair: ${input.hair || "N/A"}
+- Age: ${input.age_impression || "N/A"}
+- Distinctive features: ${input.distinctive_features || "N/A"}
+
+SKIN MARK DISCIPLINE:
+- Render ONLY the permanent facial marks explicitly listed in "Facial marks".
+- If "Facial marks" says one mole / one beauty mark / one visible dot, render exactly ONE mark at that location.
+- Do NOT invent freckles, acne, extra moles, beauty marks, dark spots, or blemishes.
+- Never multiply a single mark into multiple dots across cheeks, nose, forehead, chin, or neck.
+- Treat film grain, skin texture, pores, and sensor noise as texture only, not as facial marks.`;
 }
 
 export async function analyzeFaceBlueprintFromBase64(
@@ -322,10 +352,11 @@ You are a portrait artist. Describe every physical facial feature so another art
 - Nose: bridge height (flat/low/medium/high), width, tip shape (rounded/pointed/bulbous), nostril visibility
 - Mouth & lips: lip thickness (thin/medium/full), lip shape, mouth width, philtrum definition
 - Eyebrows: thickness, shape (straight/arched/angled), spacing from eyes, density
-- Skin: tone (specific shade description), texture, any visible marks or features
+- Skin: tone (specific shade description) and texture only. Do NOT use this field as a catch-all for moles or dots.
+- Facial marks: exact count, type, size, side, and location of permanent marks only (mole / beauty mark / scar). If exactly one mole is visible, write "one mole only" and its precise location. If none are clearly visible, write "none clearly visible".
 - Hair: style, length, color, texture, parting, volume
 - Age impression: approximate perceived age range
-- Distinctive features: anything unique that makes this face recognizable (moles, dimples, asymmetry, bone structure)
+- Distinctive features: permanent structure that makes this face recognizable (dimples, asymmetry, bone structure). Do NOT duplicate facial marks here except by referring to the exact count/location already listed in facial_marks.
 
 [RULES]
 - Describe ONLY permanent physical STRUCTURE. No ethnicity labels, no beauty judgments.
@@ -333,6 +364,10 @@ You are a portrait artist. Describe every physical facial feature so another art
 - Do NOT describe mouth openness, smile, frown, or any transient facial state.
 - Be precise enough that two different AI models reading your description would generate the same face.
 - Focus on PROPORTIONS and RELATIONSHIPS between features (e.g. "eyes spaced wider than average, occupying ~45% of face width").
+- Facial marks are COUNT-SENSITIVE: never generalize one mole into "moles" or "freckles".
+- Do NOT infer freckles, acne, beauty marks, or blemishes from grain/noise/compression artifacts.
+- If a mark is ambiguous, say "none clearly visible" rather than inventing it.
+- A single visible mole must remain a single visible mole, not a pattern of dots.
 
 Return ONLY raw JSON:
 {
@@ -341,7 +376,8 @@ Return ONLY raw JSON:
   "nose": "bridge height, width, tip shape, nostril visibility",
   "mouth_and_lips": "lip thickness, shape, mouth width relative to face",
   "eyebrows": "thickness, shape, arch position, density",
-  "skin": "tone description, texture, visible marks",
+  "skin": "tone description and texture only, no moles or dots",
+  "facial_marks": "exact count, type, size, side, and location of permanent facial marks; none clearly visible if none",
   "hair": "style, length, color, texture, parting",
   "age_impression": "perceived age range",
   "distinctive_features": "unique identifying characteristics"
