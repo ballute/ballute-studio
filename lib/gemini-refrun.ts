@@ -111,23 +111,38 @@ export async function analyzeReferenceWeb(
     toInlineImagePart(referenceBase64),
   ];
 
-  const systemPrompt = `Analyze the provided reference fashion photograph meticulously.
-Extract the exact visual structure, aesthetic, and mood.
+  const systemPrompt = `You are analyzing a reference fashion photograph for a downstream image generation pipeline. The model identity and outfit in the FINAL generated image will come from SEPARATE reference images — NOT from this reference. Therefore your job is to extract ONLY scene-level cues (mood, camera, lighting, background, atmospheric pose intent).
 
-CRITICAL RULES (NEGATIVE CONSTRAINTS):
-- Ignore all details regarding clothing or accessories worn by the model.
-- Do NOT describe the model's face shape, facial features, age, ethnicity, hair style, hair color, skin tone, or any identifying physical characteristics. The model in the final image will be a DIFFERENT person.
+CRITICAL PROTECTION RULES (NEVER VIOLATE):
+- ABSOLUTELY DO NOT describe: face shape, facial features, age, ethnicity, hair style, hair color, skin tone, body identity, height, weight, build, or any identifying physical characteristic of the reference model.
+- ABSOLUTELY DO NOT describe: clothing items, garment colors, fabric textures, accessories, fit, silhouette, or any outfit details.
+- If you accidentally extract identity/outfit details, the downstream pipeline will be corrupted. The face-lock and outfit-lock from other reference images will be violated.
 
-Return ONLY raw JSON with:
+PRECISION REQUIREMENT:
+Each JSON value MUST reach the level of precision shown in the EXAMPLE for that key. Use numeric degrees/measurements (angles, percentages, directions) where applicable. If a key's element is not clearly visible/inferable, write "not clearly visible" — do NOT fabricate.
+
+REQUIRED JSON SCHEMA (return ONLY the raw JSON, no prose before/after):
 {
-  "background": "describe the environment and set design",
-  "pose": "describe ONLY the body posture and limb positioning — weight distribution, arm angle, leg stance, head tilt angle. Do NOT describe the face, expression, or any facial features.",
-  "expression": "describe ONLY the emotional state — eye direction (where they are looking), eyelid state (wide/relaxed/droopy), mouth state (closed/parted/tense), and overall mood (bored/confident/serene). Do NOT mention face shape, features, age, ethnicity, hair, or any identifying characteristics.",
-  "camera_angle_and_crop": "camera angle and crop",
-  "lighting_and_exposure": "lighting setup and exposure character",
-  "color_grading_and_texture": "color grading and texture",
-  "overall_mood": "overall mood"
-}`;
+  "background": "describe environment, set design, architectural elements, spatial composition, props (if any), depth of scene. EXAMPLE PRECISION: 'Outdoor urban setting. Plain, light-colored wall used as a clean backdrop. Subtle foliage and tree branches visible above the wall, softly out of focus. No props, no visual clutter, no added elements.'",
+
+  "pose": "describe body posture, weight distribution, limb angles, hand/finger position with NUMERIC PRECISION (degrees, body-part angles). NO face/hair/identity. EXAMPLE PRECISION: 'Standing in relaxed unposed stance. Body weight primarily on right leg. Left leg less weight, knee slightly bent (~5-10 degrees). Torso upright with subtle backward lean, not rigid. Both shoulders fully relaxed and dropped. Arms hang naturally along sides. Elbows slightly bent ~5-10 degrees, never locked. Forearms angle subtly inward toward hips. Hands rest near side seams. Fingers loose, gently curved, no tension, no gesture.'",
+
+  "expression": "describe gaze direction, head tilt with NUMERIC PRECISION, neck state, eye/mouth state, emotional tone. NO face shape/features/hair/ethnicity. EXAMPLE PRECISION: 'Head tilted downward approximately 10-15 degrees. Chin lowered naturally, not forced. Neck relaxed, not extended. Gaze directed downward and slightly left of camera frame. Eyes do NOT engage the camera. Expression neutral, calm, introspective — no smile, no frown, no exaggeration.'",
+
+  "camera_angle_and_crop": "describe ONLY camera and framing geometry with maximum precision: (1) framing extent — explicitly state which body parts visible vs cut off (e.g. 'full body head-to-shoes, no cropping' / '3/4 body cut at upper thigh' / 'half body cut at waist' / 'chest crop above sternum' / 'tight face close-up'); (2) subject position in frame — centered / off-center left / off-center right / rule-of-thirds left-third / rule-of-thirds right-third / golden ratio; (3) camera height relative to subject — above eye level / at subject eye level / marginally below eye level / chest level / waist level / low angle / ground level; (4) camera angle — frontal / slight 3/4 left / slight 3/4 right / profile / three-quarter rear; (5) focal length character — wide-angle distortion / normal lens / slight telephoto compression / strong telephoto compression; (6) vertical line behavior — straight / converging upward / converging downward; (7) depth-of-field — deep focus / shallow / bokeh quality. EXAMPLE PRECISION: 'Full body visible from head to shoes. No cropping of limbs or body parts. Subject positioned slightly off-center toward the left side of the frame. Camera placed at eye level or marginally lower. Perspective remains natural with no distortion. Vertical lines remain straight.'",
+
+  "lighting_and_exposure": "describe light direction, quality, source, exposure character, AND distinct shadow systems with maximum precision. If multiple shadow systems exist (e.g. architectural + subject cast), describe each SEPARATELY including edge character, orientation, relationship. EXAMPLE PRECISION: 'Strong, direct natural sunlight coming from the upper left. TWO DISTINCT AND SEPARATE SHADOW SYSTEMS: (1) ARCHITECTURAL / BUILDING SHADOW — a large, solid shadow cast by an off-frame building falls diagonally across the wall, occupying a significant portion of the right side of the frame, hard sharp geometric edge with straight/slightly-angled boundary, dominates the background. (2) MODEL CAST SHADOW — clearly readable human silhouette shadow on the wall, falls toward the left-rear direction consistent with the sunlight angle, thinner and organic, clearly distinguishable from the architectural shadow. The two shadows do NOT merge. Shadow edges are not softened or blurred.'",
+
+  "color_grading_and_texture": "describe color palette, saturation, contrast, grain character, texture rendering, lens response. EXAMPLE PRECISION: 'Natural film-like grain. Muted, realistic color palette. High contrast preserved. No heavy color grading. Slight optical lens response with soft focus character, no digital sharpening or micro-contrast.'",
+
+  "overall_mood": "describe atmospheric character, photographic genre, emotional tone. EXAMPLE PRECISION: 'Quiet, restrained, candid, observational — like an unposed street photograph. Cinematic but understated. Editorial documentary feel without being staged.'"
+}
+
+FINAL REMINDERS:
+- Output ONLY the raw JSON object.
+- Each value MUST match or exceed the EXAMPLE PRECISION level shown above.
+- Reference model's face/hair/skin/clothing/accessories → ZERO mentions allowed.
+- Numeric measurements (degrees, body-part angles, light direction) are strongly preferred over vague adjectives.`;
 
   const response = await withGenAiRetry(
     () =>
@@ -154,7 +169,8 @@ Return ONLY raw JSON with:
     text = text.substring(jsonStart, jsonEnd);
   }
 
-  return JSON.parse(text);
+  const parsed = JSON.parse(text);
+  return parsed;
 }
 
 export async function generateRefRunImageWeb(args: {
@@ -227,6 +243,8 @@ export async function generateRefRunImageWeb(args: {
     buildFitPromptContext(bodySpecs);
 
   const modeDict: Record<string, string> = {
+    ref:
+      "MOOD: Follow the reference photograph's photographic language EXACTLY as captured. The reference image itself is the single source of mood, tone, and atmosphere. Do NOT substitute any preset aesthetic. | RENDERING: Do NOT impose any preset color, tone, grain, sharpness, or texture style. The reference image's color grading, texture, lighting quality, exposure character, lens character, and overall atmospheric mood must be replicated faithfully as they appear in the reference itself. Apply this color science and rendering character to the entire image uniformly, including all garments — preserve each garment's original local hue and design while letting the reference's tonal response shape brightness and contrast. CRITICAL CLAMP: This reference-replication of TONE/COLOR/LIGHTING must NEVER override [FACE IDENTITY LOCK] or [OUTFIT MODE] garment design — those locks always win on face identity and garment construction.",
     portra:
       "MOOD: 90s lifestyle editorial — warm sunlight, Polo/Levi's ad energy, nostalgic magazine feel. Skin tones glow naturally, colors slightly faded. | RENDERING: Lighting: Soft, diffused natural daylight. Low dynamic range. Color: Washed out, faded warm tones. Flattened shadows with zero deep blacks. NO digital micro-contrast, NO sharp edges. The image must look naturally soft and optically imperfect without using heavy grain overlays. APPLY THIS COLOR SCIENCE UNIFORMLY TO THE ENTIRE IMAGE INCLUDING ALL GARMENTS — preserve each garment's original hue but reduce saturation and flatten brightness to match this film palette.",
     fuji:
@@ -275,6 +293,9 @@ Task: Exact Reference-Run Fashion Editorial Generation.
 - CRITICAL: The face reference image(s) are the SOLE and ABSOLUTE source for the model's face, identity, hair, and skin tone.
 - Do NOT blend, merge, or import any facial feature from outfit images or any other source.
 - Reconstruct the face reference identity faithfully under the new scene's lighting and shooting mode.
+- SKIN MARK DISCIPLINE: Do NOT add freckles, acne, extra moles, beauty marks, dark spots, or blemishes unless they are explicitly present in the face identity notes/reference.
+- If the face identity notes/reference contain exactly one mole / one visible dot, render exactly ONE at the same location. Never scatter or multiply it across the face.
+- Treat reference film grain, pores, compression, and skin texture as surface texture only, not as moles or dots.
 
 ${fitPromptContext}
 

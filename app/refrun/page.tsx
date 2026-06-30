@@ -653,6 +653,7 @@ export default function RefRunPage() {
                 onChange={(e) => setShootingMode(e.target.value)}
                 className="w-full border rounded-xl px-4 py-3"
               >
+                <option value="ref">REF (레퍼런스 그대로)</option>
                 <option value="portra">portra</option>
                 <option value="fuji">fuji</option>
 
