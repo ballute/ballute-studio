@@ -70,8 +70,8 @@ Rules:
       },
     });
 
-    const parts = (response.candidates?.[0]?.content?.parts ?? []) as GenAiResponsePart[];
-    const image = pickGeneratedInlineImage(parts)?.data ?? null;
+    const responseParts = (response.candidates?.[0]?.content?.parts ?? []) as GenAiResponsePart[];
+    const image = pickGeneratedInlineImage(responseParts)?.data ?? null;
     if (!image) throw new EmptyGenAiImageError("RETOUCH_GENERAL");
     return image;
   }, { label: "RETOUCH general" });
