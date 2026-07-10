@@ -32,6 +32,7 @@ type RetouchBody = {
   garmentType?: GarmentType;
   moodDescription?: string;
   moodReferenceBase64?: string;
+  styleReferenceBase64?: string;
   textureLevel?: number;
 };
 
@@ -41,7 +42,7 @@ export async function POST(req: Request) {
     await ensureUserHasPoints(user.id, RETOUCH_COST);
 
     const body = (await req.json()) as RetouchBody;
-    const { type, imageBase64, instruction, intensity, garmentBase64, garmentType, moodDescription, moodReferenceBase64, textureLevel } = body;
+    const { type, imageBase64, instruction, intensity, garmentBase64, garmentType, moodDescription, moodReferenceBase64, styleReferenceBase64, textureLevel } = body;
 
     if (!imageBase64) {
       return NextResponse.json({ error: "이미지가 필요하다." }, { status: 400 });
@@ -50,10 +51,10 @@ export async function POST(req: Request) {
     let resultImage: string;
 
     if (type === "general") {
-      if (!instruction) {
-        return NextResponse.json({ error: "수정 지시가 필요하다." }, { status: 400 });
+      if (!instruction && !styleReferenceBase64) {
+        return NextResponse.json({ error: "수정 지시 또는 스타일 레퍼런스 이미지가 필요하다." }, { status: 400 });
       }
-      resultImage = await retouchGeneral(imageBase64, instruction, intensity ?? 50);
+      resultImage = await retouchGeneral(imageBase64, instruction ?? "", intensity ?? 50, styleReferenceBase64);
     } else if (type === "garment") {
       if (!garmentType) {
         return NextResponse.json({ error: "garmentType(top/bottom)이 필요하다." }, { status: 400 });

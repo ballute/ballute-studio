@@ -27,16 +27,31 @@ const intensityLabel = (intensity: number): string => {
 export async function retouchGeneral(
   imageBase64: string,
   instruction: string,
-  intensity: number = 50
+  intensity: number = 50,
+  styleReferenceBase64?: string
 ): Promise<string> {
+  const parts: PromptPart[] = [toInlineImagePart(imageBase64)];
+
+  if (styleReferenceBase64) {
+    parts.push({
+      text: `[STYLE REFERENCE]
+Extract ONLY the visual style guidance relevant to the edit from the next image.
+Use it for direction such as color, material feeling, surface finish, lighting behavior, shape language, or overall styling mood.
+Do NOT import the reference image's person, identity, pose, background composition, or unrelated objects.`,
+    });
+    parts.push(toInlineImagePart(styleReferenceBase64));
+  }
+
   const prompt = `Task: Targeted Image Edit.
 
-Apply this instruction to the image: "${instruction}"
+Apply this instruction to the source image: "${instruction || "Use the STYLE REFERENCE as the edit direction."}"
+${styleReferenceBase64 ? "Use the STYLE REFERENCE image as supporting visual guidance while preserving the source image content." : ""}
 
 Rules:
 - Execute the instruction precisely and naturally.
 - Preserve everything not mentioned in the instruction exactly as-is.
 - Face identity, hair, and skin tone are fixed unless the instruction specifically targets them.
+- Do NOT copy unrelated content from the reference image.
 - Seamlessly integrate the change — no hard edges, no copy-paste artifacts.
 - Intensity: ${intensityLabel(intensity)}.`;
 
@@ -45,10 +60,7 @@ Rules:
       model: imageGenerationModel,
       contents: [{
         role: "user",
-        parts: [
-          toInlineImagePart(imageBase64),
-          { text: prompt },
-        ],
+        parts: [...parts, { text: prompt }],
       }],
       config: {
         imageConfig: { imageSize: defaultImageSize },

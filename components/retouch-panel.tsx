@@ -61,6 +61,9 @@ export function RetouchPanel({ imageBase64, onRetouched, onClose }: RetouchPanel
   // style
   const [instruction, setInstruction] = useState("");
   const [intensity, setIntensity] = useState(50);
+  const [styleFile, setStyleFile] = useState<File | null>(null);
+  const [styleBase64, setStyleBase64] = useState<string>("");
+  const styleInputRef = useRef<HTMLInputElement>(null);
 
   // garment
   const [garmentType, setGarmentType] = useState<GarmentType>("top");
@@ -103,8 +106,17 @@ export function RetouchPanel({ imageBase64, onRetouched, onClose }: RetouchPanel
       let body: Record<string, unknown> = { imageBase64: compressedImage };
 
       if (tab === "style") {
-        if (!instruction.trim()) { setError("Enter an edit instruction."); setLoading(false); return; }
-        body = { ...body, type: "general", instruction, intensity };
+        if (!instruction.trim() && !styleBase64) {
+          setError("Enter an edit instruction or provide a style reference image."); setLoading(false); return;
+        }
+        const compressedStyleBase64 = styleBase64 ? await compressBase64(styleBase64) : "";
+        body = {
+          ...body,
+          type: "general",
+          instruction,
+          intensity,
+          styleReferenceBase64: compressedStyleBase64 || undefined,
+        };
       } else if (tab === "garment") {
         if (!garmentInstruction.trim() && !garmentBase64) {
           setError("Provide a garment description or reference image."); setLoading(false); return;
@@ -189,6 +201,22 @@ export function RetouchPanel({ imageBase64, onRetouched, onClose }: RetouchPanel
             placeholder="e.g. Make the background darker / Change shoes to white sneakers"
             className="w-full border rounded-lg px-3 py-2 text-sm resize-none h-20"
           />
+          <div>
+            <input
+              ref={styleInputRef}
+              type="file"
+              accept="image/*"
+              onChange={(e) => handleFileUpload(e, setStyleFile, setStyleBase64)}
+              className="hidden"
+            />
+            <button
+              type="button"
+              onClick={() => styleInputRef.current?.click()}
+              className="w-full border-dashed border-2 rounded-lg py-3 text-sm text-gray-500 hover:border-gray-400 transition-colors"
+            >
+              {styleFile ? "✓ " + styleFile.name : "Style reference image (optional)"}
+            </button>
+          </div>
           <div className="space-y-1">
             <div className="flex justify-between text-xs text-gray-500">
               <span>Intensity</span>
