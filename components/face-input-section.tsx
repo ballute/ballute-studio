@@ -67,19 +67,15 @@ export default function FaceInputSection({
   const labelClass =
     "mb-1 text-[12px] font-semibold uppercase tracking-[0.03em] text-gray-500";
 
-  // 드래그&드롭 + (영역 클릭 후) Ctrl+V 붙여넣기 — 업로드 모드에서만
+  // 드래그&드롭 + (마우스 올린 채) Ctrl+V 붙여넣기 — 업로드 모드에서만.
+  // 카드 전체가 드롭존, 하이라이트는 전용 박스에 표시
   const { dragging, zoneProps } = useDropPaste(
     onAddFiles,
     disabled || mode !== "upload"
   );
 
   return (
-    <div
-      {...zoneProps}
-      className={`border rounded-2xl p-6 bg-white outline-none transition-shadow ${
-        dragging ? "border-black ring-2 ring-black/30 bg-gray-50" : ""
-      }`}
-    >
+    <div {...zoneProps} className="border rounded-2xl p-6 bg-white">
       <div className="flex items-center gap-2 mb-2">
         <h2 className="text-xl font-bold">모델 얼굴 입력</h2>
         <span className="text-xs px-2 py-1 rounded-full bg-black text-white">
@@ -119,10 +115,10 @@ export default function FaceInputSection({
 
       {mode === "upload" ? (
         <div>
-          <div className="flex gap-3 mb-4">
+          <div className="flex gap-3 mb-3">
             <label className="block cursor-pointer">
-              <div className="px-4 py-3 border-2 border-dashed rounded-xl text-sm text-gray-500">
-                여러 장 추가 업로드
+              <div className="px-4 py-3 border rounded-xl text-sm text-gray-700 hover:border-gray-400 transition">
+                + 파일 업로드
               </div>
               <input
                 type="file"
@@ -144,11 +140,19 @@ export default function FaceInputSection({
             </button>
           </div>
 
-          <div className="mt-2 text-sm text-gray-600">
-            현재 업로드 수: <b>{items.length}장</b>
+          {/* 드래그/붙여넣기 전용 박스 — 클릭해도 파일창 안 뜸 */}
+          <div
+            className={`rounded-xl border-2 border-dashed px-4 py-6 text-center text-xs transition-colors ${
+              dragging
+                ? "border-black bg-gray-50 text-gray-700"
+                : "border-gray-300 text-gray-400"
+            }`}
+          >
+            여기에 사진을 드래그하거나, 마우스를 올려둔 채 Ctrl+V
           </div>
-          <div className="mt-1 text-xs text-gray-400">
-            사진을 이 영역에 드래그하거나, 마우스를 올려둔 채 Ctrl+V로 붙여넣어도 됩니다
+
+          <div className="mt-3 text-sm text-gray-600">
+            현재 업로드 수: <b>{items.length}장</b>
           </div>
 
           {items.length > 0 ? (
