@@ -215,6 +215,7 @@ export async function POST(req: Request) {
       mixCaptions,
       outputRatio,
       skinMode,
+      referenceBase64: shootingMode === "snap-ref" ? referenceBase64 : undefined,
     });
 
     const elapsedMs = Date.now() - generationStartedAt;
