@@ -654,6 +654,8 @@ export default function RefRunPage() {
                 className="w-full border rounded-xl px-4 py-3"
               >
                 <option value="ref">REF (레퍼런스 그대로)</option>
+                <option value="snap">SNAP DRIFT (phone snap)</option>
+                <option value="snap-ref">SNAP REF (close reference)</option>
                 <option value="portra">portra</option>
                 <option value="fuji">fuji</option>
 
@@ -663,6 +665,15 @@ export default function RefRunPage() {
                 <option value="retro-film">retro-film</option>
                 <option value="custom">custom</option>
               </select>
+              {shootingMode === "snap" ? (
+                <div className="mt-2 text-xs text-gray-500 leading-5">
+                  SNAP DRIFT: reference controls phone-camera feel; background drifts into a nearby different spot.
+                </div>
+              ) : shootingMode === "snap-ref" ? (
+                <div className="mt-2 text-xs text-gray-500 leading-5">
+                  SNAP REF: closer to the first setup; reference is used more tightly, but person/outfit/items are blocked.
+                </div>
+              ) : null}
             </div>
 
             <div>

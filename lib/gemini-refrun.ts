@@ -185,6 +185,7 @@ export async function generateRefRunImageWeb(args: {
   mixCaptions?: string[];
   outputRatio?: OutputRatio;
   skinMode?: "clean" | "natural";
+  referenceBase64?: string;
 }): Promise<{ base64: string; summary: string }> {
   const {
     faceBase64s,
@@ -198,7 +199,12 @@ export async function generateRefRunImageWeb(args: {
     mixCaptions = [],
     outputRatio = "4:5",
     skinMode = "clean",
+    referenceBase64,
   } = args;
+
+  const isSnapDriftMode = shootingMode === "snap";
+  const isSnapRefMode = shootingMode === "snap-ref";
+  const isSnapMode = isSnapDriftMode || isSnapRefMode;
 
   if (!faceBase64s.length) {
     throw new Error("얼굴 이미지가 없다.");
@@ -234,6 +240,17 @@ export async function generateRefRunImageWeb(args: {
     }
   });
 
+  if (isSnapRefMode && referenceBase64) {
+    parts.push({
+      text: `[SNAP PHOTOGRAPHIC REFERENCE - DO NOT COPY CONTENT]
+Use the next image ONLY for photographic behavior: camera distance, lens feel, framing, exposure, motion timing, casual body tension, environmental realism, smartphone compression/noise, and unposed snapshot quality.
+Use the reference background as close phone-photo context, but not as a literal copy. Keep the same broad location type, camera distance, and casual visual rhythm while changing minor objects, exact surface details, and any identifiable layout.
+ABSOLUTE BLOCK: Do NOT copy or import the reference person's face, facial features, hair, skin tone, age, body, height, build, clothing, outfit, accessories, bag, graphics, logos, or any identifiable item.
+The final person must come ONLY from [FACE IDENTITY REFERENCE]. The final outfit must come ONLY from [OUTFIT MODE]/[MIX MODE].`,
+    });
+    parts.push(toInlineImagePart(referenceBase64));
+  }
+
   const faceContext =
     faceBase64s.length === 1
       ? `Use face reference.${skinMode === "natural" ? " Skin rendering: Apply the shooting mode's grain and tonal response to skin surfaces only. Do NOT alter face shape, features, or proportions." : ""}`
@@ -245,6 +262,10 @@ export async function generateRefRunImageWeb(args: {
   const modeDict: Record<string, string> = {
     ref:
       "MOOD: Follow the reference photograph's photographic language EXACTLY as captured. The reference image itself is the single source of mood, tone, and atmosphere. Do NOT substitute any preset aesthetic. | RENDERING: Do NOT impose any preset color, tone, grain, sharpness, or texture style. The reference image's color grading, texture, lighting quality, exposure character, lens character, and overall atmospheric mood must be replicated faithfully as they appear in the reference itself. Apply this color science and rendering character to the entire image uniformly, including all garments — preserve each garment's original local hue and design while letting the reference's tonal response shape brightness and contrast. CRITICAL CLAMP: This reference-replication of TONE/COLOR/LIGHTING must NEVER override [FACE IDENTITY LOCK] or [OUTFIT MODE] garment design — those locks always win on face identity and garment construction.",
+    snap:
+      "MOOD: Casual phone snapshot / real street snap - unposed, imperfect, believable, not editorial. The image should feel like a quick everyday photo taken by a friend, not a campaign. | RENDERING: Smartphone-like natural daylight, imperfect exposure, slight compression, modest dynamic range, real street texture, no glossy editorial polish, no staged fashion lighting, no studio cleanliness, no beauty retouching, no artificial bokeh. Use the analyzed reference only for camera behavior, exposure, and casual body tension. Do not reproduce the exact reference background; create a neighboring everyday street variation.",
+    "snap-ref":
+      "MOOD: Close-reference phone snapshot / real street snap - closer to the uploaded reference than SNAP DRIFT, but still protected from copying identity, outfit, accessories, or identifiable items. It should feel like another quick frame from the same casual phone-photo situation, not a campaign. | RENDERING: Smartphone-like natural daylight, imperfect exposure, modest dynamic range, realistic compression, no glossy editorial polish, no staged fashion lighting, no artificial bokeh. Use the reference photo more tightly for camera distance, broad environment, exposure, and casual body rhythm while preserving locked face and outfit sources.",
     portra:
       "MOOD: 90s lifestyle editorial — warm sunlight, Polo/Levi's ad energy, nostalgic magazine feel. Skin tones glow naturally, colors slightly faded. | RENDERING: Lighting: Soft, diffused natural daylight. Low dynamic range. Color: Washed out, faded warm tones. Flattened shadows with zero deep blacks. NO digital micro-contrast, NO sharp edges. The image must look naturally soft and optically imperfect without using heavy grain overlays. APPLY THIS COLOR SCIENCE UNIFORMLY TO THE ENTIRE IMAGE INCLUDING ALL GARMENTS — preserve each garment's original hue but reduce saturation and flatten brightness to match this film palette.",
     fuji:
@@ -266,7 +287,15 @@ export async function generateRefRunImageWeb(args: {
     textureAndColor = modeDict[shootingMode];
   }
 
-  const fitSummary = `${isMixMode ? "🧩 MIX" : "👕 OUTFIT"}${fitSummarySuffix}`;
+  const snapSummary = isSnapRefMode
+    ? " + SNAP REF"
+    : isSnapDriftMode
+      ? " + SNAP DRIFT"
+      : "";
+  const fitSummary = `${isMixMode ? "\uD83E\uDDE9 MIX" : "\uD83D\uDC55 OUTFIT"}${snapSummary}${fitSummarySuffix}`;
+  const taskTitle = isSnapMode
+    ? "Casual Locked-Identity Phone Snapshot Generation"
+    : "Exact Reference-Run Fashion Editorial Generation";
 
   const outfitInstruction = isMixMode
     ? `
@@ -286,7 +315,7 @@ export async function generateRefRunImageWeb(args: {
 `;
 
   const prompt = `
-Task: Exact Reference-Run Fashion Editorial Generation.
+Task: ${taskTitle}.
 
 [FACE IDENTITY LOCK]
 - ${faceContext}
@@ -317,9 +346,32 @@ ${outfitInstruction}
 
 [REFERENCE PERSON CONTAMINATION BLOCK]
 - The reference photograph was used ONLY to extract scene structure, pose, expression mood, and photographic language.
+- In SNAP mode, the reference image may be provided to the final model ONLY as photographic behavior context. Content copying remains absolutely forbidden.
 - The PERSON in the reference image is NOT the final model.
 - The final face must come 100% from [FACE IDENTITY REFERENCE]. The reference person's face shape, eye shape, nose, mouth, jawline, hair, skin tone, age, and ethnicity must have ZERO influence on the result.
 - Treat the reference's expression as ABSTRACT MOOD ONLY (e.g. "calm gaze toward camera"), not as facial structure.
+
+${isSnapDriftMode ? `
+[SNAP DRIFT MODE EXECUTION]
+- The final image must feel unposed and casually captured, not directed like a lookbook.
+- Preserve minor photographic imperfections: ordinary street texture, slightly imperfect exposure, natural lens/phone compression, non-heroic framing.
+- Treat [REFERENCE STRUCTURE] as a loose phone-snap seed, not as a scene blueprint.
+- Background must drift into a nearby but different real-life location. Keep only the broad category and daylight behavior; change 60-75% of the setting: wall material, signage, street depth, ground detail, foliage density, color accents, side objects, and pedestrian/background rhythm.
+- Do not recreate the exact reference backdrop, exact architecture, exact wall, exact tree/leaf placement, exact peeling paint pattern, exact pavement line, exact railing, exact sidewalk edge, or exact street layout.
+- If the reference has a wall, use a different wall type or a nearby storefront/sidewalk edge. If the reference has a plaza, use an adjacent curb/street corner/walkway. If the reference has greenery, change the amount and position so it feels like a different spot.
+- Body posture should carry casual human tension from the reference analysis, but never copy the reference body identity or proportions.
+- Do not beautify the scene into a clean editorial city background.
+- Do not use cinematic bokeh, glossy skin, high-end campaign contrast, or overclean fabric rendering.
+` : ""}
+
+${isSnapRefMode ? `
+[SNAP REF MODE EXECUTION]
+- The final image may stay close to the reference broad setting, camera distance, exposure, and casual phone-photo rhythm.
+- Keep the same general environment category and framing logic, but do not copy the exact backdrop as a literal clone.
+- Allow a smaller 15-30% background variation: crop shift, nearby angle, different pedestrian rhythm, changed minor objects, slightly different wall, railing, sidewalk, plant, pavement, or signage details.
+- Do not copy the reference person, age, face, hair, body, clothing, accessories, logos, bags, or identifiable items.
+- The result should feel like a nearby alternate frame, not a pasted outfit swap.
+` : ""}
 
 [TECHNICAL EXECUTION]
 - ${textureAndColor}
