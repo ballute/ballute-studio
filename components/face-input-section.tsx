@@ -148,7 +148,7 @@ export default function FaceInputSection({
             현재 업로드 수: <b>{items.length}장</b>
           </div>
           <div className="mt-1 text-xs text-gray-400">
-            사진을 이 영역에 드래그하거나, 영역 클릭 후 Ctrl+V로 붙여넣어도 됩니다
+            사진을 이 영역에 드래그하거나, 마우스를 올려둔 채 Ctrl+V로 붙여넣어도 됩니다
           </div>
 
           {items.length > 0 ? (
