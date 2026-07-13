@@ -2,6 +2,7 @@
 
 import { useState, useRef } from "react";
 import { getAccessToken } from "@/lib/supabase";
+import { useDropPaste } from "@/lib/use-drop-paste";
 
 type RetouchTab = "style" | "garment" | "expression" | "mood";
 type GarmentType = "top" | "bottom";
@@ -61,6 +62,9 @@ export function RetouchPanel({ imageBase64, onRetouched, onClose }: RetouchPanel
   // style
   const [instruction, setInstruction] = useState("");
   const [intensity, setIntensity] = useState(50);
+  const [styleFile, setStyleFile] = useState<File | null>(null);
+  const [styleBase64, setStyleBase64] = useState<string>("");
+  const styleInputRef = useRef<HTMLInputElement>(null);
 
   // garment
   const [garmentType, setGarmentType] = useState<GarmentType>("top");
@@ -79,12 +83,11 @@ export function RetouchPanel({ imageBase64, onRetouched, onClose }: RetouchPanel
   const moodInputRef = useRef<HTMLInputElement>(null);
   const [textureLevel, setTextureLevel] = useState(0);
 
-  const handleFileUpload = (
-    e: React.ChangeEvent<HTMLInputElement>,
+  const applyFile = (
+    file: File | null,
     setFile: (f: File | null) => void,
     setBase64: (b: string) => void
   ) => {
-    const file = e.target.files?.[0] ?? null;
     if (!file) return;
     setFile(file);
     const reader = new FileReader();
@@ -95,6 +98,27 @@ export function RetouchPanel({ imageBase64, onRetouched, onClose }: RetouchPanel
     reader.readAsDataURL(file);
   };
 
+  const handleFileUpload = (
+    e: React.ChangeEvent<HTMLInputElement>,
+    setFile: (f: File | null) => void,
+    setBase64: (b: string) => void
+  ) => {
+    applyFile(e.target.files?.[0] ?? null, setFile, setBase64);
+  };
+
+  // 레퍼런스 3종 각각 드래그&드롭 + Ctrl+V 지원
+  const styleZone = useDropPaste((f) =>
+    applyFile(f?.[0] ?? null, setStyleFile, setStyleBase64)
+  );
+  const garmentZone = useDropPaste((f) =>
+    applyFile(f?.[0] ?? null, setGarmentFile, setGarmentBase64)
+  );
+  const moodZone = useDropPaste((f) =>
+    applyFile(f?.[0] ?? null, setMoodFile, setMoodBase64)
+  );
+  const zoneClass = (dragging: boolean) =>
+    `outline-none rounded-lg ${dragging ? "ring-2 ring-black/30" : ""}`;
+
   const apply = async () => {
     setError("");
     setLoading(true);
@@ -103,8 +127,17 @@ export function RetouchPanel({ imageBase64, onRetouched, onClose }: RetouchPanel
       let body: Record<string, unknown> = { imageBase64: compressedImage };
 
       if (tab === "style") {
-        if (!instruction.trim()) { setError("Enter an edit instruction."); setLoading(false); return; }
-        body = { ...body, type: "general", instruction, intensity };
+        if (!instruction.trim() && !styleBase64) {
+          setError("Enter an edit instruction or provide a style reference image."); setLoading(false); return;
+        }
+        const compressedStyleBase64 = styleBase64 ? await compressBase64(styleBase64) : "";
+        body = {
+          ...body,
+          type: "general",
+          instruction,
+          intensity,
+          styleReferenceBase64: compressedStyleBase64 || undefined,
+        };
       } else if (tab === "garment") {
         if (!garmentInstruction.trim() && !garmentBase64) {
           setError("Provide a garment description or reference image."); setLoading(false); return;
@@ -189,6 +222,22 @@ export function RetouchPanel({ imageBase64, onRetouched, onClose }: RetouchPanel
             placeholder="e.g. Make the background darker / Change shoes to white sneakers"
             className="w-full border rounded-lg px-3 py-2 text-sm resize-none h-20"
           />
+          <div {...styleZone.zoneProps} className={zoneClass(styleZone.dragging)}>
+            <input
+              ref={styleInputRef}
+              type="file"
+              accept="image/*"
+              onChange={(e) => handleFileUpload(e, setStyleFile, setStyleBase64)}
+              className="hidden"
+            />
+            <button
+              type="button"
+              onClick={() => styleInputRef.current?.click()}
+              className="w-full border-dashed border-2 rounded-lg py-3 text-sm text-gray-500 hover:border-gray-400 transition-colors"
+            >
+              {styleFile ? "✓ " + styleFile.name : "Style reference image (optional)"}
+            </button>
+          </div>
           <div className="space-y-1">
             <div className="flex justify-between text-xs text-gray-500">
               <span>Intensity</span>
@@ -230,7 +279,7 @@ export function RetouchPanel({ imageBase64, onRetouched, onClose }: RetouchPanel
             placeholder="e.g. White oversized shirt / Navy wool trousers"
             className="w-full border rounded-lg px-3 py-2 text-sm"
           />
-          <div>
+          <div {...garmentZone.zoneProps} className={zoneClass(garmentZone.dragging)}>
             <input
               ref={garmentInputRef}
               type="file"
@@ -273,7 +322,7 @@ export function RetouchPanel({ imageBase64, onRetouched, onClose }: RetouchPanel
             placeholder="e.g. Warm golden hour film look / Cool muted overcast tone / Cinematic single-source light"
             className="w-full border rounded-lg px-3 py-2 text-sm resize-none h-20"
           />
-          <div>
+          <div {...moodZone.zoneProps} className={zoneClass(moodZone.dragging)}>
             <input
               ref={moodInputRef}
               type="file"
