@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { useMemo, useRef, useState } from "react";
 import { RetouchPanel } from "@/components/retouch-panel";
+import { useDropPaste } from "@/lib/use-drop-paste";
 
 type LoadedImage = {
   base64: string;
@@ -35,8 +36,7 @@ export default function RetouchPage() {
     [resultBase64],
   );
 
-  const handleFileChange = (event: React.ChangeEvent<HTMLInputElement>) => {
-    const file = event.target.files?.[0] ?? null;
+  const loadFile = (file: File | null) => {
     setError("");
 
     if (!file) return;
@@ -59,6 +59,15 @@ export default function RetouchPage() {
     reader.onerror = () => setError("이미지를 읽지 못했습니다.");
     reader.readAsDataURL(file);
   };
+
+  const handleFileChange = (event: React.ChangeEvent<HTMLInputElement>) => {
+    loadFile(event.target.files?.[0] ?? null);
+  };
+
+  // 드래그&드롭 + Ctrl+V 붙여넣기 — 원본 영역 전체가 드롭존
+  const { dragging, zoneProps } = useDropPaste((files) =>
+    loadFile(files?.[0] ?? null)
+  );
 
   const clearImage = () => {
     setSource(null);
@@ -90,7 +99,12 @@ export default function RetouchPage() {
       </header>
 
       <section className="mx-auto grid max-w-6xl gap-6 px-4 py-6 lg:grid-cols-[minmax(0,1fr)_380px]">
-        <div className="space-y-4">
+        <div
+          {...zoneProps}
+          className={`space-y-4 outline-none rounded-2xl ${
+            dragging ? "ring-2 ring-black/30" : ""
+          }`}
+        >
           <div className="flex items-end justify-between gap-4">
             <div>
               <p className="text-[11px] uppercase tracking-[0.18em] text-[#8b8993]">

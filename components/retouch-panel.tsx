@@ -2,6 +2,7 @@
 
 import { useState, useRef } from "react";
 import { getAccessToken } from "@/lib/supabase";
+import { useDropPaste } from "@/lib/use-drop-paste";
 
 type RetouchTab = "style" | "garment" | "expression" | "mood";
 type GarmentType = "top" | "bottom";
@@ -82,12 +83,11 @@ export function RetouchPanel({ imageBase64, onRetouched, onClose }: RetouchPanel
   const moodInputRef = useRef<HTMLInputElement>(null);
   const [textureLevel, setTextureLevel] = useState(0);
 
-  const handleFileUpload = (
-    e: React.ChangeEvent<HTMLInputElement>,
+  const applyFile = (
+    file: File | null,
     setFile: (f: File | null) => void,
     setBase64: (b: string) => void
   ) => {
-    const file = e.target.files?.[0] ?? null;
     if (!file) return;
     setFile(file);
     const reader = new FileReader();
@@ -97,6 +97,27 @@ export function RetouchPanel({ imageBase64, onRetouched, onClose }: RetouchPanel
     };
     reader.readAsDataURL(file);
   };
+
+  const handleFileUpload = (
+    e: React.ChangeEvent<HTMLInputElement>,
+    setFile: (f: File | null) => void,
+    setBase64: (b: string) => void
+  ) => {
+    applyFile(e.target.files?.[0] ?? null, setFile, setBase64);
+  };
+
+  // 레퍼런스 3종 각각 드래그&드롭 + Ctrl+V 지원
+  const styleZone = useDropPaste((f) =>
+    applyFile(f?.[0] ?? null, setStyleFile, setStyleBase64)
+  );
+  const garmentZone = useDropPaste((f) =>
+    applyFile(f?.[0] ?? null, setGarmentFile, setGarmentBase64)
+  );
+  const moodZone = useDropPaste((f) =>
+    applyFile(f?.[0] ?? null, setMoodFile, setMoodBase64)
+  );
+  const zoneClass = (dragging: boolean) =>
+    `outline-none rounded-lg ${dragging ? "ring-2 ring-black/30" : ""}`;
 
   const apply = async () => {
     setError("");
@@ -201,7 +222,7 @@ export function RetouchPanel({ imageBase64, onRetouched, onClose }: RetouchPanel
             placeholder="e.g. Make the background darker / Change shoes to white sneakers"
             className="w-full border rounded-lg px-3 py-2 text-sm resize-none h-20"
           />
-          <div>
+          <div {...styleZone.zoneProps} className={zoneClass(styleZone.dragging)}>
             <input
               ref={styleInputRef}
               type="file"
@@ -258,7 +279,7 @@ export function RetouchPanel({ imageBase64, onRetouched, onClose }: RetouchPanel
             placeholder="e.g. White oversized shirt / Navy wool trousers"
             className="w-full border rounded-lg px-3 py-2 text-sm"
           />
-          <div>
+          <div {...garmentZone.zoneProps} className={zoneClass(garmentZone.dragging)}>
             <input
               ref={garmentInputRef}
               type="file"
@@ -301,7 +322,7 @@ export function RetouchPanel({ imageBase64, onRetouched, onClose }: RetouchPanel
             placeholder="e.g. Warm golden hour film look / Cool muted overcast tone / Cinematic single-source light"
             className="w-full border rounded-lg px-3 py-2 text-sm resize-none h-20"
           />
-          <div>
+          <div {...moodZone.zoneProps} className={zoneClass(moodZone.dragging)}>
             <input
               ref={moodInputRef}
               type="file"

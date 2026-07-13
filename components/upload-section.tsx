@@ -1,6 +1,7 @@
 "use client";
 
 import type { UploadItem } from "@/lib/types";
+import { useDropPaste } from "@/lib/use-drop-paste";
 
 type UploadSectionProps = {
   title: string;
@@ -27,8 +28,16 @@ export default function UploadSection({
   captionPlaceholder = "예: untucked / unbuttoned / layered under jacket",
   onCaptionChange,
 }: UploadSectionProps) {
+  // 드래그&드롭 + (영역 클릭 후) Ctrl+V 붙여넣기 지원
+  const { dragging, zoneProps } = useDropPaste(onAddFiles);
+
   return (
-    <div className="border rounded-2xl p-6 bg-white">
+    <div
+      {...zoneProps}
+      className={`border rounded-2xl p-6 bg-white outline-none transition-shadow ${
+        dragging ? "border-black ring-2 ring-black/30 bg-gray-50" : ""
+      }`}
+    >
       <div className="flex items-center gap-2 mb-2">
         <h2 className="text-xl font-bold">{title}</h2>
         {required ? (
@@ -69,6 +78,9 @@ export default function UploadSection({
 
       <div className="mt-2 text-sm text-gray-600">
         현재 업로드 수: <b>{items.length}장</b>
+      </div>
+      <div className="mt-1 text-xs text-gray-400">
+        사진을 이 영역에 드래그하거나, 영역 클릭 후 Ctrl+V로 붙여넣어도 됩니다
       </div>
 
       {items.length > 0 ? (

@@ -4,6 +4,7 @@ import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { RetouchPanel } from "@/components/retouch-panel";
 import { getAccessToken } from "@/lib/supabase";
+import { useDropPaste } from "@/lib/use-drop-paste";
 import {
   ASPECT_RATIO_OPTIONS,
   DEFAULT_ASPECT_RATIO,
@@ -162,6 +163,10 @@ export default function StudioPage() {
     setFreeposeRef(null);
   };
 
+  // 드래그&드롭 + (영역 클릭 후) Ctrl+V 붙여넣기 — 착샷 카드 / 포즈 레퍼런스 각각
+  const outfitZone = useDropPaste(handleOutfitAdd);
+  const freeposeZone = useDropPaste(handleFreeposeRefAdd);
+
   const handleGenerate = async () => {
     if (!outfitItems.length) {
       alert("착샷을 업로드해주세요.");
@@ -302,7 +307,12 @@ export default function StudioPage() {
               </button>
             </div>
           ) : (
-            <label className="cursor-pointer text-xs px-3 py-2 border border-dashed rounded-lg text-gray-500 hover:border-gray-400 transition text-center">
+            <label
+              {...freeposeZone.zoneProps}
+              className={`cursor-pointer text-xs px-3 py-2 border border-dashed rounded-lg text-gray-500 hover:border-gray-400 transition text-center block outline-none ${
+                freeposeZone.dragging ? "border-black ring-2 ring-black/30" : ""
+              }`}
+            >
               + 포즈 레퍼런스 사진 (선택)
               <input
                 type="file"
@@ -329,7 +339,12 @@ export default function StudioPage() {
 
         <div className="space-y-5">
           {/* 착샷 업로드 */}
-          <div className="border rounded-2xl p-6 bg-white">
+          <div
+            {...outfitZone.zoneProps}
+            className={`border rounded-2xl p-6 bg-white outline-none transition-shadow ${
+              outfitZone.dragging ? "border-black ring-2 ring-black/30 bg-gray-50" : ""
+            }`}
+          >
             <div className="flex items-center justify-between mb-3">
               <div>
                 <h2 className="text-base font-bold">착샷 업로드</h2>
