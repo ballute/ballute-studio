@@ -4,7 +4,7 @@ import {
   analyzeReferenceWeb,
   generateRefRunImageWeb,
 } from "@/lib/gemini-refrun";
-import { analyzeFaceBlueprintFromBase64, type FaceBlueprint } from "@/lib/gemini-fusion";
+import { type FaceBlueprint } from "@/lib/gemini-fusion";
 import { gcsPathToBase64 } from "@/lib/gcs-storage";
 import {
   ApiError,
@@ -199,15 +199,13 @@ export async function POST(req: Request) {
 
     const analyzed = await analyzeReferenceWeb(referenceBase64);
 
-    // 얼굴 분석 — 클라이언트에서 안 보냈으면 서버에서 분석
-    const faceBlueprint = jsonBody?.faceBlueprint
-      ?? (faceBase64s.length > 0 ? await analyzeFaceBlueprintFromBase64(faceBase64s[0]) : undefined);
-
+    // 얼굴 자동 텍스트 변환(faceBlueprint) 제거 (2026-07-11) — AI가 얼굴을 문장으로
+    // 재묘사한 것이 얼굴 사진과 경쟁해서, 전신샷처럼 얼굴이 작게 렌더될 때
+    // "묘사에 맞는 평균 얼굴"로 뭉개지던 원인. 얼굴 신원은 이미지가 유일 소스 (fusion 방식과 통일).
     const generationStartedAt = Date.now();
 
     const generated = await generateRefRunImageWeb({
       faceBase64s,
-      faceBlueprint,
       outfitBase64s,
       dirSet: analyzed,
       bodySpecs: fitSpec,
@@ -232,7 +230,6 @@ export async function POST(req: Request) {
         summary: generated.summary,
         elapsedMs,
         direction: analyzed,
-        faceBlueprint,
       },
     });
   } catch (error) {

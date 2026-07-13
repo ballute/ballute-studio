@@ -402,8 +402,6 @@ export default function RefRunPage() {
       let chargedPoints = 0;
       let stopMessage = "";
       let stoppedByChargeFailure = false;
-      let cachedFaceBlueprint: Record<string, string> | undefined = undefined;
-
       outerLoop: for (
         let refIndex = 0;
         refIndex < referencePaths.length;
@@ -433,7 +431,6 @@ export default function RefRunPage() {
                 outfitPaths,
                 referencePath,
                 outputRatio,
-                faceBlueprint: cachedFaceBlueprint,
               }),
             });
 
@@ -460,10 +457,6 @@ export default function RefRunPage() {
               }
 
               throw new Error(message);
-            }
-
-            if (!cachedFaceBlueprint && data?.result?.faceBlueprint) {
-              cachedFaceBlueprint = data.result.faceBlueprint;
             }
 
             updateSlot(slotIndex, {
