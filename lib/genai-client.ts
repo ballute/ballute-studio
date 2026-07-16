@@ -110,13 +110,16 @@ export const imageGenerateHttpOptions = {
     attempts: useVertexAi ? 2 : 2,
   },
 };
-export const imageGenerateConfig = useVertexAi
-  ? {
-      thinkingConfig: {
-        thinkingLevel: ThinkingLevel.MINIMAL,
-      },
-    }
-  : {};
+// thinking_level 은 flash 이미지 모델 전용 — pro 이미지 모델(gemini-3-pro-image)에
+// 보내면 400 INVALID_ARGUMENT. 모델명 기준으로 자동 분기.
+export const imageGenerateConfig =
+  useVertexAi && !imageGenerationModel.includes("pro-image")
+    ? {
+        thinkingConfig: {
+          thinkingLevel: ThinkingLevel.MINIMAL,
+        },
+      }
+    : {};
 
 export const safetySettings = [
   {
