@@ -133,16 +133,22 @@ export function isRetryableGenAiFailure(error: unknown) {
   return retryableMessageSignals.some((signal) => failureText.includes(signal));
 }
 
+// 재시도 예산: 실패 응답이 오는 한 이 시간 안에서 계속 재시도한다.
+// 429는 과금 0원이므로 자주 두드리는 게 이득 — 단 간격 없이 붙이면 같은 혼잡
+// 순간에 그대로 부딪히고 구글이 뒤로 밀 수 있어 10초 간격 유지.
+// route maxDuration 300s 안에서 생성 시간(~30s)을 감안한 안전 예산.
+const RETRY_BUDGET_MS = 150000;
+const RATE_LIMIT_INTERVAL_MS = 10000;
+
 export async function withGenAiRetry<T>(
   operation: () => Promise<T>,
   options: RetryOptions
 ) {
-  const maxRetries = options.maxRetries ?? 2;
-  const maxAttempts = maxRetries + 1;
   const baseDelayMs = options.baseDelayMs ?? 5000;
+  const startedAt = Date.now();
   let lastReason = "unknown retryable failure";
 
-  for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
+  for (let attempt = 1; ; attempt += 1) {
     try {
       return await operation();
     } catch (error) {
@@ -153,26 +159,23 @@ export async function withGenAiRetry<T>(
         throw error;
       }
 
-      if (attempt >= maxAttempts) {
-        throw new GenAiRetryExhaustedError(
-          options.label,
-          attempt,
-          lastReason
-        );
-      }
-
-      console.warn(
-        `${options.label}_GENAI_RETRY: attempt ${attempt}/${maxAttempts} failed: ${lastReason}`
-      );
-      // 429(공유 용량 혼잡)는 몇 초 안에 안 풀림 — 5초 재시도는 같은 혼잡 창에서
-      // 또 튕기므로 혼잡이 걷힐 시간(20초→40초)을 준다. 429를 맞은 요청에만
-      // 적용되어 평상시 생성 속도에는 영향 없음. (route maxDuration 300s 내 안전)
       const rateLimited =
         extractStatus(error) === 429 ||
         lastReason.toLowerCase().includes("resource_exhausted");
-      await sleep((rateLimited ? 20000 : baseDelayMs) * attempt);
+      const delayMs = rateLimited
+        ? RATE_LIMIT_INTERVAL_MS
+        : Math.min(baseDelayMs * attempt, 15000);
+
+      if (Date.now() - startedAt + delayMs >= RETRY_BUDGET_MS) {
+        throw new GenAiRetryExhaustedError(options.label, attempt, lastReason);
+      }
+
+      console.warn(
+        `${options.label}_GENAI_RETRY: attempt ${attempt} failed (${Math.round(
+          (Date.now() - startedAt) / 1000
+        )}s 경과): ${lastReason}`
+      );
+      await sleep(delayMs);
     }
   }
-
-  throw new GenAiRetryExhaustedError(options.label, maxAttempts, lastReason);
 }
