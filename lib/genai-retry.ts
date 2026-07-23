@@ -164,7 +164,13 @@ export async function withGenAiRetry<T>(
       console.warn(
         `${options.label}_GENAI_RETRY: attempt ${attempt}/${maxAttempts} failed: ${lastReason}`
       );
-      await sleep(baseDelayMs * attempt);
+      // 429(공유 용량 혼잡)는 몇 초 안에 안 풀림 — 5초 재시도는 같은 혼잡 창에서
+      // 또 튕기므로 혼잡이 걷힐 시간(20초→40초)을 준다. 429를 맞은 요청에만
+      // 적용되어 평상시 생성 속도에는 영향 없음. (route maxDuration 300s 내 안전)
+      const rateLimited =
+        extractStatus(error) === 429 ||
+        lastReason.toLowerCase().includes("resource_exhausted");
+      await sleep((rateLimited ? 20000 : baseDelayMs) * attempt);
     }
   }
 
